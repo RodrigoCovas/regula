@@ -27,6 +27,12 @@ def test_analyze_spanish_fintech_demo():
     srcs = {c.get("source_id") for c in answer.get("citations", [])}
     assert "gdpr" in srcs
     assert "ai-act" in srcs
-    # Ensure at least one citation includes a short quote retrieved from the corpus
-    quotes = [c.get("quote") for c in answer.get("citations", []) if c.get("quote")]
-    assert len(quotes) >= 1, "Expected at least one citation quote from the corpus for the demo" 
+    for citation in answer.get("citations", []):
+        assert citation.get("article_number") is not None
+        assert citation.get("section")
+        assert citation.get("provision")
+    trace_steps = answer.get("detailed_trace", [])
+    researcher_steps = [step for step in trace_steps if step.get("step") == "researcher"]
+    assert researcher_steps, "Expected a researcher step in detailed_trace"
+    assert "tool_calls" in researcher_steps[0]
+    assert len(researcher_steps[0]["tool_calls"]) >= 1

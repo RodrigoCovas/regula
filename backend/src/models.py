@@ -14,6 +14,8 @@ class Citation(BaseModel):
     source_id: str
     source_short_name: Optional[str] = None
     article_number: Optional[int] = None
+    section: Optional[str] = None
+    provision: Optional[str] = None
     quote: Optional[str] = None
 
 class Finding(BaseModel):
