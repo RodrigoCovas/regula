@@ -9,8 +9,12 @@ from typing import List, Optional
 import json
 import glob
 from pathlib import Path
+import logging
 
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Regula",
@@ -28,7 +32,10 @@ app.add_middleware(
 
 # Load small curated corpus (metadata + articles) at startup
 _CORPUS = {}
-_CORPUS_PATH = Path(__file__).resolve().parents[1] / "data" / "regulations"
+# Resolve repo root relative to backend/ package: go up two parents to repo root
+_CORPUS_PATH = Path(__file__).resolve().parents[2] / "data" / "regulations"
+if not _CORPUS_PATH.exists():
+    logger.warning("Corpus path %s does not exist; retrieval will be limited", _CORPUS_PATH)
 for path in glob.glob(str(_CORPUS_PATH / "*.json")):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -36,8 +43,9 @@ for path in glob.glob(str(_CORPUS_PATH / "*.json")):
             doc_id = doc.get("metadata", {}).get("id")
             if doc_id:
                 _CORPUS[doc_id] = doc
-    except Exception:
-        # Fail-safe: skip badly formed files
+    except (OSError, json.JSONDecodeError) as e:
+        # Log parse/read failures so maintainers can fix data issues
+        logger.warning("Skipping corpus file %s: %s", path, e)
         continue
 
 
@@ -80,6 +88,7 @@ async def analyze(query: AnalyzeRequest):
 
     findings: List[Finding] = []
     citations: List[Citation] = []
+    retrieved_passages: List[dict] = []
 
     if is_spanish_fintech:
         # GDPR Article 22 (automated decision-making) — cite if present
@@ -87,6 +96,8 @@ async def analyze(query: AnalyzeRequest):
         gdpr_text = None
         if gdpr:
             gdpr_text = _find_article_text(gdpr, 22)
+            if gdpr_text:
+                retrieved_passages.append({"source_id": "gdpr", "article": 22, "text": gdpr_text[:1000]})
         gdpr_cit = Citation(
             source_id="gdpr",
             source_short_name=gdpr.get("metadata", {}).get("shortName") if gdpr else None,
@@ -100,6 +111,8 @@ async def analyze(query: AnalyzeRequest):
         ai_text = None
         if ai:
             ai_text = _find_article_text(ai, 3)
+            if ai_text:
+                retrieved_passages.append({"source_id": "ai-act", "article": 3, "text": ai_text[:1000]})
         ai_cit = Citation(
             source_id="ai-act",
             source_short_name=ai.get("metadata", {}).get("shortName") if ai else None,
@@ -129,7 +142,7 @@ async def analyze(query: AnalyzeRequest):
 
         detailed_trace = [
             {"step": "planner", "action": "identify topics: automated decision-making, profiling, data protection"},
-            {"step": "researcher", "action": "retrieve GDPR Article 22 and AI Act Article 3"},
+            {"step": "researcher", "action": "retrieve GDPR Article 22 and AI Act Article 3", "retrieved": retrieved_passages},
             {"step": "verifier", "action": "create concise finding and recommended actions, avoid unsupported claims"},
         ]
 
