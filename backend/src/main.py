@@ -11,7 +11,7 @@ import glob
 from pathlib import Path
 import logging
 
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load small curated corpus (metadata + articles) at startup
+# Load small curated corpus (metadata + articles + recitals + annexes) at startup
 _CORPUS = {}
 # Resolve repo root relative to backend/ package: go up two parents to repo root
 _CORPUS_PATH = Path(__file__).resolve().parents[2] / "data" / "regulations"
@@ -69,6 +69,199 @@ def _find_article_context(doc: dict, number: int) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _find_recital_context(doc: dict, number: int) -> Optional[Dict[str, Any]]:
+    """Find recital context for a given number. Recital text is optional in the corpus."""
+    for rec in doc.get("recitals", []):
+        if rec.get("number") == number:
+            return {
+                "text": rec.get("text"),
+                "section": "Recitals",
+                "provision": f"Recital {number}",
+            }
+    return None
+
+
+def _find_annex_context(doc: dict, number: int) -> Optional[Dict[str, Any]]:
+    """Find annex context for a given official annex number (ids look like 'annex-3')."""
+    for annex in doc.get("annexes", []):
+        if annex.get("id") == f"annex-{number}":
+            return {
+                "text": annex.get("content"),
+                "section": "Annexes",
+                "provision": annex.get("title"),
+            }
+    return None
+
+
+def _resolve_target(doc: dict, target: dict) -> Optional[Dict[str, Any]]:
+    """Resolve a lookup target to citation field name and document context.
+
+    Articles and annexes are found only when they carry text. Recitals are found
+    by number even when their text is absent from the corpus (quote stays None).
+    """
+    kind = target["kind"]
+    number = target["number"]
+    if kind == "article":
+        ctx = _find_article_context(doc, number)
+        if not ctx or not ctx.get("text"):
+            return None
+        return {"field": "article_number", "ctx": ctx}
+    if kind == "recital":
+        ctx = _find_recital_context(doc, number)
+        if not ctx:
+            return None
+        return {"field": "recital_number", "ctx": ctx}
+    if kind == "annex":
+        ctx = _find_annex_context(doc, number)
+        if not ctx or not ctx.get("text"):
+            return None
+        return {"field": "annex_number", "ctx": ctx}
+    return None
+
+
+# Deterministic lookup map for the canonical Spanish fintech demo scenario.
+# Each finding lists the provisions that support its claim, with evidence strength.
+DEMO_FINDING_DEFS = [
+    {
+        "statement": "An AI system that evaluates the creditworthiness of natural persons or establishes their credit score is a high-risk AI system under the AI Act, so the full high-risk obligations apply.",
+        "strength": Strength.strong,
+        "targets": [
+            {"source_id": "ai-act", "kind": "article", "number": 6, "provision": "Article 6(2)"},
+            {"source_id": "ai-act", "kind": "annex", "number": 3, "provision": "Annex III point 5(b)"},
+        ],
+    },
+    {
+        "statement": "As deployer, the company must assign human oversight, keep automatically generated logs for at least six months, and inform applicants that they are subject to a high-risk AI system.",
+        "strength": Strength.strong,
+        "targets": [
+            {"source_id": "ai-act", "kind": "article", "number": 26, "provision": "Article 26(2), (4), (6), (11)"},
+        ],
+    },
+    {
+        "statement": "Before first deployment, the deployer of the creditworthiness system must perform a Fundamental Rights Impact Assessment and notify its results to the market surveillance authority.",
+        "strength": Strength.strong,
+        "targets": [
+            {"source_id": "ai-act", "kind": "article", "number": 27, "provision": "Article 27(1)-(4)"},
+        ],
+    },
+    {
+        "statement": "Applicants subject to a loan decision based on the system's output have a right to a clear and meaningful explanation of the role of the AI system in the decision.",
+        "strength": Strength.strong,
+        "targets": [
+            {"source_id": "ai-act", "kind": "article", "number": 86, "provision": "Article 86(1)"},
+        ],
+    },
+    {
+        "statement": "GDPR restricts decisions based solely on automated processing, including profiling, that produce legal or similarly significant effects; loan scoring is such a decision, and even the contract-necessity exception still requires human intervention and contest rights.",
+        "strength": Strength.strong,
+        "targets": [
+            {"source_id": "gdpr", "kind": "article", "number": 22, "provision": "Article 22(1), (2)(a), (3)"},
+            {"source_id": "gdpr", "kind": "recital", "number": 71, "provision": "Recital 71"},
+        ],
+    },
+    {
+        "statement": "The credit-scoring processing requires a data protection impact assessment before it starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
+        "strength": Strength.strong,
+        "targets": [
+            {"source_id": "gdpr", "kind": "article", "number": 35, "provision": "Article 35(1), (3)(a)"},
+        ],
+    },
+    {
+        "statement": "DORA applies in full only if the company is itself a licensed financial entity; otherwise its main relevance is through ICT third-party risk where the AI is supplied to financial entities.",
+        "strength": Strength.moderate,
+        "targets": [
+            {"source_id": "dora", "kind": "article", "number": 2, "provision": "Article 2(1)(a), (2)"},
+        ],
+    },
+    {
+        "statement": "DORA governs the digital operational resilience of financial entities, not the substance of credit decisions; credit scoring itself is regulated by the AI Act and GDPR, not DORA.",
+        "strength": Strength.moderate,
+        "targets": [
+            {"source_id": "dora", "kind": "article", "number": 1, "provision": "Article 1(1)"},
+        ],
+    },
+]
+
+DEMO_ACTIONS = [
+    "Determine whether the company will be a provider or a deployer under the AI Act; the obligation set differs (AI Act Article 3(3)-(4)).",
+    "Confirm whether the company is a licensed financial entity under DORA Article 2, which decides whether DORA applies in full.",
+    "Run a GDPR data protection impact assessment (Article 35(3)(a)) and the AI Act Fundamental Rights Impact Assessment (Article 27) before first deployment.",
+    "Design human oversight into the credit decision process (AI Act Article 26; GDPR Article 22(3)) so decisions are not solely automated.",
+    "Provide applicants clear explanations of the system's role in decisions (AI Act Article 86; GDPR Articles 13(2)(f) and 15(1)(h)).",
+    "This is a research prototype, not legal advice; confirm obligations with a qualified professional.",
+]
+
+
+def _run_demo_workflow() -> Dict[str, Any]:
+    """Run the deterministic demo workflow for the Spanish fintech scenario.
+
+    Returns findings, citations, retrieved passages, and tool calls.
+    """
+    findings: List[Finding] = []
+    citations: List[Citation] = []
+    retrieved_passages: List[dict] = []
+    tool_calls: List[dict] = []
+
+    for finding_def in DEMO_FINDING_DEFS:
+        finding_citations: List[Citation] = []
+        for target in finding_def["targets"]:
+            doc = _CORPUS.get(target["source_id"])
+            resolved = _resolve_target(doc, target) if doc else None
+            tool_calls.append(
+                {
+                    "tool": "corpus_lookup",
+                    "input": {
+                        "source_id": target["source_id"],
+                        "kind": target["kind"],
+                        "number": target["number"],
+                    },
+                    "status": "found" if resolved else "not_found",
+                }
+            )
+            if not resolved:
+                continue
+
+            ctx = resolved["ctx"]
+            text = ctx.get("text")
+            citation_kwargs = {
+                "source_id": target["source_id"],
+                "source_short_name": doc.get("metadata", {}).get("shortName"),
+                "section": ctx.get("section"),
+                "provision": target.get("provision") or ctx.get("provision"),
+                "quote": (text[:300] + "...") if text else None,
+            }
+            citation_kwargs[resolved["field"]] = target["number"]
+            citation = Citation(**citation_kwargs)
+            finding_citations.append(citation)
+            citations.append(citation)
+            retrieved_passages.append(
+                {
+                    "source_id": target["source_id"],
+                    "kind": target["kind"],
+                    "number": target["number"],
+                    "section": ctx.get("section"),
+                    "provision": target.get("provision") or ctx.get("provision"),
+                    "text": text[:1000] if text else None,
+                }
+            )
+
+        if finding_citations:
+            findings.append(
+                Finding(
+                    statement=finding_def["statement"],
+                    strength=finding_def["strength"],
+                    citations=finding_citations,
+                )
+            )
+
+    return {
+        "findings": findings,
+        "citations": citations,
+        "retrieved_passages": retrieved_passages,
+        "tool_calls": tool_calls,
+    }
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -76,7 +269,7 @@ async def health():
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(query: AnalyzeRequest):
-    """Simple deterministic demo workflow for the Spanish fintech scenario.
+    """Run the deterministic demo workflow for the Spanish fintech scenario.
 
     This endpoint accepts {scenario, question} and returns a single structured
     Answer with findings, citations, actions, and both compact and detailed traces.
@@ -96,100 +289,36 @@ async def analyze(query: AnalyzeRequest):
         or ("spanish" in question and any(k in question for k in ["loan", "credit", "fintech", "lending"]))
     )
 
-    findings: List[Finding] = []
-    citations: List[Citation] = []
-    retrieved_passages: List[dict] = []
-    tool_calls: List[dict] = []
-
     if is_spanish_fintech:
-        target_sources = [("gdpr", 22), ("ai-act", 3)]
-        for source_id, article_number in target_sources:
-            doc = _CORPUS.get(source_id)
-            article = _find_article_context(doc, article_number) if doc else None
-            found = bool(article and article.get("text"))
-            tool_calls.append(
-                {
-                    "tool": "corpus_lookup",
-                    "input": {"source_id": source_id, "article_number": article_number},
-                    "status": "found" if found else "not_found",
-                }
-            )
-            if not found:
-                continue
-
-            text = article["text"]
-            citation = Citation(
-                source_id=source_id,
-                source_short_name=doc.get("metadata", {}).get("shortName"),
-                article_number=article_number,
-                section=article.get("section"),
-                provision=article.get("provision"),
-                quote=(text[:300] + "...") if text else None,
-            )
-            citations.append(citation)
-            retrieved_passages.append(
-                {
-                    "source_id": source_id,
-                    "article": article_number,
-                    "section": article.get("section"),
-                    "provision": article.get("provision"),
-                    "text": text[:1000],
-                }
-            )
-
-        if citations:
-            findings.append(
-                Finding(
-                    statement="Automated loan or credit decisions (profiling/automated decision-making) may trigger restrictions under GDPR Article 22 and require human oversight and rights for data subjects.",
-                    confidence="medium",
-                    citations=citations,
-                )
-            )
-            actions = [
-                "Recommend human-in-the-loop review for automated credit decisions.",
-                "Document lawful basis and provide explanation to affected data subjects per GDPR.",
-                "Validate model against fairness and discrimination metrics; keep logs for post-market monitoring.",
-            ]
-            trace = {
-                "workflow": "planner -> researcher -> verifier",
-                "summary": "Planner identified automated decision-making and personal data as research targets; Researcher retrieved available evidence; Verifier kept only evidence-backed claims."
-            }
-        else:
-            findings.append(
-                Finding(
-                    statement="Insufficient evidence found in the fixed corpus to support a reliable answer for this demo request.",
-                    confidence="low",
-                    citations=[],
-                )
-            )
-            actions = [
-                "Expand the fixed corpus with relevant provisions before issuing conclusions.",
-                "Re-run analysis once evidence for the requested scenario is available.",
-            ]
-            trace = {
-                "workflow": "planner -> researcher -> verifier",
-                "summary": "Planner identified target topics, but Researcher found insufficient evidence; Verifier refused unsupported claims."
-            }
-
+        result = _run_demo_workflow()
+        findings = result["findings"]
+        citations = result["citations"]
+        retrieved_passages = result["retrieved_passages"]
+        tool_calls = result["tool_calls"]
+        actions = DEMO_ACTIONS
+        trace = {
+            "workflow": "planner -> researcher -> verifier",
+            "summary": "Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier kept only evidence-backed claims and tagged each with its strength."
+        }
         detailed_trace = [
-            {"step": "planner", "action": "identify topics: automated decision-making, profiling, data protection"},
+            {"step": "planner", "action": "identify topics: automated credit decisions, high-risk AI, profiling, data protection, ICT risk"},
             {
                 "step": "researcher",
-                "action": "retrieve GDPR Article 22 and AI Act Article 3 from fixed corpus",
+                "action": "retrieve high-risk provisions from AI Act, GDPR, and DORA via corpus_lookup",
                 "retrieved": retrieved_passages,
                 "tool_calls": tool_calls,
             },
-            {"step": "verifier", "action": "include only evidence-backed claims and recommendations"},
+            {"step": "verifier", "action": "drop unsupported claims and tag each finding with its evidence strength"},
         ]
-
     else:
-        findings.append(
+        findings = [
             Finding(
                 statement="Could not identify a demo scenario match. Provide the canonical Spanish fintech scenario to get the demo answer.",
-                confidence="low",
+                strength=Strength.weak,
                 citations=[],
             )
-        )
+        ]
+        citations = []
         actions = ["Clarify scenario: use scenario.id 'spanish-fintech' or describe a Spanish fintech lending case."]
         trace = {"workflow": "noop", "summary": "No demo match; no retrieval performed."}
         detailed_trace = []

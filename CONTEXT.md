@@ -22,10 +22,35 @@ A governing legal instrument such as the EU AI Act, GDPR, or DORA.
 Relevant source text that supports or contradicts a finding.
 
 **Citation**:
-A reference that points back to the source document and specific provision or section supporting a claim; exact quotes are optional.
+A reference to one provision of a source document — an Article, a Recital, or an Annex — supporting a Claim; exact quotes are optional.
+_Avoid_: Reference, source link
+
+**Recital**:
+A numbered explanatory paragraph at the start of a Regulation that states the intent behind the rules.
+_Avoid_: Preamble, whereas-clause, rationale
+
+**Annex**:
+A numbered appendix to a Regulation that contains lists or technical detail referenced by its Articles.
+_Avoid_: Appendix, schedule
+
+**Definition**:
+A term and its official meaning set out in a Regulation, typically in its definitions Article.
+_Avoid_: Glossary, dictionary
 
 **Finding**:
-A conclusion drawn from evidence about what likely applies or matters in the scenario.
+A conclusion drawn from Evidence about what likely applies or matters in the Scenario, tagged with a Strength.
+
+**Strength**:
+How directly the cited Evidence supports a Finding, at three levels:
+- **strong**: the cited provisions directly and explicitly support the claim — they name the exact situation, use case, or obligation (e.g. Annex III point 5(b) names creditworthiness evaluation as high-risk).
+- **moderate**: the claim is derived from the cited provisions read together, or is contingent on facts the Corpus cannot settle (e.g. whether the company is a licensed financial entity under DORA).
+- **weak**: the cited provisions are framing only — they supply vocabulary or context (e.g. a definitions Article) without establishing an obligation on their own.
+Every Finding carries Evidence and stays in the Answer, badged with its Strength. A statement with no Evidence is not a Finding and never appears in the Answer.
+_Avoid_: Confidence, probability
+
+**Unsupported claim**:
+A statement with no Evidence in the Corpus either way — no provision can be cited for or against it. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
+_Avoid_: Unverified claim, speculation
 
 **Answer**:
 The single user-facing response that combines findings, citations, and actions.
@@ -38,7 +63,7 @@ A compact, user-visible summary of the workflow steps, retrieved passages, and t
 _Avoid_: Chain-of-thought
 
 **Claim**:
-A statement the answer makes about what a regulation says or implies.
+A statement the answer makes about what a regulation says or implies. A Claim becomes a Finding when supported by Evidence; a Claim with no Evidence is an Unsupported claim and is discarded.
 
 ## Workflow
 

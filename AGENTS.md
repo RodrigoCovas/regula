@@ -2,7 +2,11 @@
 
 ### Issue tracker
 
-Issues are tracked as local markdown files under `.scratch/` in this repository. See `docs/agents/issue-tracker.md`.
+Issues are tracked in this repo's GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
