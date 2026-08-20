@@ -97,3 +97,26 @@ Empty — every branch of the design tree has been visited and locked.
 
 ## Session artifacts
 - `research/DEMO_SCENARIO_FINDINGS.md` — evidence-backed findings for the demo scenario, every citation verified against `data/regulations/`. Highlights: creditworthiness AI is high-risk (Art 6(2) + Annex III pt 5(b)); GDPR 22/35 apply; DORA covers resilience, not credit decisions; claims the corpus does NOT support (e.g. "DORA applies to every fintech", "credit data is special-category data").
+
+---
+
+## Post-grilling wrap-up (same day)
+
+### Spec & tickets published
+- `research/SPEC_DETERMINISTIC_DEMO.md` written from the locked decisions, then published as **GitHub issue #1** (parent spec, label `ready-for-agent`, kept open).
+- Broken into **six tracer-bullet tickets**, published as GitHub issues #2–#7 (see `docs/agents/issue-tracker.md`), each with **native blocking edges** (`issues/<n>/dependencies/blocked_by`, keyed by database id — see tracker doc):
+  - **#2 API response contract & demo answer content** (Q2, Q5, Q5b) — no blockers.
+  - **#3 Strength-weighted evaluation scorer** (Q6, Q6c) — no blockers.
+  - **#4 Corpus provenance record** (Q8) — no blockers.
+  - **#5 Local setup instructions** (Q7a, Q7b) — no blockers.
+  - **#6 Lookup routing & helpful not-available response** (Q9) — blocked by #2.
+  - **#7 Eval harness: curated cases & runner** (Q6) — blocked by #2, #3, #6.
+- **Frontier (can start now):** #2, #3, #4, #5.
+- Old local tickets under `.scratch/regula/issues/` (from the pre-grilling spec) deleted.
+
+### Notes for next session
+- `gh` auth works via the system keyring (`RodrigoCovas`); if it ever fails, run `gh auth login`.
+- **Bash gotcha:** backtick-quoted inline code in a `gh issue create/--body` string is consumed by bash command substitution — use plain quotes in issue bodies, or escape backticks. Issue #2's first criterion was mangled this way and manually repaired.
+- The `ready-for-agent` label exists on the repo (created this session).
+- Domain model (`CONTEXT.md`) now carries the three-level `Strength` definitions, `Unsupported claim`, and the weak-Finding-kept rule — read it before implementing tickets #2/#3/#7.
+- All of the above is committed in `173a656` ("Plan stage and specs"); only the `.scratch/regula/issues/` deletions remain uncommitted.
