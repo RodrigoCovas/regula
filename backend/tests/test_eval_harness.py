@@ -52,6 +52,9 @@ def test_spurious_finding_subtracts_full_produced_weight():
     spurious_weak = score_scenario(expected, [correct, ProducedFinding(statement="Made up", strength=Strength.weak)])
     assert spurious_weak["precision"] == 0.5
 
+    spurious_moderate = score_scenario(expected, [correct, ProducedFinding(statement="Made up", strength=Strength.moderate)])
+    assert spurious_moderate["precision"] == 0.2
+
     spurious_strong = score_scenario(expected, [correct, ProducedFinding(statement="Made up", strength=Strength.strong)])
     assert spurious_strong["precision"] == 0.0
 

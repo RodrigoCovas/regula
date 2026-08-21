@@ -14,7 +14,7 @@ the corpus level per locked decision Q8 (issue #1).
 ## Extraction
 
 - **Extraction tool:** lexplorer-generated JSON (locked decision Q8 keeps this format for the MVP).
-- **Extraction date:** not recorded in the JSON files themselves. The corpus was verified against EUR-Lex on 2026-08-20 during the demo-scenario research pass (`research/DEMO_SCENARIO_FINDINGS.md`); treat that as the last-verified date.
+- **Extraction date:** 19/08/2026. The corpus was subsequently verified against EUR-Lex on 2026-08-20 during the demo-scenario research pass (`research/DEMO_SCENARIO_FINDINGS.md`); treat that as the last-verified date.
 - **Language:** English-only. Questions in other languages are answered in English from this corpus.
 
 ## Known gaps

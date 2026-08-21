@@ -53,13 +53,13 @@ A statement with no Evidence in the Corpus either way — no provision can be ci
 _Avoid_: Unverified claim, speculation
 
 **Answer**:
-The user-facing conclusions: the Findings, Citations, and Actions. The API returns the Answer, the Execution trace, and the detailed trace as siblings — workflow machinery never nests inside the Answer.
+The user-facing conclusions: the Findings, Citations, and Actions. The API returns the Answer, the Execution trace, the detailed trace, and the Known limitations as siblings — workflow machinery never nests inside the Answer.
 
 **Action**:
 A concrete next step the user should investigate or complete after reading the answer.
 
 **Known limitation**:
-A stated boundary of the current system, surfaced alongside the Answer but never among its Findings or Actions — e.g. the Corpus is English-only.
+A stated boundary of the current system, surfaced alongside every response but never among its Findings or Actions — e.g. the Corpus is English-only.
 _Avoid_: Caveat, disclaimer
 
 **Execution trace**:

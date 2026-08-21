@@ -30,7 +30,8 @@ curl -s http://localhost:8000/api/analyze \
     "question": "What regulations apply?"
   }'
 ```
-The response contains `answer`, `trace`, and `detailed_trace` as siblings.
+The response contains `answer`, `trace`, `detailed_trace`, and `known_limitations`
+as siblings.
 Only `scenario.id == "spanish-fintech"` triggers the demo; any other id gets a
 helpful not-available response.
 

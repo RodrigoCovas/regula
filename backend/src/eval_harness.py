@@ -8,6 +8,11 @@ weight x (1 - distance/2) of its credit") is applied to the credit that
 feeds BOTH the precision and recall numerators — the only reading that
 gives the penalty any effect on the score. Spurious Findings subtract
 weight(produced strength) from the precision numerator.
+
+Empty-expected Scenarios follow their own locked rule: they score 1.0
+only when nothing was produced; any production is spurious leakage and
+scores 0.0 across the board. Recall is never defaulted to 1.0 outside
+that explicit rule.
 """
 
 import json
@@ -57,7 +62,16 @@ def _matched_finding_credit(expected_strength: Strength, produced_strength: Stre
 
 def score_scenario(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
     """Score one eval scenario: weighted recall, weighted precision (spurious Findings subtract
-    credit by the Strength they were produced with), and their harmonic mean."""
+    credit by the Strength they were produced with), and their harmonic mean.
+
+    A Scenario with no expected Findings scores 1.0 only when nothing was
+    produced; any production is spurious leakage and scores 0.0.
+    """
+    if not expected:
+        if not produced:
+            return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+
     produced_by_statement = {p.statement: p for p in produced}
     expected_weight_total = sum(STRENGTH_WEIGHTS[e.strength] for e in expected)
     produced_weight_total = sum(STRENGTH_WEIGHTS[p.strength] for p in produced)
@@ -74,7 +88,7 @@ def score_scenario(expected: List[ExpectedFinding], produced: List[ProducedFindi
         STRENGTH_WEIGHTS[p.strength] for p in produced if p.statement not in {e.statement for e in expected}
     )
 
-    recall = matched_credit / expected_weight_total if expected_weight_total else 1.0
+    recall = matched_credit / expected_weight_total
     if produced_weight_total == 0:
         precision = 1.0
     else:
@@ -196,7 +210,7 @@ def run_eval() -> EvalReport:
         result = score_scenario(scenario.expected, produced)
         scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
 
-    mean_f1 = sum(c.f1 for c in scenario_results) / len(scenario_results)
+    mean_f1 = sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results)
     return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)
 
 

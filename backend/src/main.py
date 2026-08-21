@@ -203,9 +203,11 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
 ]
 
 # Claims the planner proposes for the canonical scenario beyond the demo
-# Findings. The verifier checks each against the evidence actually produced;
-# claims with no supporting Finding are discarded as Unsupported and recorded
-# in the Execution trace.
+# Findings. This is an honestly curated list of anticipated-but-unsupported
+# Claims: none of them is stated by any produced Finding — by construction,
+# every claim here is discarded as Unsupported. The verifier pass exists to
+# make those rejections visible in the Execution trace and detailed trace,
+# not to decide anything live.
 UNSUPPORTED_CLAIM_CANDIDATES = [
     "Credit scoring data is special-category (sensitive) data.",
     "DORA applies to every fintech.",
@@ -223,11 +225,13 @@ ENGLISH_ONLY_LIMITATION = (
 
 
 def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[dict]]:
-    """Verifier pass over candidate claims against the produced Findings.
+    """Trace the rejection of the curated anticipated-but-unsupported Claims.
 
-    A claim survives only when a produced Finding states it with Evidence;
-    everything else is discarded as an Unsupported claim. Returns the
-    discarded statements and the per-claim decisions for the detailed trace.
+    This is not a deciding pass: every claim in UNSUPPORTED_CLAIM_CANDIDATES
+    matches no produced Finding by construction, so all are discarded as
+    Unsupported claims with reason "no Evidence in the Corpus supports this
+    claim". Returns the discarded statements and the per-claim decisions for
+    the detailed trace.
     """
     supported = {f.statement for f in findings if f.citations}
     discarded: List[str] = []
@@ -353,13 +357,13 @@ async def analyze(request: AnalyzeRequest):
         tool_calls = result["tool_calls"]
         actions = DEMO_ACTIONS
 
-        # Verifier pass: check each candidate claim against the produced
-        # Findings; claims without Evidence are discarded from the Answer
-        # and their rejection recorded in the Execution trace.
+        # Verifier pass: the curated anticipated-but-unsupported claims match
+        # no produced Finding by construction; each rejection is recorded in
+        # the Execution trace and detailed trace.
         discarded_claims, claim_decisions = _verify_claims(findings)
         trace = Trace(
             workflow="planner -> researcher -> verifier",
-            summary="Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier kept only evidence-backed claims and tagged each with its strength.",
+            summary="Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier recorded each anticipated-but-unsupported claim as rejected — no Evidence in the Corpus supports it.",
             unsupported_claims_discarded=discarded_claims,
         )
         detailed_trace = [
@@ -372,7 +376,7 @@ async def analyze(request: AnalyzeRequest):
             },
             {
                 "step": "verifier",
-                "action": "drop unsupported claims and tag each finding with its evidence strength",
+                "action": "record the curated anticipated-but-unsupported claims as rejected (no Evidence in the Corpus supports this claim) and tag each finding with its evidence strength",
                 "claim_decisions": claim_decisions,
             },
         ]
