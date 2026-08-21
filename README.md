@@ -2,56 +2,70 @@
 
 A 7-day AI-native prototype for regulatory research and compliance analysis using agentic workflows, RAG, and structured knowledge extraction.
 
-## Quick Start
+## Quick Start (stakeholders, local demo)
 
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.11+ (for local development)
-- Node.js 18+ (for frontend development)
-- OpenRouter API key (for LLM access via DeepSeek)
+The deterministic demo runs entirely on your machine: no cloud account and no
+API key are required. You only need Docker with Docker Compose.
 
-### Setup
-
-1. **Clone and initialize:**
+1. **Clone the repository:**
 ```bash
-cd /home/rodrigo/Work/regula
-cp backend/.env.example backend/.env
-# Edit backend/.env and add your OPENROUTER_API_KEY
+git clone https://github.com/RodrigoCovas/regula.git
+cd regula
 ```
 
-2. **Start services:**
+2. **Start the backend:**
 ```bash
-docker-compose up -d
+docker compose up -d --build backend
+```
+This builds the FastAPI image and starts it on port 8000 (PostgreSQL starts as
+a compose dependency but is not used by the demo). Ollama and pgvector are not
+required by the demo.
+
+3. **Send the canonical demo scenario:**
+```bash
+curl -s http://localhost:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scenario": {"id": "spanish-fintech", "description": "Spanish fintech lending"},
+    "question": "What regulations apply?"
+  }'
+```
+The response contains `answer`, `trace`, and `detailed_trace` as siblings.
+Only `scenario.id == "spanish-fintech"` triggers the demo; any other id gets a
+helpful not-available response.
+
+4. **Check the service is healthy:**
+```bash
+curl http://localhost:8000/health
 ```
 
-This will start:
-- PostgreSQL + pgvector (database at port 5432)
-- Ollama embedding service (port 11434)
-- FastAPI backend (port 8000)
-
-3. **Initialize Ollama embeddings:**
+5. **Stop when done:**
 ```bash
-docker exec regula-ollama ollama pull nomic-embed-text
+docker compose down
 ```
 
-4. **Ingest regulatory documents** (Day 1 task):
-```bash
-python backend/src/ingest.py
-```
+### Running the tests locally (no Docker)
 
-5. **Run backend tests:**
+Requires Python 3.11+:
 ```bash
+pip install -r backend/requirements.txt
 pytest backend/tests/
 ```
 
-6. **Start frontend** (local dev, separate terminal):
+### Developer setup (full stack)
+
+The steps below are for development beyond the deterministic demo.
+
+- OpenRouter API key (for LLM access via DeepSeek): copy `backend/.env.example`
+  to `backend/.env` and add your key. The model is pinned to
+  `deepseek/deepseek-v4-flash:free`; there is no override to a paid model.
+- Start everything (PostgreSQL + pgvector, Ollama, backend):
 ```bash
-cd frontend
-npm install
-npm run dev
+docker compose up -d
+docker exec regula-ollama-1 ollama pull nomic-embed-text
 ```
 
-Frontend runs on http://localhost:3000
+Frontend runs on http://localhost:3000 (`cd frontend && npm install && npm run dev`)
 Backend runs on http://localhost:8000
 
 ## Architecture

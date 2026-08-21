@@ -2,19 +2,23 @@ from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator
 
+
 class Scenario(BaseModel):
     id: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
 
+
 class AnalyzeRequest(BaseModel):
     scenario: Scenario
     question: str
+
 
 class Strength(str, Enum):
     strong = "strong"
     moderate = "moderate"
     weak = "weak"
+
 
 class Citation(BaseModel):
     source_id: str
@@ -39,17 +43,26 @@ class Citation(BaseModel):
             )
         return self
 
+
 class Finding(BaseModel):
     statement: str
     strength: Strength = Strength.moderate
     citations: List[Citation] = Field(default_factory=list)
 
+
 class Answer(BaseModel):
     findings: List[Finding]
     actions: List[str]
     citations: List[Citation]
-    trace: dict
-    detailed_trace: Optional[List[dict]] = Field(default_factory=list)
+
+
+class Trace(BaseModel):
+    workflow: str
+    summary: str
+    unsupported_claims_discarded: List[str] = Field(default_factory=list)
+
 
 class AnalyzeResponse(BaseModel):
     answer: Answer
+    trace: Trace
+    detailed_trace: Optional[List[dict]] = Field(default_factory=list)

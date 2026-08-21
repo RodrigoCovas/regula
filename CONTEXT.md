@@ -53,7 +53,7 @@ A statement with no Evidence in the Corpus either way — no provision can be ci
 _Avoid_: Unverified claim, speculation
 
 **Answer**:
-The single user-facing response that combines findings, citations, and actions.
+The user-facing conclusions: the Findings, Citations, and Actions. The API returns the Answer, the Execution trace, and the detailed trace as siblings — workflow machinery never nests inside the Answer.
 
 **Action**:
 A concrete next step the user should investigate or complete after reading the answer.

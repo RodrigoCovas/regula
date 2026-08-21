@@ -11,7 +11,7 @@ import glob
 from pathlib import Path
 import logging
 
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength, Trace
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -180,6 +180,25 @@ DEMO_FINDING_DEFS = [
             {"source_id": "dora", "kind": "article", "number": 1, "provision": "Article 1(1)"},
         ],
     },
+    {
+        "statement": "The system qualifies as an AI system; the company will be a provider and/or deployer; credit scoring is a form of profiling as cross-referenced into the AI Act.",
+        "strength": Strength.weak,
+        "targets": [
+            {"source_id": "ai-act", "kind": "article", "number": 3, "provision": "Article 3(1), (3), (4), (52)"},
+        ],
+    },
+]
+
+# Unsupported claims that the corpus cannot support — discarded from Answer but recorded in trace
+UNSUPPORTED_CLAIMS = [
+    "Credit scoring data is special-category (sensitive) data.",
+    "DORA applies to every fintech.",
+    "DORA governs AI decisions / automated credit decisions.",
+    "The AI Act prohibits automated credit scoring.",
+    "AI Act Article 6(1)-style product high-risk obligations are currently applicable.",
+    "Recital text for the AI Act and GDPR is available in the corpus.",
+    "Spain-specific requirements are covered by the corpus.",
+    "Whether the company is provider vs deployer can be determined from the corpus.",
 ]
 
 DEMO_ACTIONS = [
@@ -188,6 +207,7 @@ DEMO_ACTIONS = [
     "Run a GDPR data protection impact assessment (Article 35(3)(a)) and the AI Act Fundamental Rights Impact Assessment (Article 27) before first deployment.",
     "Design human oversight into the credit decision process (AI Act Article 26; GDPR Article 22(3)) so decisions are not solely automated.",
     "Provide applicants clear explanations of the system's role in decisions (AI Act Article 86; GDPR Articles 13(2)(f) and 15(1)(h)).",
+    "Known limitation: the corpus is English-only; questions in other languages are answered in English.",
     "This is a research prototype, not legal advice; confirm obligations with a qualified professional.",
 ]
 
@@ -271,23 +291,14 @@ async def health():
 async def analyze(query: AnalyzeRequest):
     """Run the deterministic demo workflow for the Spanish fintech scenario.
 
-    This endpoint accepts {scenario, question} and returns a single structured
-    Answer with findings, citations, actions, and both compact and detailed traces.
+    This endpoint accepts {scenario, question} and returns a structured
+    response with answer, trace, and detailed_trace as siblings.
     """
     scenario = query.scenario
-    question = (query.question or "").lower()
 
-    # Keep the canonical demo explicit instead of broad keyword matching.
-    is_spanish_fintech = (
-        bool(scenario and scenario.id == "spanish-fintech")
-        or bool(
-            scenario
-            and scenario.description
-            and "spanish" in scenario.description.lower()
-            and "fintech" in scenario.description.lower()
-        )
-        or ("spanish" in question and any(k in question for k in ["loan", "credit", "fintech", "lending"]))
-    )
+    # Trigger the deterministic demo ONLY on exact scenario.id == "spanish-fintech"
+    # No keyword-heuristic routing — it silently degrades which is forbidden
+    is_spanish_fintech = bool(scenario and scenario.id == "spanish-fintech")
 
     if is_spanish_fintech:
         result = _run_demo_workflow()
@@ -296,10 +307,13 @@ async def analyze(query: AnalyzeRequest):
         retrieved_passages = result["retrieved_passages"]
         tool_calls = result["tool_calls"]
         actions = DEMO_ACTIONS
-        trace = {
-            "workflow": "planner -> researcher -> verifier",
-            "summary": "Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier kept only evidence-backed claims and tagged each with its strength."
-        }
+
+        # Record unsupported claims in the trace (discarded from Answer)
+        trace = Trace(
+            workflow="planner -> researcher -> verifier",
+            summary="Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier kept only evidence-backed claims and tagged each with its strength.",
+            unsupported_claims_discarded=UNSUPPORTED_CLAIMS,
+        )
         detailed_trace = [
             {"step": "planner", "action": "identify topics: automated credit decisions, high-risk AI, profiling, data protection, ICT risk"},
             {
@@ -311,27 +325,31 @@ async def analyze(query: AnalyzeRequest):
             {"step": "verifier", "action": "drop unsupported claims and tag each finding with its evidence strength"},
         ]
     else:
-        findings = [
-            Finding(
-                statement="Could not identify a demo scenario match. Provide the canonical Spanish fintech scenario to get the demo answer.",
-                strength=Strength.weak,
-                citations=[],
-            )
-        ]
+        # Helpful "not available" response — not a bare failure, not a guessed demo answer
+        findings = []
         citations = []
-        actions = ["Clarify scenario: use scenario.id 'spanish-fintech' or describe a Spanish fintech lending case."]
-        trace = {"workflow": "noop", "summary": "No demo match; no retrieval performed."}
+        actions = [
+            "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech' with a Spanish fintech lending question.",
+            "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope).",
+            "Corpus is English-only; questions in other languages are answered in English.",
+        ]
+        trace = Trace(
+            workflow="noop",
+            summary="No demo match; no retrieval performed. Provide scenario.id 'spanish-fintech' to invoke the demo.",
+        )
         detailed_trace = []
 
     answer = Answer(
         findings=findings,
         actions=actions,
         citations=citations,
+    )
+
+    return AnalyzeResponse(
+        answer=answer,
         trace=trace,
         detailed_trace=detailed_trace,
     )
-
-    return AnalyzeResponse(answer=answer)
 
 
 if __name__ == "__main__":
