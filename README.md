@@ -63,9 +63,8 @@ Configuration lives in `pyproject.toml` (`[tool.mypy]`).
 
 The steps below are for development beyond the deterministic demo.
 
-- OpenRouter API key (for LLM access via DeepSeek): copy `backend/.env.example`
-  to `backend/.env` and add your key. The model is pinned to
-  `deepseek/deepseek-v4-flash:free`; there is no override to a paid model.
+- No API keys are required for the deterministic demo; the backend makes no
+  LLM calls. The full stack below is only needed for development beyond the demo.
 - Start everything (PostgreSQL + pgvector, Ollama, backend):
 ```bash
 docker compose up -d

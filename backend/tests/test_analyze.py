@@ -108,6 +108,15 @@ def test_unsupported_claims_absent_from_answer_recorded_in_trace():
     assert any("dora applies to every" in c.lower() for c in discarded)
     assert any("prohibits automated credit scoring" in c.lower() for c in discarded)
 
+    # The verifier step records a per-claim decision, and every discarded
+    # claim appears there as rejected
+    verifier_steps = [s for s in data["detailed_trace"] if s.get("step") == "verifier"]
+    assert verifier_steps, "Expected a verifier step in detailed_trace"
+    decisions = {d["claim"]: d["status"] for d in verifier_steps[0]["claim_decisions"]}
+    assert len(decisions) >= len(discarded)
+    for claim in discarded:
+        assert decisions[claim] == "rejected"
+
 
 def test_non_canonical_scenario_gets_helpful_response_not_keyword_routed():
     """Non-canonical scenarios get a helpful response, NOT silently routed to demo via keywords."""
@@ -142,7 +151,7 @@ def test_exact_scenario_id_required():
 
     # Test with exact match
     data = analyze("spanish-fintech", "What regulations apply?")
-    assert len(data["answer"]["findings"]) >= 8  # At least the 9 demo findings
+    assert len(data["answer"]["findings"]) >= 9  # all 9 demo findings
 
 
 def test_corpus_english_only_limitation_surfaced():

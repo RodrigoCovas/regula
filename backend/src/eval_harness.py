@@ -12,9 +12,16 @@ weight(produced strength) from the precision numerator.
 
 import json
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, TypedDict
 
 from .models import Strength
+
+
+class ExpectedCitation(TypedDict):
+    """Ground-truth reference to one provision: the document and its official provision label."""
+
+    source_id: str
+    provision: str
 
 STRENGTH_WEIGHTS: Dict[Strength, int] = {
     Strength.strong: 3,
@@ -29,7 +36,7 @@ _STRENGTH_ORDER = [Strength.weak, Strength.moderate, Strength.strong]
 class ExpectedFinding:
     statement: str
     strength: Strength
-    citations: List[Dict[str, str]] = field(default_factory=list)
+    citations: List[ExpectedCitation] = field(default_factory=list)
 
 
 @dataclass
@@ -48,8 +55,8 @@ def _matched_finding_credit(expected_strength: Strength, produced_strength: Stre
     return STRENGTH_WEIGHTS[expected_strength] * (1 - strength_distance(expected_strength, produced_strength) / 2)
 
 
-def score_case(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
-    """Score one case: weighted recall, weighted precision (spurious Findings subtract
+def score_eval_case(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
+    """Score one eval case: weighted recall, weighted precision (spurious Findings subtract
     credit by the Strength they were produced with), and their harmonic mean."""
     produced_by_statement = {p.statement: p for p in produced}
     expected_weight_total = sum(STRENGTH_WEIGHTS[e.strength] for e in expected)
@@ -136,7 +143,7 @@ _NO_FINDINGS: List[ExpectedFinding] = []
 
 
 @dataclass
-class CuratedCase:
+class EvalCase:
     id: str
     scenario_id: str
     question: str
@@ -144,7 +151,7 @@ class CuratedCase:
 
 
 @dataclass
-class CaseResult:
+class EvalCaseResult:
     id: str
     precision: float
     recall: float
@@ -153,18 +160,18 @@ class CaseResult:
 
 @dataclass
 class EvalReport:
-    cases: List[CaseResult]
+    cases: List[EvalCaseResult]
     mean_f1: float
 
 
-CURATED_CASES: List[CuratedCase] = [
-    CuratedCase(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
-    CuratedCase(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
-    CuratedCase(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
-    CuratedCase(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this loan scoring violate GDPR?", expected=_NO_FINDINGS),
-    CuratedCase(id="non-canonical-near-miss-id", scenario_id="spanish-fintech-demo", question="What regulations apply?", expected=_NO_FINDINGS),
-    CuratedCase(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),
-    CuratedCase(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
+CURATED_CASES: List[EvalCase] = [
+    EvalCase(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
+    EvalCase(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
+    EvalCase(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
+    EvalCase(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this loan scoring violate GDPR?", expected=_NO_FINDINGS),
+    EvalCase(id="non-canonical-near-miss-id", scenario_id="spanish-fintech-demo", question="What regulations apply?", expected=_NO_FINDINGS),
+    EvalCase(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),
+    EvalCase(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
 ]
 
 
@@ -178,7 +185,7 @@ def run_eval() -> EvalReport:
     from .main import analyze
     from .models import AnalyzeRequest, Scenario
 
-    case_results: List[CaseResult] = []
+    case_results: List[EvalCaseResult] = []
     for case in CURATED_CASES:
         request = AnalyzeRequest(scenario=Scenario(id=case.scenario_id), question=case.question)
         response = asyncio.run(analyze(request))
@@ -186,8 +193,8 @@ def run_eval() -> EvalReport:
             ProducedFinding(statement=f.statement, strength=f.strength)
             for f in response.answer.findings
         ]
-        result = score_case(case.expected, produced)
-        case_results.append(CaseResult(id=case.id, **result))
+        result = score_eval_case(case.expected, produced)
+        case_results.append(EvalCaseResult(id=case.id, **result))
 
     mean_f1 = sum(c.f1 for c in case_results) / len(case_results)
     return EvalReport(cases=case_results, mean_f1=mean_f1)

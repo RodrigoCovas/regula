@@ -58,6 +58,10 @@ The user-facing conclusions: the Findings, Citations, and Actions. The API retur
 **Action**:
 A concrete next step the user should investigate or complete after reading the answer.
 
+**Known limitation**:
+A stated boundary of the current system, surfaced alongside the Answer but never among its Findings or Actions — e.g. the Corpus is English-only.
+_Avoid_: Caveat, disclaimer
+
 **Execution trace**:
 A compact, user-visible summary of the workflow steps, retrieved passages, and tool calls used to produce the answer.  
 _Avoid_: Chain-of-thought

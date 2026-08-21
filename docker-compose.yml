@@ -35,7 +35,6 @@ services:
     environment:
       DATABASE_URL: postgresql://regula:regula@postgres:5432/regula
       OLLAMA_API_URL: http://ollama:11434
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy

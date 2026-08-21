@@ -202,8 +202,11 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
     },
 ]
 
-# Unsupported claims that the corpus cannot support — discarded from Answer but recorded in trace
-UNSUPPORTED_CLAIMS = [
+# Claims the planner proposes for the canonical scenario beyond the demo
+# Findings. The verifier checks each against the evidence actually produced;
+# claims with no supporting Finding are discarded as Unsupported and recorded
+# in the Execution trace.
+UNSUPPORTED_CLAIM_CANDIDATES = [
     "Credit scoring data is special-category (sensitive) data.",
     "DORA applies to every fintech.",
     "DORA governs AI decisions / automated credit decisions.",
@@ -214,13 +217,36 @@ UNSUPPORTED_CLAIMS = [
     "Whether the company is provider vs deployer can be determined from the corpus.",
 ]
 
+ENGLISH_ONLY_LIMITATION = (
+    "Known limitation: the corpus is English-only; questions in other languages are answered in English."
+)
+
+
+def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[dict]]:
+    """Verifier pass over candidate claims against the produced Findings.
+
+    A claim survives only when a produced Finding states it with Evidence;
+    everything else is discarded as an Unsupported claim. Returns the
+    discarded statements and the per-claim decisions for the detailed trace.
+    """
+    supported = {f.statement for f in findings if f.citations}
+    discarded: List[str] = []
+    decisions: List[dict] = []
+    for claim in UNSUPPORTED_CLAIM_CANDIDATES:
+        if claim in supported:
+            decisions.append({"claim": claim, "status": "kept"})
+        else:
+            discarded.append(claim)
+            decisions.append({"claim": claim, "status": "rejected", "reason": "no Evidence in the Corpus supports this claim"})
+    return discarded, decisions
+
 DEMO_ACTIONS = [
     "Determine whether the company will be a provider or a deployer under the AI Act; the obligation set differs (AI Act Article 3(3)-(4)).",
     "Confirm whether the company is a licensed financial entity under DORA Article 2, which decides whether DORA applies in full.",
     "Run a GDPR data protection impact assessment (Article 35(3)(a)) and the AI Act Fundamental Rights Impact Assessment (Article 27) before first deployment.",
     "Design human oversight into the credit decision process (AI Act Article 26; GDPR Article 22(3)) so decisions are not solely automated.",
     "Provide applicants clear explanations of the system's role in decisions (AI Act Article 86; GDPR Articles 13(2)(f) and 15(1)(h)).",
-    "Known limitation: the corpus is English-only; questions in other languages are answered in English.",
+    ENGLISH_ONLY_LIMITATION,
     "This is a research prototype, not legal advice; confirm obligations with a qualified professional.",
 ]
 
@@ -239,20 +265,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
         finding_citations: List[Citation] = []
         for target in finding_def["targets"]:
             doc = _CORPUS.get(target["source_id"])
-            if doc is None:
-                tool_calls.append(
-                    {
-                        "tool": "corpus_lookup",
-                        "input": {
-                            "source_id": target["source_id"],
-                            "kind": target["kind"],
-                            "number": target["number"],
-                        },
-                        "status": "not_found",
-                    }
-                )
-                continue
-            resolved = _resolve_target(doc, target)
+            resolved = _resolve_target(doc, target) if doc is not None else None
             tool_calls.append(
                 {
                     "tool": "corpus_lookup",
@@ -271,7 +284,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
             text = ctx.get("text")
             citation_kwargs = {
                 "source_id": target["source_id"],
-                "source_short_name": doc.get("metadata", {}).get("shortName"),
+                "source_short_name": doc.get("metadata", {}).get("shortName") if doc else None,
                 "section": ctx.get("section"),
                 "provision": target.get("provision") or ctx.get("provision"),
                 "quote": (text[:300] + "...") if text else None,
@@ -314,13 +327,13 @@ async def health():
 
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
-async def analyze(query: AnalyzeRequest):
+async def analyze(request: AnalyzeRequest):
     """Run the deterministic demo workflow for the Spanish fintech scenario.
 
     This endpoint accepts {scenario, question} and returns a structured
     response with answer, trace, and detailed_trace as siblings.
     """
-    scenario = query.scenario
+    scenario = request.scenario
 
     # Trigger the deterministic demo ONLY on exact scenario.id == "spanish-fintech"
     # No keyword-heuristic routing — it silently degrades which is forbidden
@@ -334,11 +347,14 @@ async def analyze(query: AnalyzeRequest):
         tool_calls = result["tool_calls"]
         actions = DEMO_ACTIONS
 
-        # Record unsupported claims in the trace (discarded from Answer)
+        # Verifier pass: check each candidate claim against the produced
+        # Findings; claims without Evidence are discarded from the Answer
+        # and their rejection recorded in the Execution trace.
+        discarded_claims, claim_decisions = _verify_claims(findings)
         trace = Trace(
             workflow="planner -> researcher -> verifier",
             summary="Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier kept only evidence-backed claims and tagged each with its strength.",
-            unsupported_claims_discarded=UNSUPPORTED_CLAIMS,
+            unsupported_claims_discarded=discarded_claims,
         )
         detailed_trace = [
             {"step": "planner", "action": "identify topics: automated credit decisions, high-risk AI, profiling, data protection, ICT risk"},
@@ -348,7 +364,11 @@ async def analyze(query: AnalyzeRequest):
                 "retrieved": retrieved_passages,
                 "tool_calls": tool_calls,
             },
-            {"step": "verifier", "action": "drop unsupported claims and tag each finding with its evidence strength"},
+            {
+                "step": "verifier",
+                "action": "drop unsupported claims and tag each finding with its evidence strength",
+                "claim_decisions": claim_decisions,
+            },
         ]
     else:
         # Helpful "not available" response — not a bare failure, not a guessed demo answer
@@ -357,7 +377,7 @@ async def analyze(query: AnalyzeRequest):
         actions = [
             "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech' with a Spanish fintech lending question.",
             "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope).",
-            "Corpus is English-only; questions in other languages are answered in English.",
+            ENGLISH_ONLY_LIMITATION,
         ]
         trace = Trace(
             workflow="noop",
