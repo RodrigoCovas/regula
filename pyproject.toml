@@ -1,0 +1,11 @@
+[tool.mypy]
+python_version = "3.11"
+files = ["backend/src", "backend/tests"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = "fastapi.*"
+ignore_missing_imports = true

@@ -11,3 +11,10 @@ The default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent
 ### Domain docs
 
 This repo uses a single-context layout with one root `CONTEXT.md` and ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+
+### Checks
+
+Run after code changes, before committing:
+
+- Tests: `python -m pytest backend/tests/ -q`
+- Type checking: `mypy` (config in `pyproject.toml`, deps in `backend/requirements-dev.txt`)

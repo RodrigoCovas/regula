@@ -5,7 +5,7 @@ Backend entry point
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 import json
 import glob
 from pathlib import Path
@@ -93,7 +93,7 @@ def _find_annex_context(doc: dict, number: int) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _resolve_target(doc: dict, target: dict) -> Optional[Dict[str, Any]]:
+def _resolve_target(doc: dict, target: LookupTarget) -> Optional[Dict[str, Any]]:
     """Resolve a lookup target to citation field name and document context.
 
     Articles and annexes are found only when they carry text. Recitals are found
@@ -121,7 +121,20 @@ def _resolve_target(doc: dict, target: dict) -> Optional[Dict[str, Any]]:
 
 # Deterministic lookup map for the canonical Spanish fintech demo scenario.
 # Each finding lists the provisions that support its claim, with evidence strength.
-DEMO_FINDING_DEFS = [
+class LookupTarget(TypedDict):
+    source_id: str
+    kind: str
+    number: int
+    provision: str
+
+
+class FindingDef(TypedDict):
+    statement: str
+    strength: Strength
+    targets: List[LookupTarget]
+
+
+DEMO_FINDING_DEFS: List[FindingDef] = [
     {
         "statement": "An AI system that evaluates the creditworthiness of natural persons or establishes their credit score is a high-risk AI system under the AI Act, so the full high-risk obligations apply.",
         "strength": Strength.strong,
@@ -226,7 +239,20 @@ def _run_demo_workflow() -> Dict[str, Any]:
         finding_citations: List[Citation] = []
         for target in finding_def["targets"]:
             doc = _CORPUS.get(target["source_id"])
-            resolved = _resolve_target(doc, target) if doc else None
+            if doc is None:
+                tool_calls.append(
+                    {
+                        "tool": "corpus_lookup",
+                        "input": {
+                            "source_id": target["source_id"],
+                            "kind": target["kind"],
+                            "number": target["number"],
+                        },
+                        "status": "not_found",
+                    }
+                )
+                continue
+            resolved = _resolve_target(doc, target)
             tool_calls.append(
                 {
                     "tool": "corpus_lookup",

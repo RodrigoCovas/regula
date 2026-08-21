@@ -10,6 +10,7 @@ gives the penalty any effect on the score. Spurious Findings subtract
 weight(produced strength) from the precision numerator.
 """
 
+import json
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -133,18 +134,41 @@ _CANONICAL_EXPECTED = [
 
 _NO_FINDINGS: List[ExpectedFinding] = []
 
-CURATED_CASES = [
-    {"id": "canonical-what-applies", "scenario_id": "spanish-fintech", "question": "What regulations apply?", "expected": _CANONICAL_EXPECTED},
-    {"id": "canonical-loan-denial", "scenario_id": "spanish-fintech", "question": "Would an automated loan denial violate data protection requirements?", "expected": _CANONICAL_EXPECTED},
-    {"id": "canonical-spanish-question", "scenario_id": "spanish-fintech", "question": "¿Qué regulaciones aplican a nuestro sistema de scoring?", "expected": _CANONICAL_EXPECTED},
-    {"id": "non-canonical-other-id", "scenario_id": "other-scenario", "question": "Does this loan scoring violate GDPR?", "expected": _NO_FINDINGS},
-    {"id": "non-canonical-near-miss-id", "scenario_id": "spanish-fintech-demo", "question": "What regulations apply?", "expected": _NO_FINDINGS},
-    {"id": "non-canonical-unrelated", "scenario_id": "gdpr-audit", "question": "Do we need a records-of-processing register?", "expected": _NO_FINDINGS},
-    {"id": "non-canonical-missing-id", "scenario_id": "", "question": "What regulations apply?", "expected": _NO_FINDINGS},
+
+@dataclass
+class CuratedCase:
+    id: str
+    scenario_id: str
+    question: str
+    expected: List[ExpectedFinding]
+
+
+@dataclass
+class CaseResult:
+    id: str
+    precision: float
+    recall: float
+    f1: float
+
+
+@dataclass
+class EvalReport:
+    cases: List[CaseResult]
+    mean_f1: float
+
+
+CURATED_CASES: List[CuratedCase] = [
+    CuratedCase(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
+    CuratedCase(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
+    CuratedCase(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
+    CuratedCase(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this loan scoring violate GDPR?", expected=_NO_FINDINGS),
+    CuratedCase(id="non-canonical-near-miss-id", scenario_id="spanish-fintech-demo", question="What regulations apply?", expected=_NO_FINDINGS),
+    CuratedCase(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),
+    CuratedCase(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
 ]
 
 
-def run_eval() -> Dict[str, object]:
+def run_eval() -> EvalReport:
     """Run every curated case against the analyze workflow and score the produced Findings.
 
     Drives the app's analyze entry point directly — offline, no HTTP.
@@ -154,22 +178,22 @@ def run_eval() -> Dict[str, object]:
     from .main import analyze
     from .models import AnalyzeRequest, Scenario
 
-    case_results = []
+    case_results: List[CaseResult] = []
     for case in CURATED_CASES:
-        request = AnalyzeRequest(scenario=Scenario(id=case["scenario_id"]), question=case["question"])
+        request = AnalyzeRequest(scenario=Scenario(id=case.scenario_id), question=case.question)
         response = asyncio.run(analyze(request))
         produced = [
             ProducedFinding(statement=f.statement, strength=f.strength)
             for f in response.answer.findings
         ]
-        result = score_case(case["expected"], produced)
-        case_results.append({"id": case["id"], **result})
+        result = score_case(case.expected, produced)
+        case_results.append(CaseResult(id=case.id, **result))
 
-    mean_f1 = sum(c["f1"] for c in case_results) / len(case_results)
-    return {"cases": case_results, "mean_f1": mean_f1}
+    mean_f1 = sum(c.f1 for c in case_results) / len(case_results)
+    return EvalReport(cases=case_results, mean_f1=mean_f1)
 
 
 if __name__ == "__main__":
-    import json
+    from dataclasses import asdict
 
-    print(json.dumps(run_eval(), indent=2))
+    print(json.dumps(asdict(run_eval()), indent=2))

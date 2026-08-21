@@ -52,6 +52,13 @@ pip install -r backend/requirements.txt
 pytest backend/tests/
 ```
 
+With type checking (dev):
+```bash
+pip install -r backend/requirements-dev.txt
+mypy
+```
+Configuration lives in `pyproject.toml` (`[tool.mypy]`).
+
 ### Developer setup (full stack)
 
 The steps below are for development beyond the deterministic demo.

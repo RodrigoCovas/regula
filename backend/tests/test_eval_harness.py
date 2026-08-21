@@ -71,7 +71,7 @@ def test_curated_case_count_within_spec():
 
 def test_deterministic_demo_scores_perfect_on_all_curated_cases():
     report = run_eval()
-    assert len(report["cases"]) == len(CURATED_CASES)
-    for case in report["cases"]:
-        assert case["f1"] == 1.0, f"case {case['id']} scored {case['f1']}"
-    assert report["mean_f1"] == 1.0
+    assert len(report.cases) == len(CURATED_CASES)
+    for case in report.cases:
+        assert case.f1 == 1.0, f"case {case.id} scored {case.f1}"
+    assert report.mean_f1 == 1.0
