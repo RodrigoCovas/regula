@@ -55,17 +55,18 @@ def test_analyze_spanish_fintech_demo():
     assert researcher_steps, "Expected a researcher step in detailed_trace"
     assert "tool_calls" in researcher_steps[0]
     assert len(researcher_steps[0]["tool_calls"]) >= 1
-    # Known-limitation line: corpus is English-only (surfaced as an action, not a Finding)
+    # Known limitation: corpus is English-only — its own sibling field, never an Action
     actions_text = " ".join(answer.get("actions", [])).lower()
-    assert "english-only" in actions_text
+    assert "english-only" in " ".join(data["known_limitations"]).lower()
+    assert "english-only" not in actions_text
 
 
 def test_response_shape_has_siblings_not_nested():
-    """API returns answer, trace, detailed_trace as siblings; trace is NOT nested inside answer."""
+    """API returns answer, trace, detailed_trace, known_limitations as siblings; trace is NOT nested inside answer."""
     data = analyze("spanish-fintech", "What regulations apply?")
 
     # Top-level siblings
-    assert set(data.keys()) == {"answer", "trace", "detailed_trace"}
+    assert set(data.keys()) == {"answer", "trace", "detailed_trace", "known_limitations"}
     # Answer does NOT contain trace or detailed_trace
     assert "trace" not in data["answer"]
     assert "detailed_trace" not in data["answer"]
@@ -154,11 +155,22 @@ def test_exact_scenario_id_required():
     assert len(data["answer"]["findings"]) >= 9  # all 9 demo findings
 
 
+def test_known_limitations_on_every_response():
+    """known_limitations is a sibling on both the canonical and the not-available response."""
+    canonical = analyze("spanish-fintech", "What regulations apply?")
+    non_canonical = analyze("other-scenario", "¿Qué regulaciones aplican?")
+
+    for data in (canonical, non_canonical):
+        assert isinstance(data["known_limitations"], list)
+        assert any("english-only" in line.lower() for line in data["known_limitations"])
+        # Limitations never leak into Actions
+        assert not any("english-only" in a.lower() for a in data["answer"]["actions"])
+
+
 def test_corpus_english_only_limitation_surfaced():
-    """The helpful response mentions corpus is English-only."""
+    """The helpful response surfaces the English-only corpus limitation."""
     data = analyze("other", "¿Qué regulaciones aplican?")
-    actions = " ".join(data["answer"]["actions"]).lower()
-    assert "english" in actions
+    assert any("english" in line.lower() for line in data["known_limitations"])
 
 
 def test_exactly_one_target_citation_invariant():

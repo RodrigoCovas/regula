@@ -246,9 +246,21 @@ DEMO_ACTIONS = [
     "Run a GDPR data protection impact assessment (Article 35(3)(a)) and the AI Act Fundamental Rights Impact Assessment (Article 27) before first deployment.",
     "Design human oversight into the credit decision process (AI Act Article 26; GDPR Article 22(3)) so decisions are not solely automated.",
     "Provide applicants clear explanations of the system's role in decisions (AI Act Article 86; GDPR Articles 13(2)(f) and 15(1)(h)).",
-    ENGLISH_ONLY_LIMITATION,
     "This is a research prototype, not legal advice; confirm obligations with a qualified professional.",
 ]
+
+
+def _lookup_tool_call(target: LookupTarget, status: str) -> dict:
+    """One corpus_lookup tool-call record for the detailed trace."""
+    return {
+        "tool": "corpus_lookup",
+        "input": {
+            "source_id": target["source_id"],
+            "kind": target["kind"],
+            "number": target["number"],
+        },
+        "status": status,
+    }
 
 
 def _run_demo_workflow() -> Dict[str, Any]:
@@ -265,18 +277,11 @@ def _run_demo_workflow() -> Dict[str, Any]:
         finding_citations: List[Citation] = []
         for target in finding_def["targets"]:
             doc = _CORPUS.get(target["source_id"])
-            resolved = _resolve_target(doc, target) if doc is not None else None
-            tool_calls.append(
-                {
-                    "tool": "corpus_lookup",
-                    "input": {
-                        "source_id": target["source_id"],
-                        "kind": target["kind"],
-                        "number": target["number"],
-                    },
-                    "status": "found" if resolved else "not_found",
-                }
-            )
+            if doc is None:
+                tool_calls.append(_lookup_tool_call(target, "not_found"))
+                continue
+            resolved = _resolve_target(doc, target)
+            tool_calls.append(_lookup_tool_call(target, "found" if resolved else "not_found"))
             if not resolved:
                 continue
 
@@ -284,7 +289,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
             text = ctx.get("text")
             citation_kwargs = {
                 "source_id": target["source_id"],
-                "source_short_name": doc.get("metadata", {}).get("shortName") if doc else None,
+                "source_short_name": (doc.get("metadata") or {}).get("shortName"),
                 "section": ctx.get("section"),
                 "provision": target.get("provision") or ctx.get("provision"),
                 "quote": (text[:300] + "...") if text else None,
@@ -331,7 +336,8 @@ async def analyze(request: AnalyzeRequest):
     """Run the deterministic demo workflow for the Spanish fintech scenario.
 
     This endpoint accepts {scenario, question} and returns a structured
-    response with answer, trace, and detailed_trace as siblings.
+    response with answer, trace, detailed_trace, and known_limitations
+    as siblings.
     """
     scenario = request.scenario
 
@@ -377,7 +383,6 @@ async def analyze(request: AnalyzeRequest):
         actions = [
             "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech' with a Spanish fintech lending question.",
             "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope).",
-            ENGLISH_ONLY_LIMITATION,
         ]
         trace = Trace(
             workflow="noop",
@@ -395,6 +400,7 @@ async def analyze(request: AnalyzeRequest):
         answer=answer,
         trace=trace,
         detailed_trace=detailed_trace,
+        known_limitations=[ENGLISH_ONLY_LIMITATION],
     )
 
 

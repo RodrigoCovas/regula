@@ -66,3 +66,4 @@ class AnalyzeResponse(BaseModel):
     answer: Answer
     trace: Trace
     detailed_trace: Optional[List[dict]] = Field(default_factory=list)
+    known_limitations: List[str] = Field(default_factory=list)

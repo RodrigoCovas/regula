@@ -1,6 +1,6 @@
 """Offline evaluation harness for the deterministic demo.
 
-Scores produced Findings against curated ground-truth cases using
+Scores produced Findings against curated ground-truth scenarios using
 Strength-weighted precision, recall, and their harmonic mean (F1).
 
 Scoring interpretation: the mis-tag penalty ("a matched Finding retains
@@ -55,8 +55,8 @@ def _matched_finding_credit(expected_strength: Strength, produced_strength: Stre
     return STRENGTH_WEIGHTS[expected_strength] * (1 - strength_distance(expected_strength, produced_strength) / 2)
 
 
-def score_eval_case(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
-    """Score one eval case: weighted recall, weighted precision (spurious Findings subtract
+def score_scenario(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
+    """Score one eval scenario: weighted recall, weighted precision (spurious Findings subtract
     credit by the Strength they were produced with), and their harmonic mean."""
     produced_by_statement = {p.statement: p for p in produced}
     expected_weight_total = sum(STRENGTH_WEIGHTS[e.strength] for e in expected)
@@ -143,7 +143,7 @@ _NO_FINDINGS: List[ExpectedFinding] = []
 
 
 @dataclass
-class EvalCase:
+class EvalScenario:
     id: str
     scenario_id: str
     question: str
@@ -151,7 +151,7 @@ class EvalCase:
 
 
 @dataclass
-class EvalCaseResult:
+class EvalScenarioResult:
     id: str
     precision: float
     recall: float
@@ -160,23 +160,23 @@ class EvalCaseResult:
 
 @dataclass
 class EvalReport:
-    cases: List[EvalCaseResult]
+    scenarios: List[EvalScenarioResult]
     mean_f1: float
 
 
-CURATED_CASES: List[EvalCase] = [
-    EvalCase(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
-    EvalCase(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
-    EvalCase(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
-    EvalCase(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this loan scoring violate GDPR?", expected=_NO_FINDINGS),
-    EvalCase(id="non-canonical-near-miss-id", scenario_id="spanish-fintech-demo", question="What regulations apply?", expected=_NO_FINDINGS),
-    EvalCase(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),
-    EvalCase(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
+CURATED_SCENARIOS: List[EvalScenario] = [
+    EvalScenario(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
+    EvalScenario(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
+    EvalScenario(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
+    EvalScenario(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this loan scoring violate GDPR?", expected=_NO_FINDINGS),
+    EvalScenario(id="non-canonical-near-miss-id", scenario_id="spanish-fintech-demo", question="What regulations apply?", expected=_NO_FINDINGS),
+    EvalScenario(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),
+    EvalScenario(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
 ]
 
 
 def run_eval() -> EvalReport:
-    """Run every curated case against the analyze workflow and score the produced Findings.
+    """Run every curated scenario against the analyze workflow and score the produced Findings.
 
     Drives the app's analyze entry point directly — offline, no HTTP.
     """
@@ -185,19 +185,19 @@ def run_eval() -> EvalReport:
     from .main import analyze
     from .models import AnalyzeRequest, Scenario
 
-    case_results: List[EvalCaseResult] = []
-    for case in CURATED_CASES:
-        request = AnalyzeRequest(scenario=Scenario(id=case.scenario_id), question=case.question)
+    scenario_results: List[EvalScenarioResult] = []
+    for scenario in CURATED_SCENARIOS:
+        request = AnalyzeRequest(scenario=Scenario(id=scenario.scenario_id), question=scenario.question)
         response = asyncio.run(analyze(request))
         produced = [
             ProducedFinding(statement=f.statement, strength=f.strength)
             for f in response.answer.findings
         ]
-        result = score_eval_case(case.expected, produced)
-        case_results.append(EvalCaseResult(id=case.id, **result))
+        result = score_scenario(scenario.expected, produced)
+        scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
 
-    mean_f1 = sum(c.f1 for c in case_results) / len(case_results)
-    return EvalReport(cases=case_results, mean_f1=mean_f1)
+    mean_f1 = sum(c.f1 for c in scenario_results) / len(scenario_results)
+    return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)
 
 
 if __name__ == "__main__":
