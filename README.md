@@ -149,22 +149,25 @@ regula/
 
 ## Evaluation
 
-20 curated test cases (10 simple, 10 nuanced) with metrics:
-- Retrieval correctness (30%)
-- Citation fidelity (40%)
-- Answer correctness (20%)
-- Workflow success (10%)
+The deterministic demo ships with a strength-weighted eval harness
+(`backend/src/eval_harness.py`): 7 curated cases scored by weighted F1 over
+Findings, where Strength weights are strong = 3, moderate = 2, weak = 1.
+Matched Findings mis-tagged on Strength keep `weight × (1 − distance/2)` of
+their credit, and spurious Findings subtract their produced weight.
+
+Until the LLM/RAG pipeline lands, these cases act as functional tripwires
+(see `docs/adr/0001-eval-cases-are-functional-tripwires.md`): mean F1 is 1.0
+by construction, so any drop signals a regression, not poor quality.
 
 ## Deployment
 
-- **Local:** Docker Compose (fully reproducible)
-- **Live Demo:** Render Free Tier
+- **Local only:** Docker Compose (fully reproducible). Cloud hosting is out of
+  scope for the demo; the deployment-host decision is deferred to a future ADR.
 
 ## Next Steps
 
-1. [Day 1: Setup & Data Pipeline](./docs/DAY_1.md)
-2. [Day 2: Retrieval & Schemas](./docs/DAY_2.md)
-3. [Decision Tree](./DECISION_TREE.md)
+1. [Day 1: Research & Data](./research/DAY_1_RESEARCH.md)
+2. [Decision Tree](./research/DECISION_TREE.md)
 
 ## License
 
