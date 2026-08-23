@@ -36,16 +36,8 @@ def _restore_main_settings():
 def _hermetic_store_probe(monkeypatch):
     """Keep every boot hermetic: the startup emptiness probe never reaches for
     a real PostgreSQL unless a test replaces it explicitly."""
-    import src.main as main
+    import src.availability as availability
 
-    monkeypatch.setattr(main, "stored_chunk_count", lambda: 0)
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 0)
     yield
 
-
-@pytest.fixture(autouse=True)
-def _clear_dependency_overrides():
-    """Request-scoped fakes installed on the app must not leak across tests."""
-    from src.main import app
-
-    yield
-    app.dependency_overrides.clear()
