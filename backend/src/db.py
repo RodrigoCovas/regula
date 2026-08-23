@@ -15,9 +15,6 @@ import psycopg2.extras
 
 from .models import EMBEDDING_DIMENSION, Chunk, ProvisionKind
 
-# nomic-embed-text (the locked embedding model) outputs 768-dimensional vectors.
-EMBEDDING_DIMENSION = 768
-
 _SCHEMA = f"""
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -64,6 +61,11 @@ DO UPDATE SET title = EXCLUDED.title,
               content = EXCLUDED.content,
               embedding = EXCLUDED.embedding
 """
+
+
+def _to_pgvector(values: Sequence[float]) -> str:
+    """A vector literal in pgvector's text format."""
+    return "[" + ",".join(repr(float(x)) for x in values) + "]"
 
 
 @dataclass(frozen=True)
@@ -124,7 +126,7 @@ class PgVectorStore:
                 "recital_number": record.recital_number,
                 "annex_number": record.annex_number,
                 "content": record.text,
-                "embedding": "[" + ",".join(repr(float(x)) for x in record.embedding) + "]",
+                "embedding": _to_pgvector(record.embedding),
             }
             for record in records
         ]
@@ -146,6 +148,39 @@ class PgVectorStore:
                 ORDER BY kind, COALESCE(article_number, recital_number, annex_number), chunk_index
                 """,
                 (source_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def search_chunks(
+        self,
+        query_embedding: Sequence[float],
+        limit: int,
+        max_distance: float,
+    ) -> list[dict[str, Any]]:
+        """Nearest Chunks to a query vector, nearest first, within max_distance.
+
+        Cosine distance (pgvector ``<=>``) is the ranking metric; results
+        beyond ``max_distance`` are excluded entirely rather than returned as
+        junk. Rows carry the full provision metadata retrieval turns into
+        Chunks, plus their distance.
+        """
+        with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT source_id, kind, title, chunk_index, num_chunks,
+                       article_number, recital_number, annex_number,
+                       content AS text,
+                       embedding <=> %(query)s::vector AS distance
+                FROM chunks
+                WHERE embedding <=> %(query)s::vector <= %(max_distance)s
+                ORDER BY distance ASC, id ASC
+                LIMIT %(limit)s
+                """,
+                {
+                    "query": _to_pgvector(query_embedding),
+                    "max_distance": max_distance,
+                    "limit": limit,
+                },
             )
             return [dict(row) for row in cursor.fetchall()]
 

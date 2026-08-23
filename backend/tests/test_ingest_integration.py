@@ -1,11 +1,14 @@
-"""Integration coverage for the pgvector store (spec #9, ticket #14).
+"""Integration coverage for the pgvector store (spec #9, tickets #14–#15).
 
-Runs against real PostgreSQL + pgvector. A disposable container is started
-when Docker is available; when it is not (or REGULA_TEST_DATABASE_URL points
-at an unreachable server) the whole module skips cleanly. No Ollama, no
-network beyond the database connection.
+Covers both store paths against real PostgreSQL + pgvector: the idempotent
+ingestion write path (#14) and the vector-search read path behind retrieval
+(#15). A disposable container is started when Docker is available; when it
+is not (or REGULA_TEST_DATABASE_URL points at an unreachable server) the
+whole module skips cleanly. No Ollama, no network beyond the database
+connection.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -174,9 +177,9 @@ def test_second_upsert_of_same_chunks_leaves_row_count_unchanged(store):
 
 
 def test_updated_chunk_content_and_vector_are_refreshed_not_duplicated(store):
-    store.upsert_chunks([make_record(text="old body", embedding=[0.5] * 768)])
+    store.upsert_chunks([make_record(text="old body", embedding=[0.5] * EMBEDDING_DIMENSION)])
 
-    store.upsert_chunks([make_record(text="new body", embedding=[0.9] * 768)])
+    store.upsert_chunks([make_record(text="new body", embedding=[0.9] * EMBEDDING_DIMENSION)])
 
     (row,) = store.fetch_provisions(source_id="it-doc")
     assert row["text"] == "new body"
@@ -186,7 +189,7 @@ def test_updated_chunk_content_and_vector_are_refreshed_not_duplicated(store):
 
 
 def deterministic_embedding(text: str) -> list[float]:
-    """A fake but valid 768-dim vector, derived from the text (no Ollama)."""
+    """A fake but valid full-dimension vector, derived from the text (no Ollama)."""
     seed = sum(text.encode("utf-8")) % 97 + 1
     return [(seed * (i + 1)) % 13 / 13 for i in range(EMBEDDING_DIMENSION)]
 
@@ -220,7 +223,7 @@ def test_ingested_rows_keep_chunk_text_and_vector_dimension(store):
     stored_texts = {row["text"] for row in rows}
     for chunk in chunks:
         assert chunk.text in stored_texts
-    assert {row["embedding_dimensions"] for row in rows} == {768}
+    assert {row["embedding_dimensions"] for row in rows} == {EMBEDDING_DIMENSION}
 
 
 def test_full_reingest_of_real_corpus_leaves_row_count_unchanged(store):
@@ -229,6 +232,108 @@ def test_full_reingest_of_real_corpus_leaves_row_count_unchanged(store):
 
     assert [c.text for c in first] == [c.text for c in second]
     assert store.count_chunks() == len(first)
+
+
+# --- Retrieval: vector search over the ingested store (ticket #15) -------------
+
+
+def unit_vector(axis: int) -> list[float]:
+    """A full-dimension unit vector along one axis; distinct axes are orthogonal."""
+    vector = [0.0] * EMBEDDING_DIMENSION
+    vector[axis % EMBEDDING_DIMENSION] = 1.0
+    return vector
+
+
+def test_search_returns_nearest_chunk_first_with_metadata_and_distance(store):
+    store.upsert_chunks(
+        [
+            make_record(number=1, embedding=unit_vector(0)),
+            make_record(number=2, text="Article 2", embedding=unit_vector(1)),
+            make_record(number=3, text="Article 3", embedding=unit_vector(2)),
+        ]
+    )
+
+    rows = store.search_chunks(query_embedding=unit_vector(1), limit=8, max_distance=0.5)
+
+    (nearest,) = rows
+    assert nearest["source_id"] == "it-doc"
+    assert nearest["kind"] == "article"
+    assert nearest["article_number"] == 2
+    assert nearest["recital_number"] is None and nearest["annex_number"] is None
+    assert nearest["text"] == "Article 2"
+    assert nearest["distance"] == pytest.approx(0.0, abs=1e-6)
+    targets = [nearest["article_number"], nearest["recital_number"], nearest["annex_number"]]
+    assert sum(t is not None for t in targets) == 1
+
+
+def test_search_limit_caps_result_count(store):
+    shared = unit_vector(0)
+    store.upsert_chunks([make_record(number=n, index=n, embedding=shared) for n in range(1, 6)])
+
+    rows = store.search_chunks(query_embedding=shared, limit=3, max_distance=0.5)
+
+    assert len(rows) == 3
+
+
+def test_search_max_distance_yields_no_rows_rather_than_irrelevant_ones(store):
+    store.upsert_chunks(
+        [make_record(number=1, embedding=unit_vector(0)), make_record(number=2, text="Article 2", embedding=unit_vector(1))]
+    )
+
+    rows = store.search_chunks(query_embedding=unit_vector(7), limit=8, max_distance=0.9)
+
+    assert rows == []
+
+
+class TextHashEmbedder:
+    """Deterministic, collision-resistant embeddings from SHA-256 digests."""
+
+    def embed(self, texts):
+        return [self._embedding(text) for text in texts]
+
+    @staticmethod
+    def _embedding(text: str) -> list[float]:
+        values: list[float] = []
+        counter = 0
+        while len(values) < EMBEDDING_DIMENSION:
+            digest = hashlib.sha256(f"{counter}:{text}".encode()).digest()
+            values.extend(byte / 255.0 for byte in digest)
+            counter += 1
+        return values[:EMBEDDING_DIMENSION]
+
+
+def test_vector_retriever_round_trip_over_real_ingested_corpus(dsn):
+    """The retriever seam reads the same table ingestion wrote: querying with
+    a Chunk's own text returns that Chunk first, metadata intact, inside the
+    single-pass budget."""
+    from src.retrieval import MAX_RETRIEVED_CHUNKS, VectorRetriever
+
+    document = json.loads((DATA_DIR / "gdpr.json").read_text(encoding="utf-8"))
+    chunks = chunk_regulation(document)
+    embedder = TextHashEmbedder()
+    records = [ChunkRecord.from_chunk(chunk, vector) for chunk, vector in zip(chunks, embedder.embed([c.text for c in chunks]))]
+    connection = connect(dsn)
+    try:
+        store = PgVectorStore(connection)
+        store.ensure_schema()
+        store.upsert_chunks(records)
+
+        target = chunks[len(chunks) // 2]
+        retrieved = VectorRetriever(store=store, embedder=embedder).retrieve(target.text)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("DROP TABLE IF EXISTS chunks")
+        connection.commit()
+        connection.close()
+
+    assert 0 < len(retrieved) <= MAX_RETRIEVED_CHUNKS
+    assert retrieved[0].text == target.text
+    assert retrieved[0].source_id == target.source_id
+    assert retrieved[0].article_number == target.article_number
+    assert retrieved[0].recital_number is None and retrieved[0].annex_number is None
+    for chunk in retrieved:
+        targets = [chunk.article_number, chunk.recital_number, chunk.annex_number]
+        assert sum(t is not None for t in targets) == 1
 
 
 # --- Durability: ingested rows survive the connection that wrote them --------
