@@ -50,6 +50,45 @@ class Finding(BaseModel):
     citations: List[Citation] = Field(default_factory=list)
 
 
+class ProvisionKind(str, Enum):
+    article = "article"
+    recital = "recital"
+    annex = "annex"
+
+
+class Chunk(BaseModel):
+    """A retrievable passage of one Regulation, targeting a single provision.
+
+    The provision metadata is what Citations are later derived from, so it is
+    validated with the same exactly-one-target invariant as Citation.
+    """
+
+    source_id: str
+    kind: ProvisionKind
+    text: str
+    title: Optional[str] = None
+    chunk_index: int = 0
+    num_chunks: int = 1
+    article_number: Optional[int] = None
+    recital_number: Optional[int] = None
+    annex_number: Optional[int] = None
+
+    @model_validator(mode="after")
+    def exactly_one_target(self):
+        targets = {
+            ProvisionKind.article: self.article_number,
+            ProvisionKind.recital: self.recital_number,
+            ProvisionKind.annex: self.annex_number,
+        }
+        if sum(value is not None for value in targets.values()) != 1:
+            raise ValueError(
+                "A Chunk must target exactly one of article_number, recital_number, or annex_number"
+            )
+        if targets[self.kind] is None:
+            raise ValueError("A Chunk's kind must agree with the populated provision number")
+        return self
+
+
 class Answer(BaseModel):
     findings: List[Finding]
     actions: List[str]
