@@ -59,7 +59,7 @@ ever silently degrades between paths:
 
 ### Running the tests locally (no Docker)
 
-Requires Python 3.11+:
+Requires Python 3.13+:
 ```bash
 pip install -r backend/requirements.txt
 python -m pytest backend/tests/ -q

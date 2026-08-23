@@ -1,5 +1,5 @@
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 files = ["backend/src", "backend/tests"]
 check_untyped_defs = true
 warn_unused_ignores = true
