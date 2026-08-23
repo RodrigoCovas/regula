@@ -50,7 +50,7 @@ docker compose down
 Requires Python 3.11+:
 ```bash
 pip install -r backend/requirements.txt
-pytest backend/tests/
+python -m pytest backend/tests/ -q
 ```
 
 With type checking (dev):
@@ -139,7 +139,8 @@ regula/
 
 ## Key Technologies
 
-- **LLM:** DeepSeek V4 Flash (via OpenRouter)
+- **LLM policy:** the deterministic MVP demo makes no LLM call and requires no keys or env vars. The stack below is for development beyond the demo only:
+  - **LLM:** DeepSeek V4 Flash (via OpenRouter)
 - **Embeddings:** Ollama + nomic-embed-text
 - **Orchestration:** LangGraph
 - **Database:** PostgreSQL + pgvector
