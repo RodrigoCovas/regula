@@ -9,3 +9,7 @@ no_implicit_optional = true
 [[tool.mypy.overrides]]
 module = "fastapi.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "psycopg2.*"
+ignore_missing_imports = true

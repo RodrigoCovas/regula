@@ -31,7 +31,7 @@ from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any, Callable, Optional
 
-from src.models import Chunk, ProvisionKind
+from .models import Chunk, ProvisionKind
 
 MAX_CHUNK_TOKENS = 400
 

@@ -84,6 +84,39 @@ docker compose up -d
 docker exec regula-ollama-1 ollama pull nomic-embed-text
 ```
 
+### Live mode setup (ingest the Corpus)
+
+Live mode answers arbitrary Scenarios over the ingested Corpus. Setup is a
+single documented command, run in this order — each step depends on the one
+before it:
+
+1. **Stack up** (PostgreSQL + pgvector and Ollama):
+```bash
+docker compose up -d postgres ollama
+```
+
+2. **Pull the embedding model:**
+```bash
+docker compose exec ollama ollama pull nomic-embed-text
+```
+
+3. **Run ingestion** (idempotent — re-running updates existing rows and
+   inserts no duplicates):
+```bash
+python -m backend.src.ingest
+```
+Run it from the repository root with the Python dependencies installed
+(`pip install -r backend/requirements.txt`), or inside the stack:
+```bash
+docker compose exec backend python -m backend.src.ingest
+```
+
+Ingestion reads `data/regulations/*.json`, embeds every Chunk locally with
+`nomic-embed-text`, and upserts it into PostgreSQL/pgvector together with its
+provision metadata (Article XOR Recital XOR Annex). The backend never ingests
+on startup; serving Live mode afterwards additionally requires
+`REGULA_MODE=live` plus `OPENROUTER_API_KEY`.
+
 Frontend runs on http://localhost:3000 (`cd frontend && npm install && npm run dev`)
 Backend runs on http://localhost:8000
 

@@ -56,6 +56,11 @@ class ProvisionKind(str, Enum):
     annex = "annex"
 
 
+# The locked embedding model (nomic-embed-text, served locally by Ollama)
+# outputs this many dimensions; the pgvector column and the embedder agree on it.
+EMBEDDING_DIMENSION = 768
+
+
 class Chunk(BaseModel):
     """A retrievable passage of one Regulation, targeting a single provision.
 
