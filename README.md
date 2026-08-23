@@ -187,7 +187,7 @@ regula/
 ## Key Technologies
 
 - **LLM policy:** the deterministic MVP demo makes no LLM call and requires no keys or env vars. The stack below is for development beyond the demo only:
-  - **LLM:** DeepSeek V4 Flash (via OpenRouter)
+  - **LLM:** nvidia/nemotron-3-ultra-550b-a55b:free (via OpenRouter)
 - **Embeddings:** Ollama + nomic-embed-text
 - **Orchestration:** LangGraph
 - **Database:** PostgreSQL + pgvector

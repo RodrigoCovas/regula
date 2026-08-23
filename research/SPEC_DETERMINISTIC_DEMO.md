@@ -62,7 +62,7 @@ The deterministic demo prototype is brought in line with the locked decisions so
 - Demo answers are always in English; surface "corpus is English-only" as a known-limitation line in the answer/trace, not as a Finding.
 
 ### Local deployment (Q7a, Q7b)
-- Use `deepseek/deepseek-v4-flash:free` only (no env-var override to the paid model).
+- Use `nvidia/nemotron-3-ultra-550b-a55b:free` only (no env-var override to a paid model).
 - **Local-only deploy**: no cloud venue. Provide step-by-step setup instructions (docker-compose) for stakeholders. The full stack (Ollama + pgvector) is not required by the demo; the deployment-host decision is deferred to a future ADR.
 
 ## Testing Decisions

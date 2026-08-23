@@ -5,7 +5,7 @@ All decisions have been locked via the grilling process. See full breakdown in s
 ## Summary of Key Decisions
 
 ### Tier 1: Foundation
-- **LLM:** DeepSeek V4 Flash (OpenRouter) — $0 for demo
+- **LLM:** nvidia/nemotron-3-ultra-550b-a55b:free (OpenRouter) — $0 for demo
 - **Embeddings:** Ollama + nomic-embed-text (local, free)
 - **Development:** Local docker-compose only (permanently local — see `docs/adr/0002-regula-is-permanently-local-only.md`)
 - **Focus:** 80-90% backend, 10-20% frontend

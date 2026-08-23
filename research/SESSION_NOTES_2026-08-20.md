@@ -53,13 +53,13 @@ Companion files: `DECISION_TREE.md` (original locked decisions), `DEMO_SCENARIO_
   - distance 2 (e.g. weak tagged strong): zero weight — as bad as a wrong finding.
 
 ### Q7a — LLM model strategy
-- Use **`deepseek/deepseek-v4-flash:free` only** — accept the rate limits and the volatility. No env-var override to the paid model for the MVP.
+- Use **`nvidia/nemotron-3-ultra-550b-a55b:free` only** — accept the rate limits and the volatility. No env-var override to a paid model for the MVP.
 - Rationale: the demo path makes no LLM calls today, so cost stays at $0.
 
 ### Q7b — Deployment venue
 - **Local-only deploy, no cloud venue.** Run the demo via docker-compose locally, with step-by-step setup instructions for stakeholders. Rationale: a cloud demo with only one case scenario would disappoint stakeholders; local setup lets them run and poke at it themselves. No Render, no free-tier tuning, nothing throwaway.
 - **Fact (verified 2026-08-20):** Render free tier has no free Postgres (managed Postgres is paid) and the free web tier (0.1 CPU / 512MB) cannot run Ollama — so "full stack on Render free tier" was never viable. The deployment-host decision (when the vector path lands) is deferred and flagged as a future ADR.
-- Also verified: `deepseek/deepseek-v4-flash:free` on OpenRouter is genuinely $0 but **rate-limited (~50–200 req/day) and volatile** (free tier can rotate to paid without notice); paid `deepseek/deepseek-v4-flash` costs ~$0.07/M in, $0.17/M out. The demo path makes **no LLM call today**, so the MVP demo is free regardless.
+- Also verified: `nvidia/nemotron-3-ultra-550b-a55b:free` on OpenRouter is genuinely $0 but **rate-limited and volatile** (free tiers can rotate to paid without notice). The demo path makes **no LLM call today**, so the MVP demo is free regardless.
 
 ### Q8 — Corpus provenance & language
 - Keep the lexplorer JSON for the MVP; record provenance **once at the corpus level** (a `PROVENANCE.md` beside `data/regulations/` — source URL, extraction date, tool, known gaps like the AI Act/GDPR recital-text absence). Not per-Citation: a Citation's job is legal pinpointing, not sourcing history.
