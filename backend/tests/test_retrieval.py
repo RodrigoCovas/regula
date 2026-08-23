@@ -6,11 +6,14 @@ Tests inject deterministic fakes: no Ollama, no PostgreSQL, no network.
 Real-PostgreSQL behaviour is covered by test_ingest_integration.py, and
 semantic quality over the real corpus is verified operator-side against the
 ingested stack.
+
+The exactly-one-target invariant is not re-asserted here: results are
+ScoredChunk-wrapped Chunks, so it is enforced by construction.
 """
 
 import pytest
 
-from src.models import ProvisionKind
+from src.models import Chunk, ProvisionKind, ScoredChunk
 from src.retrieval import MAX_RETRIEVED_CHUNKS, VectorRetriever
 
 
@@ -26,10 +29,10 @@ class FakeEmbedder:
 
 
 class FakeSearchStore:
-    """Records search calls; replays canned result rows."""
+    """Records search calls; replays canned hits."""
 
-    def __init__(self, rows):
-        self.rows = rows
+    def __init__(self, hits):
+        self.hits = hits
         self.calls: list[dict] = []
 
     def search_chunks(self, query_embedding, limit, max_distance):
@@ -40,10 +43,10 @@ class FakeSearchStore:
                 "max_distance": max_distance,
             }
         )
-        return self.rows
+        return self.hits
 
 
-def chunk_row(
+def chunk_hit(
     source_id="ai-act",
     kind="article",
     number=6,
@@ -52,25 +55,27 @@ def chunk_row(
     index=0,
     num_chunks=1,
     distance=0.1,
-):
-    """One store result row shaped exactly like the SQL projection."""
-    return {
-        "source_id": source_id,
-        "kind": kind,
-        "title": title,
-        "chunk_index": index,
-        "num_chunks": num_chunks,
-        "article_number": number if kind == "article" else None,
-        "recital_number": number if kind == "recital" else None,
-        "annex_number": number if kind == "annex" else None,
-        "text": text,
-        "distance": distance,
-    }
+) -> ScoredChunk:
+    """One store hit with its provision metadata validated at construction."""
+    return ScoredChunk(
+        chunk=Chunk(
+            source_id=source_id,
+            kind=ProvisionKind(kind),
+            title=title,
+            chunk_index=index,
+            num_chunks=num_chunks,
+            article_number=number if kind == "article" else None,
+            recital_number=number if kind == "recital" else None,
+            annex_number=number if kind == "annex" else None,
+            text=text,
+        ),
+        distance=distance,
+    )
 
 
-def make_retriever(rows, min_similarity=0.5):
+def make_retriever(hits, min_similarity=0.5):
     embedder = FakeEmbedder()
-    store = FakeSearchStore(rows)
+    store = FakeSearchStore(hits)
     retriever = VectorRetriever(store=store, embedder=embedder, min_similarity=min_similarity)
     return retriever, embedder, store
 
@@ -79,7 +84,7 @@ def make_retriever(rows, min_similarity=0.5):
 
 
 def test_retrieve_embeds_the_query_and_searches_the_store_with_its_vector():
-    retriever, embedder, store = make_retriever(rows=[])
+    retriever, embedder, store = make_retriever(hits=[])
 
     retriever.retrieve("Is my credit scoring system high risk?")
 
@@ -88,20 +93,18 @@ def test_retrieve_embeds_the_query_and_searches_the_store_with_its_vector():
     assert call["query_embedding"] == [38.0, 1.0]
 
 
-# --- Results: Chunks carry their provision metadata ----------------------------
+# --- Results: hits unwrap to their metadata-complete Chunks --------------------
 
 
-def test_retrieve_maps_stored_rows_to_chunks_with_metadata_intact():
-    row = chunk_row(
+def test_retrieve_returns_each_hits_chunk_with_metadata_intact():
+    hit = chunk_hit(
         source_id="gdpr",
         kind="recital",
         number=71,
         text="Recital 71 body",
-        index=0,
-        num_chunks=1,
         distance=0.25,
     )
-    retriever, _, _ = make_retriever(rows=[row])
+    retriever, _, _ = make_retriever(hits=[hit])
 
     chunks = retriever.retrieve("automated decisions")
 
@@ -113,56 +116,22 @@ def test_retrieve_maps_stored_rows_to_chunks_with_metadata_intact():
     assert chunk.text == "Recital 71 body"
 
 
-def test_every_result_targets_exactly_one_provision_kind():
-    rows = [
-        chunk_row(kind="article", number=6),
-        chunk_row(source_id="ai-act", kind="annex", number=3),
-        chunk_row(source_id="dora", kind="article", number=2),
-    ]
-    retriever, _, _ = make_retriever(rows=rows)
-
-    chunks = retriever.retrieve("high risk obligations")
-
-    assert len(chunks) == 3
-    for chunk in chunks:
-        targets = [chunk.article_number, chunk.recital_number, chunk.annex_number]
-        assert sum(value is not None for value in targets) == 1
-
-
-def test_a_row_without_any_provision_number_is_refused_loudly():
-    broken = chunk_row()
-    broken["article_number"] = None
-    retriever, _, _ = make_retriever(rows=[broken])
-
-    with pytest.raises(ValueError):
-        retriever.retrieve("anything")
-
-
-# --- Budget: results are capped at the single-pass budget ----------------------
+# --- Budget: the single-pass budget is what gets requested ---------------------
 
 
 def test_retrieve_requests_the_locked_single_pass_budget_from_the_store():
-    retriever, _, store = make_retriever(rows=[])
+    retriever, _, store = make_retriever(hits=[])
 
     retriever.retrieve("oversight duties")
 
     assert store.calls[0]["limit"] == MAX_RETRIEVED_CHUNKS == 8
 
 
-def test_retrieve_never_returns_more_than_the_budget_even_if_the_store_overshoots():
-    rows = [chunk_row(number=n, index=n) for n in range(1, 12)]
-    retriever, _, _ = make_retriever(rows=rows)
-
-    chunks = retriever.retrieve("creditworthiness")
-
-    assert len(chunks) == 8
-
-
 # --- Threshold: junk-only result sets come back empty --------------------------
 
 
 def test_retrieve_converts_min_similarity_into_pgvector_max_distance():
-    retriever, _, store = make_retriever(rows=[], min_similarity=0.45)
+    retriever, _, store = make_retriever(hits=[], min_similarity=0.45)
 
     retriever.retrieve("profiling")
 
@@ -170,6 +139,6 @@ def test_retrieve_converts_min_similarity_into_pgvector_max_distance():
 
 
 def test_retrieve_yields_no_chunks_when_nothing_clears_the_threshold():
-    retriever, _, _ = make_retriever(rows=[])
+    retriever, _, _ = make_retriever(hits=[])
 
     assert retriever.retrieve("quantum gravity") == []

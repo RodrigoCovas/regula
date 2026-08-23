@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import List, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Scenario(BaseModel):
@@ -92,6 +92,20 @@ class Chunk(BaseModel):
         if targets[self.kind] is None:
             raise ValueError("A Chunk's kind must agree with the populated provision number")
         return self
+
+
+class ScoredChunk(BaseModel):
+    """One search result: a stored Chunk plus its cosine distance to the query.
+
+    Wrapping (rather than flattening) the Chunk keeps one owner for its
+    provision metadata and enforces the exactly-one-target invariant at
+    construction — an unscoreable or malformed row cannot become Evidence.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    chunk: Chunk
+    distance: float
 
 
 class Answer(BaseModel):

@@ -244,7 +244,9 @@ def unit_vector(axis: int) -> list[float]:
     return vector
 
 
-def test_search_returns_nearest_chunk_first_with_metadata_and_distance(store):
+def test_search_returns_nearest_chunk_first_with_metadata_and_distance(
+    store, assert_exactly_one_provision_target
+):
     store.upsert_chunks(
         [
             make_record(number=1, embedding=unit_vector(0)),
@@ -253,17 +255,16 @@ def test_search_returns_nearest_chunk_first_with_metadata_and_distance(store):
         ]
     )
 
-    rows = store.search_chunks(query_embedding=unit_vector(1), limit=8, max_distance=0.5)
+    hits = store.search_chunks(query_embedding=unit_vector(1), limit=8, max_distance=0.5)
 
-    (nearest,) = rows
-    assert nearest["source_id"] == "it-doc"
-    assert nearest["kind"] == "article"
-    assert nearest["article_number"] == 2
-    assert nearest["recital_number"] is None and nearest["annex_number"] is None
-    assert nearest["text"] == "Article 2"
-    assert nearest["distance"] == pytest.approx(0.0, abs=1e-6)
-    targets = [nearest["article_number"], nearest["recital_number"], nearest["annex_number"]]
-    assert sum(t is not None for t in targets) == 1
+    (nearest,) = hits
+    assert nearest.chunk.source_id == "it-doc"
+    assert nearest.chunk.kind is ProvisionKind.article
+    assert nearest.chunk.article_number == 2
+    assert nearest.chunk.recital_number is None and nearest.chunk.annex_number is None
+    assert nearest.chunk.text == "Article 2"
+    assert nearest.distance == pytest.approx(0.0, abs=1e-6)
+    assert_exactly_one_provision_target(nearest.chunk)
 
 
 def test_search_limit_caps_result_count(store):
@@ -302,7 +303,9 @@ class TextHashEmbedder:
         return values[:EMBEDDING_DIMENSION]
 
 
-def test_vector_retriever_round_trip_over_real_ingested_corpus(dsn):
+def test_vector_retriever_round_trip_over_real_ingested_corpus(
+    dsn, assert_exactly_one_provision_target
+):
     """The retriever seam reads the same table ingestion wrote: querying with
     a Chunk's own text returns that Chunk first, metadata intact, inside the
     single-pass budget."""
@@ -332,8 +335,7 @@ def test_vector_retriever_round_trip_over_real_ingested_corpus(dsn):
     assert retrieved[0].article_number == target.article_number
     assert retrieved[0].recital_number is None and retrieved[0].annex_number is None
     for chunk in retrieved:
-        targets = [chunk.article_number, chunk.recital_number, chunk.annex_number]
-        assert sum(t is not None for t in targets) == 1
+        assert_exactly_one_provision_target(chunk)
 
 
 # --- Durability: ingested rows survive the connection that wrote them --------

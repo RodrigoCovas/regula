@@ -8,25 +8,26 @@ composition root.
 
 Locked behaviour:
 
-- The result set is capped at the single-pass budget (~8 Chunks); retrieval
-  is one bounded pass, never a crawl.
+- The result set is capped at the single-pass budget (~8): the budget is
+  requested from the store, whose LIMIT clause enforces it; retrieval is one
+  bounded pass, never a crawl.
 - A relevance threshold excludes junk-only result sets: when nothing in the
   Corpus matches well enough, the caller gets no Chunks rather than
   irrelevant Evidence. That empty result is what the Insufficient-evidence
   path builds on.
-- Every returned Chunk carries its provision metadata (source_id plus exactly
-  one provision number kind), validated by the Chunk model itself, ready for
-  deterministic Citation derivation.
+- Every returned Chunk arrives wrapped in a ``ScoredChunk``, so its
+  provision metadata (source_id plus exactly one provision number kind) was
+  validated at construction, ready for deterministic Citation derivation.
 
 The threshold default was tuned against the real ingested Corpus with the
 locked embedding model; cosine similarity of genuinely relevant provisions
 sits far above junk matches.
 """
 
-from typing import Any, Protocol, Sequence
+from typing import Protocol, Sequence
 
 from .embedder import Embedder
-from .models import Chunk, ProvisionKind
+from .models import Chunk, ScoredChunk
 
 # Locked single-pass budget (~8): the Researcher never sees more Evidence
 # than this from one retrieval pass.
@@ -54,7 +55,7 @@ class SearchStore(Protocol):
         query_embedding: Sequence[float],
         limit: int,
         max_distance: float,
-    ) -> Sequence[dict[str, Any]]: ...
+    ) -> Sequence[ScoredChunk]: ...
 
 
 class VectorRetriever:
@@ -74,24 +75,9 @@ class VectorRetriever:
 
     def retrieve(self, query: str) -> list[Chunk]:
         [query_embedding] = self._embedder.embed([query])
-        rows = self._store.search_chunks(
+        hits = self._store.search_chunks(
             query_embedding=query_embedding,
             limit=self._max_chunks,
             max_distance=1 - self._min_similarity,
         )
-        chunks = [_row_to_chunk(row) for row in rows]
-        return chunks[: self._max_chunks]
-
-
-def _row_to_chunk(row: dict[str, Any]) -> Chunk:
-    return Chunk(
-        source_id=row["source_id"],
-        kind=ProvisionKind(row["kind"]),
-        title=row.get("title"),
-        chunk_index=row["chunk_index"],
-        num_chunks=row["num_chunks"],
-        article_number=row["article_number"],
-        recital_number=row["recital_number"],
-        annex_number=row["annex_number"],
-        text=row["text"],
-    )
+        return [hit.chunk for hit in hits]

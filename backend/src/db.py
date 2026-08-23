@@ -1,10 +1,10 @@
-"""PostgreSQL + pgvector persistence for Chunks (spec #9, ticket #14).
+"""PostgreSQL + pgvector persistence for Chunks (spec #9, tickets #14–#15).
 
-The store owns the schema and one idempotent write path, and commits after
-every operation so ingested rows survive the process that wrote them.
-Ingestion is the only writer this iteration; retrieval (ticket #15) reads
-the same table. Raw SQL over psycopg2 keeps the surface small — no ORM, no
-migrations framework: ``ensure_schema`` creates everything IF NOT EXISTS.
+The store owns the schema, one idempotent write path, and the vector-search
+read path the retrieval service calls, and commits after every write so
+ingested rows survive the process that wrote them. Raw SQL over psycopg2
+keeps the surface small — no ORM, no migrations framework: ``ensure_schema``
+creates everything IF NOT EXISTS.
 """
 
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ from typing import Any, Optional, Sequence
 import psycopg2
 import psycopg2.extras
 
-from .models import EMBEDDING_DIMENSION, Chunk, ProvisionKind
+from .models import EMBEDDING_DIMENSION, Chunk, ProvisionKind, ScoredChunk
 
 _SCHEMA = f"""
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -66,6 +66,24 @@ DO UPDATE SET title = EXCLUDED.title,
 def _to_pgvector(values: Sequence[float]) -> str:
     """A vector literal in pgvector's text format."""
     return "[" + ",".join(repr(float(x)) for x in values) + "]"
+
+
+def _row_to_scored_chunk(row: dict[str, Any]) -> ScoredChunk:
+    """The one place SQL column names become Chunk fields."""
+    return ScoredChunk(
+        chunk=Chunk(
+            source_id=row["source_id"],
+            kind=ProvisionKind(row["kind"]),
+            title=row.get("title"),
+            chunk_index=row["chunk_index"],
+            num_chunks=row["num_chunks"],
+            article_number=row["article_number"],
+            recital_number=row["recital_number"],
+            annex_number=row["annex_number"],
+            text=row["text"],
+        ),
+        distance=float(row["distance"]),
+    )
 
 
 @dataclass(frozen=True)
@@ -156,13 +174,13 @@ class PgVectorStore:
         query_embedding: Sequence[float],
         limit: int,
         max_distance: float,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ScoredChunk]:
         """Nearest Chunks to a query vector, nearest first, within max_distance.
 
         Cosine distance (pgvector ``<=>``) is the ranking metric; results
         beyond ``max_distance`` are excluded entirely rather than returned as
-        junk. Rows carry the full provision metadata retrieval turns into
-        Chunks, plus their distance.
+        junk. Each result wraps its fully validated Chunk with the distance
+        that scored it.
         """
         with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute(
@@ -182,7 +200,7 @@ class PgVectorStore:
                     "limit": limit,
                 },
             )
-            return [dict(row) for row in cursor.fetchall()]
+            return [_row_to_scored_chunk(row) for row in cursor.fetchall()]
 
     def count_chunks(self) -> int:
         with self._connection.cursor() as cursor:
