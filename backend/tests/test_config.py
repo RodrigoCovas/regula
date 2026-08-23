@@ -37,3 +37,16 @@ def test_invalid_mode_value_raises_configuration_error_not_silent_demo(monkeypat
     with pytest.raises(ConfigurationError) as excinfo:
         load_settings()
     assert "REGULA_MODE" in str(excinfo.value)
+
+
+def test_database_url_defaults_to_the_local_stack_dsn(monkeypatch):
+    """The un-ingested guard probes pgvector at the same default DSN the ingest CLI writes to."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    settings = load_settings()
+    assert settings.database_url == "postgresql://regula:regula@localhost:5432/regula"
+
+
+def test_database_url_selected_via_env_var(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://regula:regula@postgres:5432/regula")
+    settings = load_settings()
+    assert settings.database_url == "postgresql://regula:regula@postgres:5432/regula"

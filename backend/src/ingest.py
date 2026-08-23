@@ -28,11 +28,11 @@ from pathlib import Path
 from typing import Protocol, Sequence
 
 from .chunking import chunk_regulation
+from .config import DEFAULT_DATABASE_URL
 from .db import ChunkRecord, PgVectorStore, connect
 from .embedder import DEFAULT_MODEL, Embedder, EmbeddingError, OllamaEmbedder
 
 DEFAULT_DATA_DIR = Path("data/regulations")
-DEFAULT_DATABASE_URL = "postgresql://regula:regula@localhost:5432/regula"
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 

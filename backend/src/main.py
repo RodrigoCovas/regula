@@ -3,16 +3,17 @@ Regula — Regulatory Research & Compliance Assistant
 Backend entry point
 """
 
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from contextlib import asynccontextmanager, closing
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Callable, Dict, List, Optional, TypedDict
 import json
 import glob
 from pathlib import Path
 import logging
 
 from .config import ConfigurationError, Mode, load_settings
+from .db import PgVectorStore, connect
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength, Trace
 
 logging.basicConfig(level=logging.INFO)
@@ -33,7 +34,61 @@ async def lifespan(_: FastAPI):
     """
     global settings
     settings = load_settings()
+    _log_startup_store_warning()
     yield
+
+
+# The one documented ingestion command (backend/src/ingest.py docstring, README).
+INGEST_COMMAND = "python -m backend.src.ingest"
+INGEST_COMMAND_IN_STACK = "docker compose exec backend python -m backend.src.ingest"
+
+
+def stored_chunk_count() -> int:
+    """How many Chunks the pgvector store currently holds.
+
+    Opens a short-lived connection per probe so a stale pooled connection can
+    never wedge the guard and an ingestion that happens after boot is visible
+    on the next request. Raises if the store cannot be reached; callers decide
+    whether that is survivable (boot: yes; Live request: no).
+    """
+    with closing(connect(settings.database_url)) as connection:
+        return PgVectorStore(connection).count_chunks()
+
+
+def store_probe() -> Callable[[], int]:
+    """Composition-root seam for the un-ingested guard.
+
+    Injected as a zero-argument callable rather than a count: only the Live
+    branch may call it, so Demo mode never touches the database no matter
+    what state the store is in. Tests install deterministic fakes via
+    ``app.dependency_overrides[store_probe]``.
+    """
+    return stored_chunk_count
+
+
+def _log_startup_store_warning() -> None:
+    """Warn once at boot when the vector store cannot serve Live mode.
+
+    An empty or unreachable store is never a startup failure — the process
+    boots in any mode so Demo mode keeps serving keyless stakeholders
+    untouched. Exactly one warning, naming the ingest command when the store
+    is empty.
+    """
+    try:
+        count = stored_chunk_count()
+    except Exception as error:  # noqa: BLE001 — any store failure must not abort boot
+        logger.warning(
+            "Could not check whether the Corpus is ingested (%s); "
+            "Live mode requests will fail until the vector store is reachable.",
+            error,
+        )
+        return
+    if count == 0:
+        logger.warning(
+            "Vector store holds no Chunks yet: Live mode answers stay Not-available "
+            "until the Corpus is ingested (%s).",
+            INGEST_COMMAND,
+        )
 
 
 app = FastAPI(
@@ -356,38 +411,67 @@ async def health():
     return {"status": "ok"}
 
 
-def _live_mode_not_available() -> AnalyzeResponse:
-    """Not-available response for Live mode while its pipeline is unbuilt.
+def _not_available_response(actions: List[str], summary: str) -> AnalyzeResponse:
+    """The sibling shape every Not-available response shares.
 
-    Never serves demo content; explains how to proceed instead.
+    Never serves demo content: empty Findings and Citations, the
+    "not-available" workflow marker, and the English-only Known limitation.
     """
     return AnalyzeResponse(
-        answer=Answer(
-            findings=[],
-            citations=[],
-            actions=[
-                "Live mode's research pipeline is not available yet, so no analysis can be served in this mode.",
-                "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech scenario via scenario.id 'spanish-fintech'.",
-            ],
-        ),
-        trace=Trace(
-            workflow="not-available",
-            summary="Live mode selected but its pipeline is not built yet; no retrieval performed and no demo content served.",
-        ),
+        answer=Answer(findings=[], citations=[], actions=actions),
+        trace=Trace(workflow="not-available", summary=summary),
         detailed_trace=[],
         known_limitations=[ENGLISH_ONLY_LIMITATION],
     )
 
 
+def _live_mode_not_available() -> AnalyzeResponse:
+    """Not-available response for Live mode while its pipeline is unbuilt.
+
+    Explains how to proceed instead of dead-ending.
+    """
+    return _not_available_response(
+        actions=[
+            "Live mode's research pipeline is not available yet, so no analysis can be served in this mode.",
+            "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech scenario via scenario.id 'spanish-fintech'.",
+        ],
+        summary="Live mode selected but its pipeline is not built yet; no retrieval performed and no demo content served.",
+    )
+
+
+def _un_ingested_corpus_response() -> AnalyzeResponse:
+    """Not-available response for Live mode while the vector store is empty.
+
+    Names the exact ingest command and how to retry so recovery needs no
+    documentation.
+    """
+    return _not_available_response(
+        actions=[
+            "The Corpus is not ingested yet, so Live mode has nothing to retrieve from.",
+            f"Ingest it once with: {INGEST_COMMAND}",
+            f"Inside the Docker stack, run: {INGEST_COMMAND_IN_STACK}",
+            "Ingestion takes effect immediately — re-run your request afterwards; no restart is needed.",
+            "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech scenario via scenario.id 'spanish-fintech'.",
+        ],
+        summary="Live mode selected but the vector store is empty; no retrieval performed.",
+    )
+
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
-async def analyze(request: AnalyzeRequest):
+async def analyze(
+    request: AnalyzeRequest,
+    probe: Callable[[], int] = Depends(store_probe),
+):
     """Run the deterministic demo workflow for the Spanish fintech scenario.
 
     This endpoint accepts {scenario, question} and returns a structured
     response with answer, trace, detailed_trace, and known_limitations
-    as siblings.
+    as siblings. Live mode first passes the un-ingested guard: an empty
+    vector store yields a Not-available response naming the ingest command.
     """
     if settings.regula_mode == Mode.live:
+        if probe() == 0:
+            return _un_ingested_corpus_response()
         return _live_mode_not_available()
 
     scenario = request.scenario

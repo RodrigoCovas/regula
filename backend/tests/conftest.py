@@ -30,3 +30,22 @@ def _restore_main_settings():
     saved = main.settings
     yield
     main.settings = saved
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_store_probe(monkeypatch):
+    """Keep every boot hermetic: the startup emptiness probe never reaches for
+    a real PostgreSQL unless a test replaces it explicitly."""
+    import src.main as main
+
+    monkeypatch.setattr(main, "stored_chunk_count", lambda: 0)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _clear_dependency_overrides():
+    """Request-scoped fakes installed on the app must not leak across tests."""
+    from src.main import app
+
+    yield
+    app.dependency_overrides.clear()

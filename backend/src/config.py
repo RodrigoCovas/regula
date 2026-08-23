@@ -2,7 +2,8 @@
 
 Misconfiguration must fail fast at startup, never surface as a mid-request
 server error. Live mode requires OPENROUTER_API_KEY and refuses to start
-without it; nothing ever silently degrades.
+without it; nothing ever silently degrades. DATABASE_URL points the un-ingested
+guard at the pgvector store — the store is never required to boot.
 """
 
 from enum import Enum
@@ -10,6 +11,10 @@ from typing import Optional
 
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
+
+# The local stack DSN: where the ingest CLI writes Chunks and where the
+# backend's guard reads them. One constant so the two ends can never drift.
+DEFAULT_DATABASE_URL = "postgresql://regula:regula@localhost:5432/regula"
 
 
 class Mode(str, Enum):
@@ -24,6 +29,10 @@ class ConfigurationError(RuntimeError):
 class Settings(BaseSettings):
     regula_mode: Mode = Mode.demo
     openrouter_api_key: Optional[SecretStr] = None
+    # Where the pgvector store lives — the same DSN the ingest CLI writes to.
+    # The store is never required at boot: an unreachable or empty database is
+    # a warning, never a startup failure (Demo mode needs no database at all).
+    database_url: str = DEFAULT_DATABASE_URL
 
 
 def load_settings() -> Settings:
