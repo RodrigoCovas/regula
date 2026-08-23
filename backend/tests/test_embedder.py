@@ -7,7 +7,7 @@ a fake transport — no network, no Ollama in the unit suite.
 import pytest
 import requests
 
-from src.embedder import EMBEDDING_DIMENSION, EmbeddingError, OllamaEmbedder
+from src.embedder import DEFAULT_MODEL, EMBEDDING_DIMENSION, EmbeddingError, OllamaEmbedder
 
 
 class FakeTransport:
@@ -38,7 +38,7 @@ def test_embed_posts_model_and_texts_to_ollama_embed_endpoint():
     assert result == [[0.1] * EMBEDDING_DIMENSION]
     (url, payload), = transport.calls
     assert url == "http://ollama:11434/api/embed"
-    assert payload == {"model": "nomic-embed-text", "input": ["Article 1 body"]}
+    assert payload == {"model": DEFAULT_MODEL, "input": ["Article 1 body"]}
 
 
 def test_embed_batches_long_inputs_into_several_requests():
@@ -69,7 +69,7 @@ def test_unreachable_ollama_names_the_fix_in_the_error():
     with pytest.raises(EmbeddingError) as excinfo:
         embedder.embed(["text"])
     message = str(excinfo.value)
-    assert "nomic-embed-text" in message
+    assert DEFAULT_MODEL in message
     assert "docker compose up -d ollama" in message
 
 
@@ -83,7 +83,7 @@ def test_missing_model_error_carries_ollamas_message_and_pull_hint():
     transport = FakeTransport(
         error=requests.HTTPError(
             "404",
-            response=FakeResponse(404, '{"error":"model \\"nomic-embed-text\\" not found"}'),
+            response=FakeResponse(404, f'{{"error":"model \\"{DEFAULT_MODEL}\\" not found"}}'),
         )
     )
     embedder = OllamaEmbedder(base_url="http://x", transport=transport)
@@ -92,7 +92,7 @@ def test_missing_model_error_carries_ollamas_message_and_pull_hint():
         embedder.embed(["text"])
     message = str(excinfo.value)
     assert "not found" in message
-    assert "ollama pull nomic-embed-text" in message
+    assert f"ollama pull {DEFAULT_MODEL}" in message
 
 
 def test_wrong_dimension_vector_fails_loudly():

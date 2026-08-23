@@ -81,7 +81,7 @@ The steps below are for development beyond the deterministic demo.
 - Start everything (PostgreSQL + pgvector, Ollama, backend):
 ```bash
 docker compose up -d
-docker exec regula-ollama-1 ollama pull nomic-embed-text
+docker compose exec ollama ollama pull hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16
 ```
 
 ### Live mode setup (ingest the Corpus)
@@ -95,9 +95,10 @@ before it:
 docker compose up -d postgres ollama
 ```
 
-2. **Pull the embedding model:**
+2. **Pull the embedding model** (nomic-embed-text v1.5 via Hugging Face — the
+   Ollama registry mirror is not reachable from every network):
 ```bash
-docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama pull hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16
 ```
 
 3. **Run ingestion** (idempotent — re-running updates existing rows and
@@ -111,11 +112,12 @@ Run it from the repository root with the Python dependencies installed
 docker compose exec backend python -m backend.src.ingest
 ```
 
-Ingestion reads `data/regulations/*.json`, embeds every Chunk locally with
-`nomic-embed-text`, and upserts it into PostgreSQL/pgvector together with its
-provision metadata (Article XOR Recital XOR Annex). The backend never ingests
-on startup; serving Live mode afterwards additionally requires
-`REGULA_MODE=live` plus `OPENROUTER_API_KEY`.
+Ingestion reads `data/regulations/*.json`, embeds every Chunk locally with the
+pulled embedding model (`hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16` by
+default; override with `--model`), and upserts it into PostgreSQL/pgvector
+together with its provision metadata (Article XOR Recital XOR Annex). The
+backend never ingests on startup; serving Live mode afterwards additionally
+requires `REGULA_MODE=live` plus `OPENROUTER_API_KEY`.
 
 Frontend runs on http://localhost:3000 (`cd frontend && npm install && npm run dev`)
 Backend runs on http://localhost:8000

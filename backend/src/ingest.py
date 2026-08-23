@@ -2,9 +2,10 @@
 
 One documented command ingests the Corpus: it reads the three lexplorer JSON
 documents, applies the locked hybrid chunking (#11), embeds each Chunk locally
-with Ollama ``nomic-embed-text``, and upserts everything into PostgreSQL +
-pgvector with its provision metadata. Re-runs refresh existing rows and insert
-no duplicates (idempotency is enforced by the store's identity key).
+with the Ollama embedding model (nomic-embed-text v1.5), and upserts everything
+into PostgreSQL + pgvector with its provision metadata. Re-runs refresh existing
+rows and insert no duplicates (idempotency is enforced by the store's identity
+key).
 
 The backend never ingests on startup: this explicit command is the documented
 setup path, so a slow model download never hides inside app boot.

@@ -12,7 +12,10 @@ from typing import Callable, Protocol, Sequence
 
 from .models import EMBEDDING_DIMENSION
 
-DEFAULT_MODEL = "nomic-embed-text"
+# The locked embedding model is nomic-embed-text (v1.5); the default points at
+# its Hugging Face GGUF build because that pulls where registry.ollama.ai is
+# unreachable. Any Ollama tag with 768-dim output works via --model/--model flag.
+DEFAULT_MODEL = "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16"
 
 _EMBED_TIMEOUT_SECONDS = 120
 
