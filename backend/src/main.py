@@ -17,6 +17,7 @@ from .availability import (
     UNREACHABLE_STORE_ERRORS,
     live_mode_not_available_response,
     log_startup_store_warning,
+    store_unreachable,
     unreachable_store_response,
     un_ingested_corpus_response,
     vector_store_is_empty,
@@ -379,7 +380,11 @@ async def analyze(
             empty = vector_store_is_empty(settings.database_url)
         except UNREACHABLE_STORE_ERRORS as error:
             # An outage is not the un-ingested case: it gets its own reply.
-            return unreachable_store_response(error)
+            # But only a genuine outage — a reachable store that raised
+            # (timeout, canceled statement) still surfaces as a server error.
+            if store_unreachable(error):
+                return unreachable_store_response(error)
+            raise
         if empty:
             return un_ingested_corpus_response()
         return live_mode_not_available_response()

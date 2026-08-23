@@ -199,6 +199,14 @@ def boot_with_env(monkeypatch, raise_server_exceptions=True, **env):
     return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
+def boot_live(monkeypatch, **overrides):
+    """Boot in Live mode with a throwaway key — the preamble every Live
+    dispatch test shares."""
+    env = {"REGULA_MODE": "live", "OPENROUTER_API_KEY": "sk-or-test"}
+    env.update(overrides)
+    return boot_with_env(monkeypatch, **env)
+
+
 def post_canonical_scenario(client):
     """POST the canonical Spanish fintech Scenario — the request every
     availability test puts to the endpoint, in either mode."""
@@ -217,14 +225,14 @@ def assert_not_available_shape(data):
     assert set(data.keys()) == {"answer", "trace", "detailed_trace", "known_limitations"}
     assert data["answer"]["findings"] == []
     assert data["answer"]["citations"] == []
-    assert data["trace"]["workflow"] == "not-available"
+    assert data["trace"]["workflow"] == availability.NOT_AVAILABLE_WORKFLOW
 
 
 def test_live_mode_request_returns_not_available_never_demo_content(monkeypatch):
     """Live-mode requests get a Not-available response while the pipeline is unbuilt — never demo content."""
-    with boot_with_env(monkeypatch, REGULA_MODE="live", OPENROUTER_API_KEY="sk-or-test") as live_client:
+    with boot_live(monkeypatch) as live_client:
         # The Corpus is ingested (the guard passes); the pipeline itself is still the stub.
-        patch_probe(monkeypatch, lambda _database_url: 42)
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
@@ -269,7 +277,7 @@ def test_default_boot_serves_demo_mode(monkeypatch):
 # --- Un-ingested guard: Live mode over an empty vector store (issue #16) ---
 
 
-def patch_probe(monkeypatch, fake):
+def patch_stored_chunk_count(monkeypatch, fake):
     """Install ``fake`` as the vector-store probe for the next probes."""
     monkeypatch.setattr(availability, "stored_chunk_count", fake)
 
@@ -278,14 +286,14 @@ def test_live_request_before_ingestion_names_the_exact_ingest_command(monkeypatc
     """A Live request over an empty store gets a Not-available response naming
     the exact ingest command and how to retry — never demo content, never a
     server error."""
-    with boot_with_env(monkeypatch, REGULA_MODE="live", OPENROUTER_API_KEY="sk-or-test") as live_client:
-        patch_probe(monkeypatch, lambda _database_url: 0)
+    with boot_live(monkeypatch) as live_client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 0)
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
     assert_not_available_shape(data)
     actions = data["answer"]["actions"]
-    assert any("python -m backend.src.ingest" in a for a in actions), actions
+    assert any(availability.INGEST_COMMAND in a for a in actions), actions
     assert any("re-run" in a.lower() for a in actions), actions
     # Recovery must not require reading documentation or restarting the process.
     assert any("restart" in a.lower() for a in actions), actions
@@ -295,14 +303,14 @@ def test_live_request_before_ingestion_names_the_exact_ingest_command(monkeypatc
 def test_after_ingestion_the_same_request_passes_the_guard_without_restart(monkeypatch):
     """Ingesting after boot takes effect on the next request: the guard no
     longer intercepts it (the request reaches the Live pipeline point)."""
-    with boot_with_env(monkeypatch, REGULA_MODE="live", OPENROUTER_API_KEY="sk-or-test") as live_client:
-        patch_probe(monkeypatch, lambda _database_url: 42)
+    with boot_live(monkeypatch) as live_client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
     # The un-ingested Not-available response would name the ingest command; a
     # guarded release does not. (The pipeline stub answers until ticket #17.)
-    assert not any("python -m backend.src.ingest" in a for a in data["answer"]["actions"])
+    assert not any(availability.INGEST_COMMAND in a for a in data["answer"]["actions"])
     assert "empty" not in data["trace"]["summary"].lower()
 
 
@@ -310,23 +318,23 @@ def test_ingestion_landing_after_boot_takes_effect_on_the_next_request(monkeypat
     """The full AC-3 arc in one process: the store is empty at boot (the guard
     intercepts), ingestion lands afterwards, and the very next request passes
     the guard — no restart in between."""
-    chunks_held: list[str] = []
+    chunk_count = [0]  # mutable counter: the store's contents, as the probe sees it
 
     def count_as_ingestion_lands(_database_url):
-        return len(chunks_held)
+        return chunk_count[0]
 
-    patch_probe(monkeypatch, count_as_ingestion_lands)
-    with boot_with_env(monkeypatch, REGULA_MODE="live", OPENROUTER_API_KEY="sk-or-test") as live_client:
+    patch_stored_chunk_count(monkeypatch, count_as_ingestion_lands)
+    with boot_live(monkeypatch) as live_client:
         before = post_canonical_scenario(live_client).json()
-        assert before["trace"]["workflow"] == "not-available"
-        assert any("python -m backend.src.ingest" in a for a in before["answer"]["actions"])
+        assert before["trace"]["workflow"] == availability.NOT_AVAILABLE_WORKFLOW
+        assert any(availability.INGEST_COMMAND in a for a in before["answer"]["actions"])
 
-        chunks_held.extend(f"chunk-{n}" for n in range(42))  # ingest lands, same process
+        chunk_count[0] = 42  # ingest lands, same process
 
         after = post_canonical_scenario(live_client).json()
     # The un-ingested Not-available response would name the ingest command; a
     # guarded release does not. (The pipeline stub answers until ticket #17.)
-    assert not any("python -m backend.src.ingest" in a for a in after["answer"]["actions"])
+    assert not any(availability.INGEST_COMMAND in a for a in after["answer"]["actions"])
     assert "empty" not in after["trace"]["summary"].lower()
 
 
@@ -338,20 +346,58 @@ def test_live_request_with_unreachable_store_names_the_outage_never_the_ingest_c
     def unreachable(_database_url):
         raise ConnectionError("connection refused")
 
-    patch_probe(monkeypatch, unreachable)
-    with boot_with_env(monkeypatch, REGULA_MODE="live", OPENROUTER_API_KEY="sk-or-test") as live_client:
+    patch_stored_chunk_count(monkeypatch, unreachable)
+    with boot_live(monkeypatch) as live_client:
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
     assert_not_available_shape(data)
     actions = data["answer"]["actions"]
     assert any("not reachable" in a.lower() for a in actions), actions
-    # Recovery is about reachability, not ingestion.
-    assert all("python -m backend.src.ingest" not in a for a in actions), actions
-    assert "python -m backend.src.ingest" not in resp.text
+    # Recovery is about reachability, not ingestion — and the summary must not
+    # be mistaken for the un-ingested (empty store) response's.
+    assert all(availability.INGEST_COMMAND not in a for a in actions), actions
+    assert availability.INGEST_COMMAND not in resp.text
+    assert "empty" not in data["trace"]["summary"].lower()
+    assert "unreachable" in data["trace"]["summary"].lower()
     assert any("docker compose" in a for a in actions), actions
     assert any("re-run" in a.lower() for a in actions), actions
     assert any("english-only" in line.lower() for line in data["known_limitations"])
+
+
+def test_live_request_with_a_pure_connection_outage_gets_the_unreachable_response(monkeypatch):
+    """The issue's literal scenario: PostgreSQL down at request time raises
+    psycopg2 OperationalError with no SQLSTATE (the server was never reached).
+    It must get the unreachable-store reply, like any other outage."""
+    def postgres_down(_database_url):
+        raise psycopg2.OperationalError("connection refused")
+
+    patch_stored_chunk_count(monkeypatch, postgres_down)
+    with boot_live(monkeypatch) as live_client:
+        resp = post_canonical_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert_not_available_shape(data)
+    assert "unreachable" in data["trace"]["summary"].lower()
+    assert availability.INGEST_COMMAND not in resp.text
+
+
+def test_live_request_with_a_canceled_query_on_a_reachable_store_is_a_server_error(monkeypatch):
+    """OperationalError subclasses with their own SQLSTATE mean the server
+    answered — the store is reachable. A statement timeout (QueryCanceled,
+    57014) is a real server error, not 'your database is down' advice."""
+    def statement_timeout(_database_url):
+        error = psycopg2.errors.QueryCanceled("statement timeout")
+        error.pgcode = "57014"
+        raise error
+
+    patch_stored_chunk_count(monkeypatch, statement_timeout)
+    with boot_live(monkeypatch, raise_server_exceptions=False) as live_client:
+        resp = post_canonical_scenario(live_client)
+    assert resp.status_code == 500
+    # Neither outage nor ingestion advice: this needs a different fix.
+    assert "not reachable" not in resp.text
+    assert availability.INGEST_COMMAND not in resp.text
 
 
 def test_live_request_with_a_broken_store_schema_is_still_a_server_error(monkeypatch):
@@ -361,18 +407,13 @@ def test_live_request_with_a_broken_store_schema_is_still_a_server_error(monkeyp
     def broken_schema(_database_url):
         raise psycopg2.ProgrammingError('relation "chunks" does not exist')
 
-    patch_probe(monkeypatch, broken_schema)
-    with boot_with_env(
-        monkeypatch,
-        raise_server_exceptions=False,
-        REGULA_MODE="live",
-        OPENROUTER_API_KEY="sk-or-test",
-    ) as live_client:
+    patch_stored_chunk_count(monkeypatch, broken_schema)
+    with boot_live(monkeypatch, raise_server_exceptions=False) as live_client:
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 500
     # Neither outage nor ingestion advice: this needs a different fix.
     assert "not reachable" not in resp.text
-    assert "python -m backend.src.ingest" not in resp.text
+    assert availability.INGEST_COMMAND not in resp.text
 
 
 def test_boot_with_empty_store_succeeds_logging_exactly_one_warning(monkeypatch, caplog):
@@ -385,7 +426,7 @@ def test_boot_with_empty_store_succeeds_logging_exactly_one_warning(monkeypatch,
             pass
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1, [r.getMessage() for r in warnings]
-    assert "python -m backend.src.ingest" in warnings[0].getMessage()
+    assert availability.INGEST_COMMAND in warnings[0].getMessage()
 
 
 def test_boot_succeeds_even_when_the_store_cannot_be_reached(monkeypatch, caplog):
@@ -396,7 +437,7 @@ def test_boot_succeeds_even_when_the_store_cannot_be_reached(monkeypatch, caplog
     def unreachable(_database_url) -> int:
         raise ConnectionError("connection refused")
 
-    patch_probe(monkeypatch, unreachable)
+    patch_stored_chunk_count(monkeypatch, unreachable)
     with caplog.at_level(logging.WARNING, logger="src.availability"):
         with boot_with_env(monkeypatch) as demo_client:
             resp = post_canonical_scenario(demo_client)
@@ -410,7 +451,7 @@ def test_demo_mode_serves_despite_an_empty_store(monkeypatch):
     """Store state never gates Demo mode: an empty vector store still serves
     the canonical scenario in full."""
     with boot_with_env(monkeypatch) as demo_client:
-        patch_probe(monkeypatch, lambda _database_url: 0)
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 0)
         resp = post_canonical_scenario(demo_client)
     assert resp.status_code == 200
     assert len(resp.json()["answer"]["findings"]) >= 9
@@ -428,7 +469,7 @@ def test_demo_mode_never_touches_the_store_even_when_it_cannot_be_reached(monkey
     with boot_with_env(monkeypatch) as demo_client:
         # Armed only after boot: startup may probe (and survive failure); the
         # Demo-mode request path must not.
-        patch_probe(monkeypatch, explosive_probe)
+        patch_stored_chunk_count(monkeypatch, explosive_probe)
         resp = post_canonical_scenario(demo_client)
     assert resp.status_code == 200
     assert len(resp.json()["answer"]["findings"]) >= 9
