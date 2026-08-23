@@ -93,6 +93,15 @@ def _find_annex_context(doc: dict, number: int) -> Optional[Dict[str, Any]]:
     return None
 
 
+# Deterministic lookup map for the canonical Spanish fintech demo scenario.
+# Each finding lists the provisions that support its claim, with evidence strength.
+class LookupTarget(TypedDict):
+    source_id: str
+    kind: str
+    number: int
+    provision: str
+
+
 def _resolve_target(doc: dict, target: LookupTarget) -> Optional[Dict[str, Any]]:
     """Resolve a lookup target to citation field name and document context.
 
@@ -117,15 +126,6 @@ def _resolve_target(doc: dict, target: LookupTarget) -> Optional[Dict[str, Any]]
             return None
         return {"field": "annex_number", "ctx": ctx}
     return None
-
-
-# Deterministic lookup map for the canonical Spanish fintech demo scenario.
-# Each finding lists the provisions that support its claim, with evidence strength.
-class LookupTarget(TypedDict):
-    source_id: str
-    kind: str
-    number: int
-    provision: str
 
 
 class FindingDef(TypedDict):
