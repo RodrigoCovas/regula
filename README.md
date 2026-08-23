@@ -161,8 +161,9 @@ by construction, so any drop signals a regression, not poor quality.
 
 ## Deployment
 
-- **Local only:** Docker Compose (fully reproducible). Cloud hosting is out of
-  scope for the demo; the deployment-host decision is deferred to a future ADR.
+- **Permanently local:** Docker Compose only. Regula will not be deployed to any
+  cloud host — including Render — by design;
+  see `docs/adr/0002-regula-is-permanently-local-only.md`.
 
 ## Next Steps
 

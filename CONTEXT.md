@@ -37,6 +37,10 @@ _Avoid_: Appendix, schedule
 A term and its official meaning set out in a Regulation, typically in its definitions Article.
 _Avoid_: Glossary, dictionary
 
+**Chunk**:
+A retrievable passage of a Regulation — typically a whole Article or Recital — carrying the provision numbers needed to build Citations.
+_Avoid_: Passage, snippet, segment
+
 **Finding**:
 A conclusion drawn from Evidence about what likely applies or matters in the Scenario, tagged with a Strength.
 
@@ -51,6 +55,10 @@ _Avoid_: Confidence, probability
 **Unsupported claim**:
 A statement with no Evidence in the Corpus either way — no provision can be cited for or against it. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
 _Avoid_: Unverified claim, speculation
+
+**Insufficient evidence**:
+The situation where the Corpus holds nothing relevant enough to answer the Regulatory question for a Scenario. Surfaced as a Known limitation together with suggested Actions; it never produces Findings.
+_Avoid_: No results, empty answer
 
 **Answer**:
 The user-facing conclusions: the Findings, Citations, and Actions. The API returns the Answer, the Execution trace, the detailed trace, and the Known limitations as siblings — workflow machinery never nests inside the Answer.
@@ -68,6 +76,18 @@ _Avoid_: Chain-of-thought
 
 **Claim**:
 A statement the answer makes about what a regulation says or implies. A Claim becomes a Finding when supported by Evidence; a Claim with no Evidence is an Unsupported claim and is discarded.
+
+**Demo mode**:
+The keyless path that serves the canonical Spanish fintech Scenario from fixed content — no LLM calls, no vector retrieval.
+_Avoid_: Offline mode, mock mode
+
+**Live mode**:
+The path where the workflow runs for real over the ingested Corpus, answering arbitrary Scenarios via vector retrieval.
+_Avoid_: Production mode, online mode
+
+**Not-available response**:
+A user-facing reply explaining why a requested capability cannot be served — an unknown Scenario in Demo mode, an un-ingested Corpus in Live mode — and how to proceed.
+_Avoid_: Error message, fallback, dead end
 
 ## Workflow
 

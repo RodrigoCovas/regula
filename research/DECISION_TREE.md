@@ -7,7 +7,7 @@ All decisions have been locked via the grilling process. See full breakdown in s
 ### Tier 1: Foundation
 - **LLM:** DeepSeek V4 Flash (OpenRouter) — $0 for demo
 - **Embeddings:** Ollama + nomic-embed-text (local, free)
-- **Development:** Local docker-compose + Render deployment
+- **Development:** Local docker-compose only (permanently local — see `docs/adr/0002-regula-is-permanently-local-only.md`)
 - **Focus:** 80-90% backend, 10-20% frontend
 
 ### Tier 2: Data & Storage
@@ -30,4 +30,4 @@ All decisions have been locked via the grilling process. See full breakdown in s
 
 ### Tier 5: Deployment
 - **Frontend:** TypeScript + Next.js + Tailwind (~300 lines)
-- **Deployment:** Local + Render Free Tier
+- **Deployment:** Permanently local-only, docker-compose; cloud (incl. Render) rejected — see `docs/adr/0002-regula-is-permanently-local-only.md`
