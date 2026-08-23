@@ -121,6 +121,38 @@ def connect(dsn: str):
     return psycopg2.connect(dsn)
 
 
+class LazyStore:
+    """A ``SearchStore`` that opens its connection on first search, never before.
+
+    Live mode's dependency is resolved for every request, but Demo mode may
+    never touch PostgreSQL at all — so the connection is deferred until a
+    search actually happens and closed when the request scope ends.
+    """
+
+    def __init__(self, dsn: str):
+        self._dsn = dsn
+        self._connection = None
+
+    def search_chunks(
+        self,
+        query_embedding: Sequence[float],
+        limit: int,
+        max_distance: float,
+    ) -> list[ScoredChunk]:
+        if self._connection is None:
+            self._connection = connect(self._dsn)
+        return PgVectorStore(self._connection).search_chunks(
+            query_embedding=query_embedding,
+            limit=limit,
+            max_distance=max_distance,
+        )
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
+
+
 class PgVectorStore:
     """The pgvector-backed Chunk store."""
 

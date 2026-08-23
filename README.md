@@ -54,8 +54,12 @@ ever silently degrades between paths:
   `scenario.id == "spanish-fintech"` from fixed content.
 - `REGULA_MODE=live` — requires `OPENROUTER_API_KEY`. Starting Live mode
   without the key refuses to boot with an error naming the missing variable.
-  The Live research pipeline is not built yet, so Live-mode requests receive
-  a Not-available response (never demo content).
+  Live mode answers **arbitrary** scenarios through the real workflow:
+  Planner → Researcher → Verifier retrieve Chunks from the ingested pgvector
+  Corpus and produce evidence-backed Findings with Strength badges and
+  metadata-derived Citations. The LLM is pinned to
+  `nvidia/nemotron-3-ultra-550b-a55b:free` via OpenRouter. An un-ingested
+  or unreachable store still yields a Not-available response naming the fix.
 
 ### Running the tests locally (no Docker)
 

@@ -4,18 +4,18 @@ Backend entry point
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from typing import Any, Dict, List, Optional, TypedDict
-import json
+from typing import Any, Dict, Iterator, List, Optional, TypedDict
 import glob
-from pathlib import Path
+import json
 import logging
+from pathlib import Path
+
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .availability import (
     ENGLISH_ONLY_LIMITATION,
     UNREACHABLE_STORE_ERRORS,
-    live_mode_not_available_response,
     log_startup_store_warning,
     store_unreachable,
     unreachable_store_response,
@@ -23,7 +23,12 @@ from .availability import (
     vector_store_is_empty,
 )
 from .config import ConfigurationError, Mode, load_settings
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength, Trace
+from .db import LazyStore, PgVectorStore, connect
+from .embedder import OllamaEmbedder
+from .llm import Llm, OpenRouterClient
+from .live_workflow import run_live_analysis
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength, Trace, quote_snippet
+from .retrieval import Retriever, VectorRetriever
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -323,7 +328,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
                 "source_short_name": (doc.get("metadata") or {}).get("shortName"),
                 "section": ctx.get("section"),
                 "provision": target.get("provision") or ctx.get("provision"),
-                "quote": (text[:300] + "...") if text else None,
+                "quote": quote_snippet(text) if text else None,
             }
             citation_kwargs[resolved["field"]] = target["number"]
             citation = Citation(**citation_kwargs)
@@ -357,6 +362,29 @@ def _run_demo_workflow() -> Dict[str, Any]:
     }
 
 
+# --- Composition root: the provider protocols of Live mode (spec #9) ---
+
+
+def get_llm() -> Llm:
+    """The structured-completion client: pinned Nemotron free tier via OpenRouter."""
+    key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
+    return OpenRouterClient(api_key=key)
+
+
+def get_retriever() -> Iterator[Retriever]:
+    """The Evidence source: local query embeddings over the pgvector store.
+
+    The dependency is resolved on every request — Demo mode included — so
+    the store connection stays lazy: it opens only when Live mode actually
+    searches and closes when the request scope ends.
+    """
+    store = LazyStore(settings.database_url)
+    try:
+        yield VectorRetriever(store=store, embedder=OllamaEmbedder(base_url=settings.ollama_api_url))
+    finally:
+        store.close()
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -365,8 +393,11 @@ async def health():
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(
     request: AnalyzeRequest,
+    llm: Llm = Depends(get_llm),
+    retriever: Retriever = Depends(get_retriever),
 ):
-    """Run the deterministic demo workflow for the Spanish fintech scenario.
+    """Answer a Scenario through Demo mode (canonical, deterministic) or
+    Live mode (arbitrary scenarios via retrieval + LLM workflow).
 
     This endpoint accepts {scenario, question} and returns a structured
     response with answer, trace, detailed_trace, and known_limitations
@@ -387,7 +418,7 @@ async def analyze(
             raise
         if empty:
             return un_ingested_corpus_response()
-        return live_mode_not_available_response()
+        return run_live_analysis(request, llm=llm, retriever=retriever)
 
     scenario = request.scenario
 

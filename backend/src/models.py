@@ -78,6 +78,11 @@ class Chunk(BaseModel):
     recital_number: Optional[int] = None
     annex_number: Optional[int] = None
 
+    @property
+    def provision_number(self) -> Optional[int]:
+        """The exactly-one provision number, whichever kind this Chunk targets."""
+        return self.article_number or self.recital_number or self.annex_number
+
     @model_validator(mode="after")
     def exactly_one_target(self):
         targets = {
@@ -125,3 +130,8 @@ class AnalyzeResponse(BaseModel):
     trace: Trace
     detailed_trace: Optional[List[dict]] = Field(default_factory=list)
     known_limitations: List[str] = Field(default_factory=list)
+
+
+def quote_snippet(text: str, limit: int = 300) -> str:
+    """The citation-quote form of a provision text: first ``limit`` chars, elided."""
+    return text[:limit] + ("..." if len(text) > limit else "")

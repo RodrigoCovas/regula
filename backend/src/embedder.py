@@ -1,6 +1,6 @@
 """Local embeddings via Ollama (spec #9, ticket #14).
 
-``Embedder`` is one of the two provider protocols at the composition root:
+``Embedder`` is one of the provider protocols at the composition root:
 tests inject deterministic fakes, production wires ``OllamaEmbedder``.
 Failures are loud and actionable — an unreachable Ollama names the exact
 ``ollama pull`` command that fixes it, mirroring the Not-available philosophy

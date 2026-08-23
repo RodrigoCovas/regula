@@ -1,7 +1,7 @@
 """Retrieval service — the Evidence-gathering primitive (spec #9, ticket #15).
 
 Query text in, top-k most relevant Chunks out. ``VectorRetriever`` composes
-the two provider protocols — it embeds the query locally via an ``Embedder``
+its provider protocols — it embeds the query locally via an ``Embedder``
 and searches the pgvector store through a search-capable ``Store`` — so tests
 and the Live workflow both depend on the single ``Retriever`` seam at the
 composition root.
@@ -24,7 +24,7 @@ locked embedding model; cosine similarity of genuinely relevant provisions
 sits far above junk matches.
 """
 
-from typing import Protocol, Sequence
+from typing import Protocol, runtime_checkable, Sequence
 
 from .embedder import Embedder
 from .models import Chunk, ScoredChunk
@@ -41,6 +41,7 @@ MAX_RETRIEVED_CHUNKS = 8
 DEFAULT_MIN_SIMILARITY = 0.55
 
 
+@runtime_checkable
 class Retriever(Protocol):
     """The Evidence source of the Live workflow."""
 

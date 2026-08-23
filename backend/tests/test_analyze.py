@@ -11,7 +11,11 @@ from fastapi.testclient import TestClient
 
 from src import availability
 from src.config import ConfigurationError
+from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import app
+
+from conftest import boot_live_offline, install_offline_pipeline
+from fakes import FakeRetriever, make_offline_llm
 
 client = TestClient(app)
 
@@ -228,19 +232,17 @@ def assert_not_available_shape(data):
     assert data["trace"]["workflow"] == availability.NOT_AVAILABLE_WORKFLOW
 
 
-def test_live_mode_request_returns_not_available_never_demo_content(monkeypatch):
-    """Live-mode requests get a Not-available response while the pipeline is unbuilt — never demo content."""
-    with boot_live(monkeypatch) as live_client:
-        # The Corpus is ingested (the guard passes); the pipeline itself is still the stub.
-        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+def test_live_request_over_an_ingested_store_runs_the_real_pipeline(monkeypatch):
+    """With the Corpus ingested, a Live request reaches the real workflow —
+    it is answered by the pipeline, not a Not-available reply, and never by
+    demo content."""
+    with boot_live_offline(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
-    assert_not_available_shape(data)  # never demo content, even for the canonical scenario id
-    # Explains how to proceed instead of dead-ending
-    actions = data["answer"]["actions"]
-    assert any("demo" in a.lower() for a in actions)
-    assert any("REGULA_MODE" in a for a in actions)
+    assert set(data.keys()) == {"answer", "trace", "detailed_trace", "known_limitations"}
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
+    assert "demo" not in " ".join(data["answer"]["actions"]).lower()
     assert any("english-only" in line.lower() for line in data["known_limitations"])
 
 
@@ -302,16 +304,16 @@ def test_live_request_before_ingestion_names_the_exact_ingest_command(monkeypatc
 
 def test_after_ingestion_the_same_request_passes_the_guard_without_restart(monkeypatch):
     """Ingesting after boot takes effect on the next request: the guard no
-    longer intercepts it (the request reaches the Live pipeline point)."""
-    with boot_live(monkeypatch) as live_client:
-        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+    longer intercepts it and the request is answered by the Live pipeline."""
+    with boot_live_offline(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
-    # The un-ingested Not-available response would name the ingest command; a
-    # guarded release does not. (The pipeline stub answers until ticket #17.)
+    # The un-ingested Not-available response would name the ingest command;
+    # a guarded release runs the workflow instead.
     assert not any(availability.INGEST_COMMAND in a for a in data["answer"]["actions"])
     assert "empty" not in data["trace"]["summary"].lower()
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
 
 
 def test_ingestion_landing_after_boot_takes_effect_on_the_next_request(monkeypatch):
@@ -330,12 +332,14 @@ def test_ingestion_landing_after_boot_takes_effect_on_the_next_request(monkeypat
         assert any(availability.INGEST_COMMAND in a for a in before["answer"]["actions"])
 
         chunk_count[0] = 42  # ingest lands, same process
+        install_offline_pipeline(make_offline_llm(), FakeRetriever())
 
         after = post_canonical_scenario(live_client).json()
     # The un-ingested Not-available response would name the ingest command; a
-    # guarded release does not. (The pipeline stub answers until ticket #17.)
+    # guarded release is answered by the Live workflow instead.
     assert not any(availability.INGEST_COMMAND in a for a in after["answer"]["actions"])
     assert "empty" not in after["trace"]["summary"].lower()
+    assert after["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
 
 
 def test_live_request_with_unreachable_store_names_the_outage_never_the_ingest_command(monkeypatch):

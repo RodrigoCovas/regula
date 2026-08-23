@@ -50,3 +50,16 @@ def test_database_url_selected_via_env_var(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://regula:regula@postgres:5432/regula")
     settings = load_settings()
     assert settings.database_url == "postgresql://regula:regula@postgres:5432/regula"
+
+
+def test_ollama_api_url_defaults_to_the_local_stack_url(monkeypatch):
+    """Live query embeddings go to the same default Ollama the ingest CLI uses."""
+    monkeypatch.delenv("OLLAMA_API_URL", raising=False)
+    settings = load_settings()
+    assert settings.ollama_api_url == "http://localhost:11434"
+
+
+def test_ollama_api_url_selected_via_env_var(monkeypatch):
+    monkeypatch.setenv("OLLAMA_API_URL", "http://ollama:11434")
+    settings = load_settings()
+    assert settings.ollama_api_url == "http://ollama:11434"

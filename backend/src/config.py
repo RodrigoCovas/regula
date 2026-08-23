@@ -16,6 +16,10 @@ from pydantic_settings import BaseSettings
 # backend's guard reads them. One constant so the two ends can never drift.
 DEFAULT_DATABASE_URL = "postgresql://regula:regula@localhost:5432/regula"
 
+# Where query embeddings come from in Live mode — one constant shared with
+# the ingest CLI so both ends of the vector path agree.
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
+
 
 class Mode(str, Enum):
     demo = "demo"
@@ -33,6 +37,9 @@ class Settings(BaseSettings):
     # The store is never required at boot: an unreachable or empty database is
     # a warning, never a startup failure (Demo mode needs no database at all).
     database_url: str = DEFAULT_DATABASE_URL
+    # Where query embeddings come from in Live mode — same default as the
+    # ingest CLI's OLLAMA_API_URL so both ends of the vector path agree.
+    ollama_api_url: str = DEFAULT_OLLAMA_URL
 
 
 def load_settings() -> Settings:

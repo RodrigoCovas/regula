@@ -1,11 +1,11 @@
 """Availability: whether Live mode can serve a request right now.
 
-Three conditions hang off the Live dispatch point, each answering with a
+Two conditions hang off the Live dispatch point, each answering with a
 Not-available response instead of a server error or demo content: the
-research pipeline is unbuilt yet, the Corpus is un-ingested (store-emptiness
-only this iteration; staleness detection after re-chunking or embedding-model
-changes is deferred), and the vector store cannot be reached at all. Demo mode
-never reaches for the store — availability is a Live-mode concern alone.
+Corpus is un-ingested (store-emptiness only this iteration; staleness
+detection after re-chunking or embedding-model changes is deferred), and
+the vector store cannot be reached at all. Demo mode never reaches for
+the store — availability is a Live-mode concern alone.
 
 This module also hosts the sibling shape every Not-available response shares,
 including the standing English-only Known limitation.
@@ -117,20 +117,6 @@ def _not_available_response(actions: list[str], summary: str) -> AnalyzeResponse
         trace=Trace(workflow=NOT_AVAILABLE_WORKFLOW, summary=summary),
         detailed_trace=[],
         known_limitations=[ENGLISH_ONLY_LIMITATION],
-    )
-
-
-def live_mode_not_available_response() -> AnalyzeResponse:
-    """Not-available response for Live mode while its pipeline is unbuilt.
-
-    Explains how to proceed while the pipeline is unbuilt.
-    """
-    return _not_available_response(
-        actions=[
-            "Live mode's research pipeline is not available yet, so no analysis can be served in this mode.",
-            SWITCH_TO_DEMO_ACTION,
-        ],
-        summary="Live mode selected but its pipeline is not built yet; no retrieval performed and no demo content served.",
     )
 
 
