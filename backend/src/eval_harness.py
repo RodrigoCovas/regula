@@ -193,22 +193,32 @@ def run_eval() -> EvalReport:
     """Run every curated scenario against the analyze workflow and score the produced Findings.
 
     Drives the app's analyze entry point directly — offline, no HTTP.
+    Per ADR-0001 the curated cases are Demo-mode tripwires, so the harness
+    pins Demo mode regardless of how the app is configured and restores the
+    app's settings afterwards.
     """
     import asyncio
 
+    from . import main
+    from .config import Mode, Settings
     from .main import analyze
     from .models import AnalyzeRequest, Scenario
 
-    scenario_results: List[EvalScenarioResult] = []
-    for scenario in CURATED_SCENARIOS:
-        request = AnalyzeRequest(scenario=Scenario(id=scenario.scenario_id), question=scenario.question)
-        response = asyncio.run(analyze(request))
-        produced = [
-            ProducedFinding(statement=f.statement, strength=f.strength)
-            for f in response.answer.findings
-        ]
-        result = score_scenario(scenario.expected, produced)
-        scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
+    app_settings = main.settings
+    main.settings = Settings(regula_mode=Mode.demo)
+    try:
+        scenario_results: List[EvalScenarioResult] = []
+        for scenario in CURATED_SCENARIOS:
+            request = AnalyzeRequest(scenario=Scenario(id=scenario.scenario_id), question=scenario.question)
+            response = asyncio.run(analyze(request))
+            produced = [
+                ProducedFinding(statement=f.statement, strength=f.strength)
+                for f in response.answer.findings
+            ]
+            result = score_scenario(scenario.expected, produced)
+            scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
+    finally:
+        main.settings = app_settings
 
     mean_f1 = sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results)
     return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)

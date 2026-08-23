@@ -45,6 +45,18 @@ curl http://localhost:8000/health
 docker compose down
 ```
 
+### Modes
+
+One environment variable selects the mode before any request is served; nothing
+ever silently degrades between paths:
+
+- `REGULA_MODE=demo` (default) — keyless deterministic demo. Answers only
+  `scenario.id == "spanish-fintech"` from fixed content.
+- `REGULA_MODE=live` — requires `OPENROUTER_API_KEY`. Starting Live mode
+  without the key refuses to boot with an error naming the missing variable.
+  The Live research pipeline is not built yet, so Live-mode requests receive
+  a Not-available response (never demo content).
+
 ### Running the tests locally (no Docker)
 
 Requires Python 3.11+:

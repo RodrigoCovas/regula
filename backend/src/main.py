@@ -3,6 +3,7 @@ Regula — Regulatory Research & Compliance Assistant
 Backend entry point
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Any, Dict, List, Optional, TypedDict
@@ -11,15 +12,35 @@ import glob
 from pathlib import Path
 import logging
 
+from .config import ConfigurationError, Mode, load_settings
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength, Trace
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Fail fast before any request is served: a misconfigured environment aborts
+# startup (uvicorn fails at import) instead of surfacing as a server error.
+settings = load_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Re-load settings through the real startup lifecycle.
+
+    Uvicorn normally fails earlier, at module import; this second validation
+    is the behavioural seam that lets tests boot the app with an environment
+    and observe misconfiguration as a startup failure.
+    """
+    global settings
+    settings = load_settings()
+    yield
+
+
 app = FastAPI(
     title="Regula",
     description="Regulatory research and compliance assistant",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -335,6 +356,29 @@ async def health():
     return {"status": "ok"}
 
 
+def _live_mode_not_available() -> AnalyzeResponse:
+    """Not-available response for Live mode while its pipeline is unbuilt.
+
+    Never serves demo content; explains how to proceed instead.
+    """
+    return AnalyzeResponse(
+        answer=Answer(
+            findings=[],
+            citations=[],
+            actions=[
+                "Live mode's research pipeline is not available yet, so no analysis can be served in this mode.",
+                "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech scenario via scenario.id 'spanish-fintech'.",
+            ],
+        ),
+        trace=Trace(
+            workflow="not-available",
+            summary="Live mode selected but its pipeline is not built yet; no retrieval performed and no demo content served.",
+        ),
+        detailed_trace=[],
+        known_limitations=[ENGLISH_ONLY_LIMITATION],
+    )
+
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(request: AnalyzeRequest):
     """Run the deterministic demo workflow for the Spanish fintech scenario.
@@ -343,6 +387,9 @@ async def analyze(request: AnalyzeRequest):
     response with answer, trace, detailed_trace, and known_limitations
     as siblings.
     """
+    if settings.regula_mode == Mode.live:
+        return _live_mode_not_available()
+
     scenario = request.scenario
 
     # Trigger the deterministic demo ONLY on exact scenario.id == "spanish-fintech"

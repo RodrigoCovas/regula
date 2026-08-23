@@ -103,3 +103,18 @@ def test_deterministic_demo_scores_perfect_on_all_curated_scenarios():
     for scenario in report.scenarios:
         assert scenario.f1 == 1.0, f"scenario {scenario.id} scored {scenario.f1}"
     assert report.mean_f1 == 1.0
+
+
+def test_eval_pins_demo_mode_even_when_app_boots_live(monkeypatch):
+    """ADR-0001: mean F1 below 1.0 must signal a regression, never the boot mode.
+
+    With the app dispatched to Live mode, the harness still evaluates the
+    Demo tripwires and restores the app's settings afterwards.
+    """
+    import src.main as main
+    from src.config import Mode, Settings
+
+    monkeypatch.setattr(main, "settings", Settings(regula_mode=Mode.live, openrouter_api_key=None))
+    report = run_eval()
+    assert report.mean_f1 == 1.0
+    assert main.settings.regula_mode == Mode.live

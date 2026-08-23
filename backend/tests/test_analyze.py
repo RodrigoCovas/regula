@@ -5,7 +5,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
+import pytest
 from fastapi.testclient import TestClient
+
+from src.config import ConfigurationError
 from src.main import app
 
 client = TestClient(app)
@@ -183,3 +186,66 @@ def test_exactly_one_target_citation_invariant():
             citation.get("annex_number") is not None,
         ]
         assert sum(targets) == 1, f"Citation must target exactly one provision: {citation}"
+
+
+def boot_with_env(monkeypatch, **env):
+    """Start the app through its real lifecycle with the given environment."""
+    monkeypatch.delenv("REGULA_MODE", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    return TestClient(app)
+
+
+def test_live_mode_request_returns_not_available_never_demo_content(monkeypatch):
+    """Live-mode requests get a Not-available response while the pipeline is unbuilt — never demo content."""
+    with boot_with_env(monkeypatch, REGULA_MODE="live", OPENROUTER_API_KEY="sk-or-test") as live_client:
+        resp = live_client.post(
+            "/api/analyze",
+            json={
+                "scenario": {"id": "spanish-fintech", "description": "Spanish fintech lending"},
+                "question": "What regulations apply?",
+            },
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {"answer", "trace", "detailed_trace", "known_limitations"}
+    # Never demo content, even for the canonical scenario id
+    assert data["answer"]["findings"] == []
+    assert data["answer"]["citations"] == []
+    assert data["trace"]["workflow"] == "not-available"
+    # Explains how to proceed instead of dead-ending
+    actions = data["answer"]["actions"]
+    assert any("demo" in a.lower() for a in actions)
+    assert any("REGULA_MODE" in a for a in actions)
+    assert any("english-only" in line.lower() for line in data["known_limitations"])
+
+
+def test_live_mode_without_api_key_fails_at_startup(monkeypatch):
+    """Live mode without OPENROUTER_API_KEY refuses to start with a clear message."""
+    client = boot_with_env(monkeypatch, REGULA_MODE="live")
+    with pytest.raises(ConfigurationError) as excinfo:
+        with client:
+            pass
+    assert "OPENROUTER_API_KEY" in str(excinfo.value)
+
+
+def test_configuration_error_is_startup_failure_not_mid_request_server_error(monkeypatch):
+    """Invalid mode value aborts startup; requests are never served a 500 from bad config."""
+    client = boot_with_env(monkeypatch, REGULA_MODE="banana")
+    with pytest.raises(ConfigurationError):
+        with client:
+            pass
+
+
+def test_default_boot_serves_demo_mode(monkeypatch):
+    """Default boot (no env vars) serves Demo mode through the real lifecycle."""
+    with boot_with_env(monkeypatch) as demo_client:
+        resp = demo_client.post(
+            "/api/analyze",
+            json={"scenario": {"id": "spanish-fintech"}, "question": "What regulations apply?"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["answer"]["findings"]) >= 9
+    assert data["trace"]["workflow"] != "not-available"
