@@ -6,3 +6,5 @@ The strength-weighted scorer (`backend/src/eval_harness.py`) is real, but while 
 
 - Exact statement-string matching and unscored citations are deliberate MVP simplifications, not oversights — do not "fix" them before the pipeline exists; a paraphrase-tolerant matcher has nothing real to judge while output is verbatim by construction.
 - Any drop below F1 = 1.0 today is the intended signal: it means a regression (reworded Finding, retagged Strength, or routing leak onto non-canonical ids), not poor quality.
+
+Update 2026-08-24 (#12): the semantic-matching scorer landed early as **machinery only** — step 2 of this sequence was built and proven on synthetic cases while #7's ground truths are still outstanding. The curated suite is unaffected: every case keeps verbatim matching (the default), so F1 = 1.0 stays the regression signal until a hand-authored ground-truth case explicitly opts into `semantic_matcher`. Threshold calibration and matcher validation against real expectations remain gated on #7.

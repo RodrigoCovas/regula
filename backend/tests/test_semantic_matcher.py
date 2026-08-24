@@ -6,12 +6,6 @@ machinery with synthetic paraphrases. The verbatim demo path is pinned by
 test_eval_harness.py and must stay untouched.
 """
 
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "backend"))
-
 import pytest
 
 import src.eval_harness as eval_harness
@@ -66,6 +60,28 @@ def test_paraphrase_clears_threshold_unrelated_does_not():
 
 def test_disjoint_statements_score_zero_similarity():
     assert statement_similarity("Providers must keep logs.", "Users may object.") == 0.0
+
+
+def test_negated_echo_of_an_expected_statement_does_not_match():
+    """Flipping polarity barely moves token overlap, so the matcher gates on
+    negation stance: an affirmative expected and its negated echo are never
+    the same Finding."""
+    negated = "An AI system is not a high-risk AI system under the AI Act."
+    assert statement_similarity(HIGH_RISK_EXPECTED, negated) < SEMANTIC_MATCH_THRESHOLD
+
+
+def test_shared_polarity_leaves_paraphrase_matching_to_vocabulary():
+    """Two statements on the same (negated) side of a claim still match when
+    their content overlaps — the gate only fires on disagreement."""
+    expected = (
+        "Providing credit scores to third parties is not a high-risk activity "
+        "under the AI Act."
+    )
+    paraphrase = (
+        "Under the AI Act, selling credit scores to others is not classified "
+        "as high-risk."
+    )
+    assert statement_similarity(expected, paraphrase) >= SEMANTIC_MATCH_THRESHOLD
 
 
 def test_inflection_and_case_do_not_block_similarity():

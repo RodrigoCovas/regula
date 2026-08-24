@@ -16,7 +16,10 @@ Scoring interpretation: the mis-tag penalty ("a matched Finding retains
 weight x (1 - distance/2) of its credit") is applied to the credit that
 feeds BOTH the precision and recall numerators — the only reading that
 gives the penalty any effect on the score. Spurious Findings subtract
-weight(produced strength) from the precision numerator.
+weight(produced strength) from the precision numerator, and pairing is
+one-to-one per the matcher: a repeated production of an already-paired
+statement adds no credit and its full weight subtracts as spurious
+leakage.
 
 Empty-expected Scenarios follow their own locked rule: they score 1.0
 only when nothing was produced; any production is spurious leakage and
@@ -78,10 +81,14 @@ SEMANTIC_MATCH_THRESHOLD = 0.5
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 
+# Polarity words that must agree before two statements can be the same
+# Finding: flipping one flips its meaning while barely moving token overlap.
+_NEGATORS = frozenset({"not", "no", "nor", "never", "without", "cannot"})
+
 _STOP_WORDS = frozenset(
     """
     a an the and or of to in on for with as by at from is are be been was were
-    that this it its their they them we you your our nor but if then
+    that this it its their they them we you your our but if then
     than so such can may must shall will would should do does did have has had
     any all each other into under when where which who whom whose what whether
     only also before after between through during above below up down out off
@@ -100,15 +107,25 @@ def _singular(word: str) -> str:
 
 
 def _content_tokens(statement: str) -> frozenset:
+    """Content tokens of a statement: lowercased, stopword-stripped, singularized."""
     words = _TOKEN_PATTERN.findall(statement.lower())
     return frozenset(_singular(word) for word in words if word not in _STOP_WORDS)
 
 
 def statement_similarity(a: str, b: str) -> float:
-    """Token-set cosine between two statements: 1.0 only for verbatim or
-    re-inflected echoes, 0.0 for disjoint vocabulary."""
+    """Token-set cosine between two statements, gated on negation stance:
+    1.0 only for verbatim or re-inflected echoes, 0.0 when exactly one side
+    carries a negator (a polarity flip is never the same Finding), and 0.0
+    for disjoint vocabulary.
+
+    The gate is scope-free — "not only ... but also" style constructions are
+    treated as plain negation; real validation against #7's ground truths
+    will tell whether that needs refining.
+    """
     left, right = _content_tokens(a), _content_tokens(b)
     if not left or not right:
+        return 0.0
+    if bool(left & _NEGATORS) != bool(right & _NEGATORS):
         return 0.0
     return len(left & right) / math.sqrt(len(left) * len(right))
 
