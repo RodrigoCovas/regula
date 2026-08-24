@@ -12,6 +12,8 @@ from typing import Optional
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
 
+from .query_log import DEFAULT_QUERY_LOG_PATH
+
 # The local stack DSN: where the ingest CLI writes Chunks and where the
 # backend's guard reads them. One constant so the two ends can never drift.
 DEFAULT_DATABASE_URL = "postgresql://regula:regula@localhost:5432/regula"
@@ -40,6 +42,9 @@ class Settings(BaseSettings):
     # Where query embeddings come from in Live mode — same default as the
     # ingest CLI's OLLAMA_API_URL so both ends of the vector path agree.
     ollama_api_url: str = DEFAULT_OLLAMA_URL
+    # Where per-request observability records land — the documented JSONL
+    # convention (logs/queries.jsonl), overridable for tests.
+    query_log_path: str = DEFAULT_QUERY_LOG_PATH
 
 
 def load_settings() -> Settings:

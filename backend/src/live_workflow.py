@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from .availability import ENGLISH_ONLY_LIMITATION
 from .llm import Llm
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, Strength, Trace, PROVISION_NUMBER_FIELDS, quote_snippet
+from .query_log import RequestObservation
 from .retrieval import MAX_RETRIEVED_CHUNKS, Retriever
 
 logger = logging.getLogger(__name__)
@@ -241,7 +242,7 @@ def _decide_claims(
 # --- The graph: START → planner → researcher → verifier → END ---
 
 
-def _build_graph(llm: Llm, retriever: Retriever):
+def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation | None):
     def planner(state: LiveState) -> dict:
         started = time.perf_counter()
         user = f"Company/product scenario: {state.scenario_description or '(not described)'}\nRegulatory question: {state.question}"
@@ -300,6 +301,11 @@ def _build_graph(llm: Llm, retriever: Retriever):
                         break
 
         drafted = DraftClaims()
+        if observation is not None:
+            # Report the pool as soon as it exists, not after the workflow
+            # completes: a request that dies later still logs what it
+            # retrieved — and spent tokens retrieving.
+            observation.retrieved_chunks = len(evidence)
         if evidence:
             user = (
                 f"Regulatory question: {state.question}\n\nRetrieved evidence:\n\n"
@@ -336,14 +342,22 @@ def _build_graph(llm: Llm, retriever: Retriever):
     return builder.compile()
 
 
-def run_live_analysis(request: AnalyzeRequest, *, llm: Llm, retriever: Retriever) -> AnalyzeResponse:
+def run_live_analysis(
+    request: AnalyzeRequest,
+    *,
+    llm: Llm,
+    retriever: Retriever,
+    observation: RequestObservation | None = None,
+) -> AnalyzeResponse:
     """Answer an arbitrary Scenario through the Live workflow.
 
     The composition root injects the provider protocols; this function
-    stays the one seam the API layer calls.
+    stays the one seam the API layer calls. ``observation`` receives the
+    per-request observability counts — the size of the Evidence pool this
+    pass actually reasoned over.
     """
     scenario_description = request.scenario.description or request.scenario.title or ""
-    result = _build_graph(llm, retriever).invoke(
+    result = _build_graph(llm, retriever, observation).invoke(
         LiveState(scenario_description=scenario_description, question=request.question)
     )
     state = result if isinstance(result, LiveState) else LiveState.model_validate(result)

@@ -107,11 +107,17 @@ class OpenRouterClient:
     The model and the completion budget are module-level locks, not
     parameters — nothing can point the client at a paid model or widen
     the single-pass budget by construction.
+
+    Every completed call that carries provider usage leaves its dictionary
+    in ``usage``, so per-request observability can sum what the workflow
+    spent — including replies that later fail to parse, which still cost
+    tokens.
     """
 
     def __init__(self, api_key: str, transport=None):
         self._api_key = api_key
         self._transport = transport or _requests_transport
+        self.usage: list[dict] = []
 
     def complete(self, system: str, user: str, schema: type[SchemaT]) -> SchemaT:
         instruction = (
@@ -138,6 +144,11 @@ class OpenRouterClient:
             detail = error.response.text.strip()[:300] if error.response is not None else ""
             status = error.response.status_code if error.response is not None else "?"
             raise LlmError(f"OpenRouter rejected the request (HTTP {status}): {detail}") from error
+        # Usage lands before any parsing: a reply we cannot parse still spent
+        # tokens the operator pays for.
+        usage = body.get("usage") if isinstance(body, dict) else None
+        if isinstance(usage, dict):
+            self.usage.append(usage)
         try:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:

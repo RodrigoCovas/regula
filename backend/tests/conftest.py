@@ -11,6 +11,31 @@ from src.models import Chunk
 
 
 @pytest.fixture()
+def query_log_path(tmp_path) -> Path:
+    """Where the hermetic query log lands for one test.
+
+    Nested one directory deep so every test also proves the writer creates
+    missing parent directories.
+    """
+    return tmp_path / "queries" / "queries.jsonl"
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_query_log(monkeypatch, query_log_path):
+    """Query logs stay out of the working tree: tests write them into
+    tmp_path unless they say otherwise.
+
+    Covers both boots that re-load settings through the lifespan (env var)
+    and module-level clients that reuse the import-time settings object.
+    """
+    monkeypatch.setenv("QUERY_LOG_PATH", str(query_log_path))
+    import src.main as main
+
+    monkeypatch.setattr(main.settings, "query_log_path", str(query_log_path), raising=False)
+    yield
+
+
+@pytest.fixture()
 def assert_exactly_one_provision_target():
     """Every retrieved Chunk targets exactly one provision kind — the
     invariant deterministic Citation derivation relies on."""
@@ -60,7 +85,7 @@ def install_fake_pipeline(llm, retriever):
     app.dependency_overrides[get_retriever] = lambda: retriever
 
 
-def boot_live_with_fakes(monkeypatch, llm, retriever, chunk_count=42):
+def boot_live_with_fakes(monkeypatch, llm, retriever, chunk_count=42, raise_server_exceptions=True):
     """The hermetic Live-mode preamble: ingested store probe + fakes at
     the composition root. Returns a TestClient to enter."""
     monkeypatch.setenv("REGULA_MODE", "live")
@@ -73,5 +98,5 @@ def boot_live_with_fakes(monkeypatch, llm, retriever, chunk_count=42):
 
     import src.main as main
 
-    return TestClient(main.app)
+    return TestClient(main.app, raise_server_exceptions=raise_server_exceptions)
 

@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterator, List, Optional, TypedDict
 import glob
 import json
 import logging
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -29,6 +30,14 @@ from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
 from .live_workflow import LIVE_WORKFLOW_MARKER, run_live_analysis
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
+from .query_log import (
+    STATUS_FAILURE,
+    STATUS_SUCCESS,
+    RequestObservation,
+    aggregate_token_usage,
+    append_query_record,
+    build_query_record,
+)
 from .retrieval import Retriever, VectorRetriever
 
 logging.basicConfig(level=logging.INFO)
@@ -389,6 +398,35 @@ async def health():
     return {"status": "ok"}
 
 
+def _log_request(
+    request: AnalyzeRequest,
+    llm: Llm,
+    observation: RequestObservation,
+    *,
+    status: str,
+    workflow: Optional[str],
+    latency_ms: float,
+    error: Optional[str] = None,
+) -> None:
+    """Append one JSONL record for a finished request, success or failure.
+
+    Best-effort: append_query_record never raises into the request path.
+    """
+    append_query_record(
+        settings.query_log_path,
+        build_query_record(
+            mode=settings.regula_mode.value,
+            scenario_id=request.scenario.id,
+            workflow=workflow,
+            status=status,
+            latency_ms=latency_ms,
+            retrieved_chunks=observation.retrieved_chunks,
+            tokens=aggregate_token_usage(llm),
+            error=error,
+        ),
+    )
+
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(
     request: AnalyzeRequest,
@@ -404,7 +442,41 @@ async def analyze(
     vector store yields a Not-available response naming the ingest command,
     an unreachable store or LLM provider one naming the outage — never a
     server error for a condition the operator can fix.
+
+    Every request appends one observability record to the query log —
+    including failures, which carry an explicit failure status and the
+    tokens spent before dying.
     """
+    started = time.perf_counter()
+    observation = RequestObservation()
+    status, workflow, error = STATUS_SUCCESS, None, None
+    try:
+        response = _dispatch_analyze(request, llm=llm, retriever=retriever, observation=observation)
+        workflow = response.trace.workflow
+        return response
+    except Exception as caught:
+        status, error = STATUS_FAILURE, str(caught)
+        raise
+    finally:
+        _log_request(
+            request,
+            llm,
+            observation,
+            status=status,
+            workflow=workflow,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            error=error,
+        )
+
+
+def _dispatch_analyze(
+    request: AnalyzeRequest,
+    *,
+    llm: Llm,
+    retriever: Retriever,
+    observation: RequestObservation,
+) -> AnalyzeResponse:
+    """Mode dispatch: the served answer for one request, Demo or Live."""
     if settings.regula_mode == Mode.live:
         try:
             empty = vector_store_is_empty(settings.database_url)
@@ -418,7 +490,7 @@ async def analyze(
         if empty:
             return un_ingested_corpus_response()
         try:
-            return run_live_analysis(request, llm=llm, retriever=retriever)
+            return run_live_analysis(request, llm=llm, retriever=retriever, observation=observation)
         except LlmUnreachableError as error:
             # A genuine LLM outage is not a server error: it gets its own
             # Not-available reply, mirroring the unreachable-store case.
@@ -438,6 +510,7 @@ async def analyze(
         citations = result["citations"]
         retrieved_passages = result["retrieved_passages"]
         tool_calls = result["tool_calls"]
+        observation.retrieved_chunks = len(retrieved_passages)
         actions = DEMO_ACTIONS
 
         # Verifier pass: the curated anticipated-but-unsupported claims match

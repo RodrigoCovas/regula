@@ -61,6 +61,29 @@ ever silently degrades between paths:
   `nvidia/nemotron-3-ultra-550b-a55b:free` via OpenRouter. An un-ingested
   or unreachable store still yields a Not-available response naming the fix.
 
+### Request observability
+
+Every `/api/analyze` request appends exactly one JSON line to
+`logs/queries.jsonl` (the documented log convention; override the location
+with `QUERY_LOG_PATH`). Each record carries the cost and behaviour basics —
+no platform, no new infrastructure:
+
+| Field | Meaning |
+| --- | --- |
+| `timestamp` | When the request finished (ISO 8601, UTC) |
+| `mode` | `demo` or `live` |
+| `scenario_id` | The Scenario's id |
+| `workflow` | The served Execution trace's workflow marker; `null` when the request failed |
+| `status` | `success`, or `failure` for a request that errored |
+| `latency_ms` | Wall-clock request latency in milliseconds |
+| `retrieved_chunks` | Chunks retrieved for the request (0 when none were) |
+| `tokens` | `{prompt, completion, total}` summed across the request's LLM calls; `null` when no LLM ran |
+| `error` | The failure cause, truncated; `null` on success |
+
+Failures are recorded like any other request — never silently absent — so
+cost stays observable precisely when things go wrong. A broken log
+destination degrades to a warning; serving is never affected.
+
 ### Running the tests locally (no Docker)
 
 Requires Python 3.13+:

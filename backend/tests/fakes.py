@@ -122,21 +122,31 @@ class FakeRetriever:
 
 
 class ScriptedLlm:
-    """Replays canned structured outputs keyed by boundary schema."""
+    """Replays canned structured outputs keyed by boundary schema.
+
+    ``usage`` mirrors the real client's exposure: when given, every
+    completed call leaves one provider usage dictionary behind, so
+    per-request aggregation has something to sum.
+    """
 
     def __init__(
         self,
         plan: Plan | None = None,
         claims: DraftClaims | None = None,
         verdicts: Verdicts | None = None,
+        usage: dict | None = None,
     ):
         self.plan = plan or Plan(targets=[ResearchTarget(query="creditworthiness evaluation")])
         self.claims = claims or DraftClaims(claims=[])
         self.verdicts = verdicts or Verdicts(verdicts=[])
+        self._canned_usage = usage
         self.calls: list[tuple[str, str, type]] = []
+        self.usage: list[dict] = []
 
     def complete(self, system: str, user: str, schema: type):
         self.calls.append((system, user, schema))
+        if self._canned_usage is not None:
+            self.usage.append(dict(self._canned_usage))
         canned = {Plan: self.plan, DraftClaims: self.claims, Verdicts: self.verdicts}[schema]  # type: ignore[index]
         return canned.model_copy(deep=True)
 
@@ -145,9 +155,10 @@ def grounded_verdict(statement: str, strength: Strength, refs: list[str]) -> Ver
     return Verdict(statement=statement, supported=True, strength=strength, evidence_refs=refs)
 
 
-def make_offline_llm() -> ScriptedLlm:
+def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
     """One strong grounded claim, one weak framing claim, one unsupported claim."""
     return ScriptedLlm(
+        usage=usage,
         plan=Plan(targets=[
             ResearchTarget(query="creditworthiness"),
             ResearchTarget(query="automated decisions"),

@@ -153,7 +153,46 @@ def test_schema_violation_is_reported_as_a_shape_mismatch_not_a_parse_failure():
     well-formed but wrongly-shaped reply masquerades as unparseable."""
     transport = FakeTransport(responses=[chat_response('{"targets": {"not": "a list"}}')])
     client = make_client(transport)
-
     with pytest.raises(LlmError) as excinfo:
         client.complete(system="s", user="u", schema=Plan)
     assert "does not match schema" in str(excinfo.value)
+
+
+# --- Per-call token usage exposure (spec #9, ticket #19) -----------------------
+
+
+def usage_response(content: str) -> dict:
+    body = chat_response(content)
+    body["usage"] = {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14}
+    return body
+
+
+def test_completed_completions_record_provider_token_usage():
+    transport = FakeTransport(responses=[usage_response('{"targets": ["a"]}')])
+    client = make_client(transport)
+
+    client.complete(system="s", user="u", schema=Plan)
+
+    assert client.usage == [{"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14}]
+
+
+def test_usage_is_recorded_even_when_the_reply_cannot_be_parsed():
+    """A reply we fail to parse still spent tokens: usage lands before any
+    parsing so per-request cost stays observable."""
+    transport = FakeTransport(responses=[usage_response("I cannot answer that.")])
+    client = make_client(transport)
+
+    with pytest.raises(LlmError):
+        client.complete(system="s", user="u", schema=Plan)
+
+    assert len(client.usage) == 1
+    assert client.usage[0]["total_tokens"] == 14
+
+
+def test_responses_without_usage_record_nothing():
+    transport = FakeTransport(responses=[chat_response('{"targets": []}')])
+    client = make_client(transport)
+
+    client.complete(system="s", user="u", schema=Plan)
+
+    assert client.usage == []

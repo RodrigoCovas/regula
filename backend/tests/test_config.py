@@ -63,3 +63,17 @@ def test_ollama_api_url_selected_via_env_var(monkeypatch):
     monkeypatch.setenv("OLLAMA_API_URL", "http://ollama:11434")
     settings = load_settings()
     assert settings.ollama_api_url == "http://ollama:11434"
+
+
+def test_query_log_defaults_to_the_documented_jsonl_convention(monkeypatch):
+    """Per-request observability lands at the documented logs/queries.jsonl
+    unless overridden (ticket #19)."""
+    monkeypatch.delenv("QUERY_LOG_PATH", raising=False)
+    settings = load_settings()
+    assert settings.query_log_path == "logs/queries.jsonl"
+
+
+def test_query_log_path_selected_via_env_var(monkeypatch, tmp_path):
+    monkeypatch.setenv("QUERY_LOG_PATH", str(tmp_path / "queries.jsonl"))
+    settings = load_settings()
+    assert settings.query_log_path == str(tmp_path / "queries.jsonl")
