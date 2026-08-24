@@ -1,11 +1,12 @@
 """Availability: whether Live mode can serve a request right now.
 
-Two conditions hang off the Live dispatch point, each answering with a
+Three conditions hang off the Live dispatch point, each answering with a
 Not-available response instead of a server error or demo content: the
 Corpus is un-ingested (store-emptiness only this iteration; staleness
-detection after re-chunking or embedding-model changes is deferred), and
-the vector store cannot be reached at all. Demo mode never reaches for
-the store — availability is a Live-mode concern alone.
+detection after re-chunking or embedding-model changes is deferred), the
+vector store cannot be reached at all, and the LLM provider cannot be
+reached at all. Demo mode never reaches for the store or the LLM —
+availability is a Live-mode concern alone.
 
 This module also hosts the sibling shape every Not-available response shares,
 including the standing English-only Known limitation.
@@ -155,4 +156,23 @@ def unreachable_store_response(error: Exception) -> AnalyzeResponse:
             SWITCH_TO_DEMO_ACTION,
         ],
         summary="Live mode selected but the vector store is unreachable; no retrieval performed.",
+    )
+
+
+def unreachable_llm_response(error: Exception) -> AnalyzeResponse:
+    """Not-available response for Live mode while OpenRouter cannot be reached.
+
+    Mirrors the unreachable-store case: a network outage is not a server
+    error, and the operator reading the answer can act on it — check the
+    connection and key — so the reply names the cause verbatim. A reachable
+    provider that rejected or malformed the answer never lands here; that
+    stays a server error.
+    """
+    return _not_available_response(
+        actions=[
+            f"The LLM provider is not reachable ({error}), so Live mode cannot run the workflow.",
+            "Check the network connection and OPENROUTER_API_KEY, then re-run your request; no restart is needed.",
+            SWITCH_TO_DEMO_ACTION,
+        ],
+        summary="Live mode selected but the LLM provider is unreachable; no analysis performed.",
     )

@@ -35,18 +35,25 @@ DEFINITIONS_CHUNK = make_chunk(number=3, text="Definitions of AI system, provide
 
 
 class FakeRetriever:
-    """Returns the same canned Chunks for every query; records the queries."""
+    """Returns the same canned Chunks for every query; records the queries.
 
-    def __init__(self, chunks: list[Chunk] | None = None):
+    ``per_query`` overrides the default result set for specific queries, so a
+    test can give each research target its own retrieval results.
+    """
+
+    def __init__(self, chunks: list[Chunk] | None = None, per_query: dict[str, list[Chunk]] | None = None):
         self.chunks = chunks if chunks is not None else [
             HIGH_RISK_CHUNK,
             AUTOMATED_DECISION_CHUNK,
             DEFINITIONS_CHUNK,
         ]
+        self.per_query = per_query or {}
         self.queries: list[str] = []
 
     def retrieve(self, query: str) -> list[Chunk]:
         self.queries.append(query)
+        if query in self.per_query:
+            return list(self.per_query[query])
         return list(self.chunks)
 
 

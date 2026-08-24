@@ -24,6 +24,7 @@ explaining the gap, and Actions suggesting how to narrow the question.
 import json
 import logging
 import time
+from collections import Counter
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -31,7 +32,7 @@ from pydantic import BaseModel, Field
 
 from .availability import ENGLISH_ONLY_LIMITATION
 from .llm import Llm
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, Chunk, Finding, ProvisionKind, Strength, Trace, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, Strength, Trace, PROVISION_NUMBER_FIELDS, quote_snippet
 from .retrieval import MAX_RETRIEVED_CHUNKS, Retriever
 
 logger = logging.getLogger(__name__)
@@ -94,14 +95,20 @@ class Verdicts(BaseModel):
     verdicts: list[Verdict] = Field(default_factory=list)
 
 
+class LabeledEvidence(BaseModel):
+    """One retrieved Chunk with the stable label the agents reference it by."""
+
+    label: str
+    chunk: Chunk
+
+
 class LiveState(BaseModel):
     """The LangGraph state: one field per boundary between the three agents."""
 
     scenario_description: str = ""
     question: str = ""
     plan: list[ResearchTarget] = Field(default_factory=list)
-    evidence_labels: list[str] = Field(default_factory=list)
-    evidence_chunks: list[Chunk] = Field(default_factory=list)  # parallel to labels
+    evidence: list[LabeledEvidence] = Field(default_factory=list)
     retrievals: list[dict] = Field(default_factory=list)  # one record per retrieval-tool call
     drafted: DraftClaims = Field(default_factory=DraftClaims)
     verdicts: Verdicts = Field(default_factory=Verdicts)
@@ -136,11 +143,12 @@ _VERIFIER_SYSTEM = (
 )
 
 
-def _evidence_block(labels: list[str], chunks: list[Chunk]) -> str:
+def _evidence_block(evidence: list[LabeledEvidence]) -> str:
     parts = []
-    for label, chunk in zip(labels, chunks):
+    for item in evidence:
+        chunk = item.chunk
         text = chunk.text[:_MAX_CHUNK_CHARS]
-        parts.append(f"[{label}] {chunk.source_id} {chunk.kind.value} {chunk.title or ''}\n{text}")
+        parts.append(f"[{item.label}] {chunk.source_id} {chunk.kind.value} {chunk.title or ''}\n{text}")
     return "\n\n".join(parts)
 
 
@@ -150,12 +158,6 @@ _PROVISION_NOUNS = {
     ProvisionKind.article: "Article",
     ProvisionKind.recital: "Recital",
     ProvisionKind.annex: "Annex",
-}
-
-_CITATION_FIELDS = {
-    ProvisionKind.article: "article_number",
-    ProvisionKind.recital: "recital_number",
-    ProvisionKind.annex: "annex_number",
 }
 
 
@@ -171,53 +173,68 @@ def derive_citation(chunk: Chunk) -> Citation:
         "provision": _provision_label(chunk),
         "quote": quote_snippet(chunk.text),
         # The exactly-one-target field comes from the Chunk's validated metadata.
-        _CITATION_FIELDS[chunk.kind]: chunk.provision_number,
+        PROVISION_NUMBER_FIELDS[chunk.kind]: chunk.provision_number,
     })
 
 
-def _resolve_refs(refs: list[str], evidence_by_label: dict[str, Chunk]) -> list[Citation]:
-    """Map evidence labels back to Citations; unknown labels resolve to nothing."""
-    resolved = []
+def _resolve_refs(refs: list[str], evidence_by_label: dict[str, Chunk]) -> tuple[list[Citation], list[str]]:
+    """Map evidence labels back to Citations, reporting labels that match no Chunk."""
+    resolved, unknown = [], []
     for ref in refs:
         chunk = evidence_by_label.get(ref)
-        if chunk is not None:
+        if chunk is None:
+            unknown.append(ref)
+        else:
             resolved.append(derive_citation(chunk))
-    return resolved
+    return resolved, unknown
 
 
 _NO_CITABLE_EVIDENCE_REASON = "the selected evidence resolves to no citable provision"
 _NO_VERDICT_REASON = "the Verifier returned no decision for this claim"
 
 
-def _decide_claims(drafted: DraftClaims, verdicts: Verdicts, evidence_by_label: dict[str, Chunk]) -> tuple[list[Finding], list[str], list[dict]]:
+def _decide_claims(
+    drafted: DraftClaims, verdicts: Verdicts, evidence_by_label: dict[str, Chunk]
+) -> tuple[list[Finding], list[str], list[ClaimDecision]]:
     """Turn verdicts into kept Findings, discarded Unsupported claims, and per-claim decisions.
 
     A Claim becomes a Finding only when the verdict supports it AND its evidence
     references resolve to real Chunks — otherwise it is an Unsupported claim:
     never in the Answer, recorded in the Execution trace. Every drafted claim
     must end up decided: a claim the Verifier never returned a verdict for is
-    recorded as rejected too — nothing drafted may vanish silently.
+    recorded as rejected too — nothing drafted may vanish silently. Verdicts
+    are matched to drafts one-for-one per statement, so duplicate statements
+    each consume their own verdict.
     """
     findings: list[Finding] = []
     discarded: list[str] = []
-    decisions: list[dict] = []
-    decided_statements: set[str] = set()
+    decisions: list[ClaimDecision] = []
+    outstanding = Counter(verdict.statement for verdict in verdicts.verdicts)
     for verdict in verdicts.verdicts:
-        citations = _resolve_refs(verdict.evidence_refs, evidence_by_label) if verdict.supported else []
+        if verdict.supported:
+            citations, unknown_refs = _resolve_refs(verdict.evidence_refs, evidence_by_label)
+            if unknown_refs:
+                logger.warning(
+                    "verifier cited evidence labels matching no Chunk (%s); dropped from the claim's Citations",
+                    ", ".join(unknown_refs),
+                )
+        else:
+            citations = []
         if verdict.supported and citations:
             findings.append(Finding(statement=verdict.statement, strength=verdict.strength, citations=citations))
-            decisions.append({"claim": verdict.statement, "status": "kept"})
+            decisions.append(ClaimDecision(claim=verdict.statement, status="kept"))
         else:
             reason = "no Evidence in the Corpus supports this claim"
             if verdict.supported:
                 reason = _NO_CITABLE_EVIDENCE_REASON
             discarded.append(verdict.statement)
-            decisions.append({"claim": verdict.statement, "status": "rejected", "reason": reason})
-        decided_statements.add(verdict.statement)
+            decisions.append(ClaimDecision(claim=verdict.statement, status="rejected", reason=reason))
     for claim in drafted.claims:
-        if claim.statement not in decided_statements:
+        if outstanding[claim.statement] > 0:
+            outstanding[claim.statement] -= 1
+        else:
             discarded.append(claim.statement)
-            decisions.append({"claim": claim.statement, "status": "rejected", "reason": _NO_VERDICT_REASON})
+            decisions.append(ClaimDecision(claim=claim.statement, status="rejected", reason=_NO_VERDICT_REASON))
     return findings, discarded, decisions
 
 
@@ -235,8 +252,7 @@ def _build_graph(llm: Llm, retriever: Retriever):
     def researcher(state: LiveState) -> dict:
         """Gather Evidence exclusively through the retrieval tool, then draft Claims."""
         retrievals: list[dict] = []
-        labels: list[str] = []
-        chunks: list[Chunk] = []
+        per_target: list[list[Chunk]] = []
         seen: set[tuple] = set()
         for target in state.plan:
             found = retriever.retrieve(target.query)
@@ -247,6 +263,7 @@ def _build_graph(llm: Llm, retriever: Retriever):
                     "chunks_returned": len(found),
                 }
             )
+            fresh: list[Chunk] = []
             for chunk in found:
                 identity = (
                     chunk.source_id,
@@ -254,31 +271,53 @@ def _build_graph(llm: Llm, retriever: Retriever):
                     chunk.provision_number,
                     chunk.chunk_index,
                 )
-                if identity in seen or len(chunks) >= MAX_RETRIEVED_CHUNKS:
+                if identity in seen:
                     continue
                 seen.add(identity)
-                labels.append(f"E{len(chunks) + 1}")
-                chunks.append(chunk)
+                fresh.append(chunk)
+            per_target.append(fresh)
+
+        # Fair-share fill under the locked single-pass budget: every target
+        # claims its share of the pool before any target's broad results can
+        # backfill it, so a greedy first query cannot starve the rest.
+        evidence: list[LabeledEvidence] = []
+
+        def take(chunk: Chunk) -> None:
+            evidence.append(LabeledEvidence(label=f"E{len(evidence) + 1}", chunk=chunk))
+
+        if per_target:
+            fair_share = max(1, MAX_RETRIEVED_CHUNKS // len(per_target))
+            for fresh in per_target:
+                for chunk in fresh[:fair_share]:
+                    take(chunk)
+            if len(evidence) < MAX_RETRIEVED_CHUNKS:
+                for fresh in per_target:
+                    for chunk in fresh[fair_share:]:
+                        take(chunk)
+                        if len(evidence) >= MAX_RETRIEVED_CHUNKS:
+                            break
+                    if len(evidence) >= MAX_RETRIEVED_CHUNKS:
+                        break
 
         drafted = DraftClaims()
-        if chunks:
+        if evidence:
             user = (
                 f"Regulatory question: {state.question}\n\nRetrieved evidence:\n\n"
-                f"{_evidence_block(labels, chunks)}"
+                f"{_evidence_block(evidence)}"
             )
             started = time.perf_counter()
             drafted = llm.complete(system=_RESEARCHER_SYSTEM, user=user, schema=DraftClaims)
-            logger.info("researcher: %d draft(s) over %d chunk(s) in %.2fs", len(drafted.claims), len(chunks), time.perf_counter() - started)
-        return {"drafted": drafted, "evidence_labels": labels, "evidence_chunks": chunks, "retrievals": retrievals}
+            logger.info("researcher: %d draft(s) over %d chunk(s) in %.2fs", len(drafted.claims), len(evidence), time.perf_counter() - started)
+        return {"drafted": drafted, "evidence": evidence, "retrievals": retrievals}
 
     def verifier(state: LiveState) -> dict:
-        if not state.evidence_chunks:
+        if not state.evidence:
             # Nothing retrieved cleared the relevance threshold: drafting and
             # verifying claims against no Evidence would be theatre.
             return {}
         user = (
             f"Regulatory question: {state.question}\n\nRetrieved evidence:\n\n"
-            f"{_evidence_block(state.evidence_labels, state.evidence_chunks)}\n\n"
+            f"{_evidence_block(state.evidence)}\n\n"
             f"Drafted claims:\n{json.dumps([claim.model_dump() for claim in state.drafted.claims])}"
         )
         started = time.perf_counter()
@@ -309,23 +348,23 @@ def run_live_analysis(request: AnalyzeRequest, *, llm: Llm, retriever: Retriever
     )
     state = result if isinstance(result, LiveState) else LiveState.model_validate(result)
 
-    evidence_by_label = dict(zip(state.evidence_labels, state.evidence_chunks))
+    evidence_by_label = {item.label: item.chunk for item in state.evidence}
     findings, discarded, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label)
     all_citations = [citation for finding in findings for citation in finding.citations]
     retrieved_chunks = [
         {
-            "label": label,
-            "source_id": chunk.source_id,
-            "kind": chunk.kind.value,
-            "number": chunk.provision_number,
-            "section": chunk.title,
-            "provision": _provision_label(chunk),
-            "text": chunk.text[:1000],
+            "label": item.label,
+            "source_id": item.chunk.source_id,
+            "kind": item.chunk.kind.value,
+            "number": item.chunk.provision_number,
+            "section": item.chunk.title,
+            "provision": _provision_label(item.chunk),
+            "text": item.chunk.text[:1000],
         }
-        for label, chunk in evidence_by_label.items()
+        for item in state.evidence
     ]
 
-    insufficient = not state.evidence_chunks
+    insufficient = not state.evidence
     known_limitations = [ENGLISH_ONLY_LIMITATION] + ([INSUFFICIENT_EVIDENCE_LIMITATION] if insufficient else [])
     actions = list(NARROW_THE_QUESTION_ACTIONS) if insufficient else []
 
@@ -356,7 +395,7 @@ def run_live_analysis(request: AnalyzeRequest, *, llm: Llm, retriever: Retriever
         {
             "step": "verifier",
             "action": "check each Claim against the retrieved Evidence, tag its Strength, discard Unsupported claims",
-            "claim_decisions": decisions,
+            "claim_decisions": [decision.model_dump() for decision in decisions],
         },
     ]
 

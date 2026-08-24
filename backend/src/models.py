@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -20,6 +20,22 @@ class Strength(str, Enum):
     weak = "weak"
 
 
+class ProvisionKind(str, Enum):
+    article = "article"
+    recital = "recital"
+    annex = "annex"
+
+
+# The one map from provision kind to the exactly-one-target Citation field it
+# populates — shared by every validator, citation derivation, and lookup that
+# must agree on the mapping.
+PROVISION_NUMBER_FIELDS: dict[ProvisionKind, str] = {
+    ProvisionKind.article: "article_number",
+    ProvisionKind.recital: "recital_number",
+    ProvisionKind.annex: "annex_number",
+}
+
+
 class Citation(BaseModel):
     source_id: str
     source_short_name: Optional[str] = None
@@ -32,11 +48,7 @@ class Citation(BaseModel):
 
     @model_validator(mode="after")
     def exactly_one_target(self):
-        targets = [
-            self.article_number is not None,
-            self.recital_number is not None,
-            self.annex_number is not None,
-        ]
+        targets = [getattr(self, field) is not None for field in PROVISION_NUMBER_FIELDS.values()]
         if sum(targets) != 1:
             raise ValueError(
                 "A Citation must target exactly one of article_number, recital_number, or annex_number"
@@ -48,12 +60,6 @@ class Finding(BaseModel):
     statement: str
     strength: Strength = Strength.moderate
     citations: List[Citation] = Field(default_factory=list)
-
-
-class ProvisionKind(str, Enum):
-    article = "article"
-    recital = "recital"
-    annex = "annex"
 
 
 # The locked embedding model (nomic-embed-text, served locally by Ollama)
@@ -85,11 +91,7 @@ class Chunk(BaseModel):
 
     @model_validator(mode="after")
     def exactly_one_target(self):
-        targets = {
-            ProvisionKind.article: self.article_number,
-            ProvisionKind.recital: self.recital_number,
-            ProvisionKind.annex: self.annex_number,
-        }
+        targets = {kind: getattr(self, field) for kind, field in PROVISION_NUMBER_FIELDS.items()}
         if sum(value is not None for value in targets.values()) != 1:
             raise ValueError(
                 "A Chunk must target exactly one of article_number, recital_number, or annex_number"
@@ -123,6 +125,14 @@ class Trace(BaseModel):
     workflow: str
     summary: str
     unsupported_claims_discarded: List[str] = Field(default_factory=list)
+
+
+class ClaimDecision(BaseModel):
+    """One Verifier decision in the detailed trace: kept, or rejected with why."""
+
+    claim: str
+    status: Literal["kept", "rejected"]
+    reason: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):

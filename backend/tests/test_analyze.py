@@ -11,10 +11,11 @@ from fastapi.testclient import TestClient
 
 from src import availability
 from src.config import ConfigurationError
+from src.llm import LlmError, LlmUnreachableError
 from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import app
 
-from conftest import boot_live_offline, install_offline_pipeline
+from conftest import boot_live_with_fakes, install_fake_pipeline
 from fakes import FakeRetriever, make_offline_llm
 
 client = TestClient(app)
@@ -236,7 +237,7 @@ def test_live_request_over_an_ingested_store_runs_the_real_pipeline(monkeypatch)
     """With the Corpus ingested, a Live request reaches the real workflow —
     it is answered by the pipeline, not a Not-available reply, and never by
     demo content."""
-    with boot_live_offline(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
+    with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
@@ -305,7 +306,7 @@ def test_live_request_before_ingestion_names_the_exact_ingest_command(monkeypatc
 def test_after_ingestion_the_same_request_passes_the_guard_without_restart(monkeypatch):
     """Ingesting after boot takes effect on the next request: the guard no
     longer intercepts it and the request is answered by the Live pipeline."""
-    with boot_live_offline(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
+    with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
         resp = post_canonical_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
@@ -332,7 +333,7 @@ def test_ingestion_landing_after_boot_takes_effect_on_the_next_request(monkeypat
         assert any(availability.INGEST_COMMAND in a for a in before["answer"]["actions"])
 
         chunk_count[0] = 42  # ingest lands, same process
-        install_offline_pipeline(make_offline_llm(), FakeRetriever())
+        install_fake_pipeline(make_offline_llm(), FakeRetriever())
 
         after = post_canonical_scenario(live_client).json()
     # The un-ingested Not-available response would name the ingest command; a
@@ -418,6 +419,55 @@ def test_live_request_with_a_broken_store_schema_is_still_a_server_error(monkeyp
     # Neither outage nor ingestion advice: this needs a different fix.
     assert "not reachable" not in resp.text
     assert availability.INGEST_COMMAND not in resp.text
+
+
+# --- Unreachable LLM provider: the third Not-available condition (review of #17) ---
+
+
+class UnreachableLlm:
+    """The LLM seam when OpenRouter cannot be reached at all."""
+
+    def complete(self, system, user, schema):
+        raise LlmUnreachableError(
+            "Could not reach OpenRouter at https://openrouter.ai/api/v1/chat/completions: "
+            "connection refused. Check the network connection."
+        )
+
+
+def test_live_request_with_unreachable_llm_names_the_outage_not_a_server_error(monkeypatch):
+    """OpenRouter down at request time is a genuine outage: the reply names it
+    and how to recover — never a 500, never demo content, never ingest advice."""
+    with boot_live(monkeypatch) as live_client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+        install_fake_pipeline(UnreachableLlm(), FakeRetriever())
+        resp = post_canonical_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert_not_available_shape(data)
+    actions = data["answer"]["actions"]
+    assert any("not reachable" in a.lower() for a in actions), actions
+    assert any("openrouter_api_key" in a.lower() for a in actions), actions
+    assert any("re-run" in a.lower() for a in actions), actions
+    assert "unreachable" in data["trace"]["summary"].lower()
+    # Recovery is about the provider, not ingestion.
+    assert availability.INGEST_COMMAND not in resp.text
+    assert any("english-only" in line.lower() for line in data["known_limitations"])
+
+
+def test_live_request_with_a_reachable_but_failing_llm_is_a_server_error(monkeypatch):
+    """A reachable provider that rejects the request is not an outage: masking
+    it as 'provider unreachable' would send operators chasing their network or
+    key instead of the actual failure."""
+    class RateLimitedLlm:
+        def complete(self, system, user, schema):
+            raise LlmError("OpenRouter rejected the request (HTTP 429): Rate limit exceeded")
+
+    with boot_live(monkeypatch, raise_server_exceptions=False) as live_client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+        install_fake_pipeline(RateLimitedLlm(), FakeRetriever())
+        resp = post_canonical_scenario(live_client)
+    assert resp.status_code == 500
+    assert "not reachable" not in resp.text
 
 
 def test_boot_with_empty_store_succeeds_logging_exactly_one_warning(monkeypatch, caplog):

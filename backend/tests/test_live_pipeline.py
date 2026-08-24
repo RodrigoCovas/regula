@@ -20,13 +20,17 @@ from fastapi.testclient import TestClient
 from src import availability
 from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import app
+from src.models import Strength
+from src.retrieval import MAX_RETRIEVED_CHUNKS
 
-from conftest import install_offline_pipeline
+from conftest import install_fake_pipeline
 from fakes import (
     AUTOMATED_DECISION_CHUNK,
     DEFINITIONS_CHUNK,
     HIGH_RISK_CHUNK,
     FakeRetriever,
+    grounded_verdict,
+    make_chunk,
     make_offline_llm,
 )
 
@@ -37,7 +41,7 @@ def _offline_live_dependencies(monkeypatch):
     monkeypatch.setenv("REGULA_MODE", "live")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
-    install_offline_pipeline(make_offline_llm(), FakeRetriever())
+    install_fake_pipeline(make_offline_llm(), FakeRetriever())
     yield
 
 
@@ -117,7 +121,7 @@ def test_weak_framing_finding_stays_in_the_answer(live_client):
 def test_empty_retrieval_is_insufficient_evidence_never_invented_findings(monkeypatch):
     """Nothing relevant retrieved → honest Insufficient-evidence response:
     empty Findings, a Known limitation naming the gap, Actions to narrow."""
-    install_offline_pipeline(make_offline_llm(), FakeRetriever(chunks=[]))
+    install_fake_pipeline(make_offline_llm(), FakeRetriever(chunks=[]))
     with TestClient(app) as client:
         resp = post_arbitrary_scenario(client)
     assert resp.status_code == 200
@@ -139,7 +143,7 @@ def test_empty_retrieval_is_insufficient_evidence_never_invented_findings(monkey
 def test_researcher_touches_the_corpus_only_via_the_retrieval_tool(live_client):
     retriever = FakeRetriever()
     llm = make_offline_llm()
-    install_offline_pipeline(llm, retriever)
+    install_fake_pipeline(llm, retriever)
 
     resp = post_arbitrary_scenario(live_client)
     assert resp.status_code == 200
@@ -173,7 +177,7 @@ def test_drafted_claim_without_a_verdict_is_still_recorded_as_rejected(monkeypat
         ]
     )
     llm.plan = Plan(targets=[ResearchTarget(query="creditworthiness")])
-    install_offline_pipeline(llm, FakeRetriever())
+    install_fake_pipeline(llm, FakeRetriever())
     with TestClient(app) as client:
         resp = post_arbitrary_scenario(client)
     assert resp.status_code == 200
@@ -192,3 +196,96 @@ def test_drafted_claim_without_a_verdict_is_still_recorded_as_rejected(monkeypat
 
     # The verdicted weak framing finding is unaffected.
     assert any(f["strength"] == "weak" for f in data["answer"]["findings"])
+
+
+# --- Fair-share fill: no research target may starve under the locked budget ---
+
+
+def test_fair_share_fill_keeps_every_target_represented_under_the_budget(live_client):
+    """A greedy first target cannot consume the whole single-pass pool: each
+    target claims its fair share before leftovers backfill the budget."""
+    broad = [make_chunk(source_id=f"broad-{i}", number=i + 1) for i in range(MAX_RETRIEVED_CHUNKS)]
+    narrow = [
+        make_chunk(source_id="narrow-a", number=21),
+        make_chunk(source_id="narrow-b", number=22),
+    ]
+    retriever = FakeRetriever(per_query={
+        "creditworthiness": broad,
+        "automated decisions": narrow,
+    })
+    install_fake_pipeline(make_offline_llm(), retriever)
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    researcher_steps = [s for s in data["detailed_trace"] if s["step"] == "researcher"]
+    retrieved = researcher_steps[0]["retrieved"]
+    sources = {r["source_id"] for r in retrieved}
+    assert len(retrieved) <= MAX_RETRIEVED_CHUNKS, "the locked single-pass budget holds"
+    assert any(s.startswith("narrow-") for s in sources), "the second target is represented"
+    assert any(s.startswith("broad-") for s in sources), "the first target is still represented"
+
+
+def test_duplicate_drafted_statements_each_get_their_own_decision(monkeypatch):
+    """Verdicts are matched to drafts one-for-one per statement: two drafts of
+    the same statement sharing one verdict means one kept Finding and one
+    recorded rejection — neither copy may vanish from the trace."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
+
+    duplicated = "The system qualifies as an AI system under the definitions."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="definitions")])
+    llm.claims = DraftClaims(
+        claims=[
+            DraftClaim(statement=duplicated, evidence_refs=["E1"]),
+            DraftClaim(statement=duplicated, evidence_refs=["E1"]),
+        ]
+    )
+    llm.verdicts = Verdicts(verdicts=[grounded_verdict(duplicated, Strength.weak, ["E1"])])
+    install_fake_pipeline(llm, FakeRetriever(per_query={"definitions": [DEFINITIONS_CHUNK]}))
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f for f in data["answer"]["findings"] if f["statement"] == duplicated]
+    assert len(findings) == 1, "exactly one Finding survives — one verdict was returned"
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decisions = [d for d in verifier_steps[0]["claim_decisions"] if d["claim"] == duplicated]
+    statuses = sorted(d["status"] for d in decisions)
+    assert statuses == ["kept", "rejected"], statuses
+    rejected = next(d for d in decisions if d["status"] == "rejected")
+    assert "no decision" in rejected["reason"]
+
+    discarded = data["trace"]["unsupported_claims_discarded"]
+    assert discarded.count(duplicated) == 1
+
+
+def test_unknown_evidence_labels_are_dropped_never_become_citations(monkeypatch):
+    """A supported claim citing a label that matches no Chunk keeps only its
+    resolvable Citations — an unknown label can never be hallucinated into
+    a Citation."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
+
+    statement = "Partially grounded claim."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="creditworthiness")])
+    llm.claims = DraftClaims(claims=[DraftClaim(statement=statement, evidence_refs=["E1", "E99"])])
+    llm.verdicts = Verdicts(verdicts=[grounded_verdict(statement, Strength.moderate, ["E1", "E99"])])
+    install_fake_pipeline(llm, FakeRetriever())
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f for f in data["answer"]["findings"] if f["statement"] == statement]
+    assert len(findings) == 1, "the resolvable reference still supports the Finding"
+    citations = findings[0]["citations"]
+    assert [c["source_id"] for c in citations] == [HIGH_RISK_CHUNK.source_id]
+    assert all(c["article_number"] != 99 for c in citations)
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decision = next(d for d in verifier_steps[0]["claim_decisions"] if d["claim"] == statement)
+    assert decision["status"] == "kept"

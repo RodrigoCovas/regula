@@ -18,16 +18,17 @@ from .availability import (
     UNREACHABLE_STORE_ERRORS,
     log_startup_store_warning,
     store_unreachable,
-    unreachable_store_response,
     un_ingested_corpus_response,
+    unreachable_llm_response,
+    unreachable_store_response,
     vector_store_is_empty,
 )
 from .config import ConfigurationError, Mode, load_settings
 from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
-from .llm import Llm, OpenRouterClient
-from .live_workflow import run_live_analysis
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Finding, Citation, Strength, Trace, quote_snippet
+from .llm import Llm, LlmUnreachableError, OpenRouterClient
+from .live_workflow import LIVE_WORKFLOW_MARKER, run_live_analysis
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
 from .retrieval import Retriever, VectorRetriever
 
 logging.basicConfig(level=logging.INFO)
@@ -139,30 +140,28 @@ class LookupTarget(TypedDict):
     provision: str
 
 
+# Where each provision kind's context lives in the corpus JSON structure.
+_PROVISION_FINDERS = {
+    ProvisionKind.article: _find_article_context,
+    ProvisionKind.recital: _find_recital_context,
+    ProvisionKind.annex: _find_annex_context,
+}
+
+
 def _resolve_target(doc: dict, target: LookupTarget) -> Optional[Dict[str, Any]]:
     """Resolve a lookup target to citation field name and document context.
 
     Articles and annexes are found only when they carry text. Recitals are found
     by number even when their text is absent from the corpus (quote stays None).
     """
-    kind = target["kind"]
-    number = target["number"]
-    if kind == "article":
-        ctx = _find_article_context(doc, number)
-        if not ctx or not ctx.get("text"):
-            return None
-        return {"field": "article_number", "ctx": ctx}
-    if kind == "recital":
-        ctx = _find_recital_context(doc, number)
-        if not ctx:
-            return None
-        return {"field": "recital_number", "ctx": ctx}
-    if kind == "annex":
-        ctx = _find_annex_context(doc, number)
-        if not ctx or not ctx.get("text"):
-            return None
-        return {"field": "annex_number", "ctx": ctx}
-    return None
+    try:
+        kind = ProvisionKind(target["kind"])
+    except ValueError:
+        return None
+    ctx = _PROVISION_FINDERS[kind](doc, target["number"])
+    if not ctx or (kind is not ProvisionKind.recital and not ctx.get("text")):
+        return None
+    return {"field": PROVISION_NUMBER_FIELDS[kind], "ctx": ctx}
 
 
 class FindingDef(TypedDict):
@@ -256,7 +255,7 @@ UNSUPPORTED_CLAIM_CANDIDATES = [
     "Whether the company is provider vs deployer can be determined from the corpus.",
 ]
 
-def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[dict]]:
+def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[ClaimDecision]]:
     """Trace the rejection of the curated anticipated-but-unsupported Claims.
 
     This is not a deciding pass: every claim in UNSUPPORTED_CLAIM_CANDIDATES
@@ -267,13 +266,13 @@ def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[dict]]:
     """
     supported = {f.statement for f in findings if f.citations}
     discarded: List[str] = []
-    decisions: List[dict] = []
+    decisions: List[ClaimDecision] = []
     for claim in UNSUPPORTED_CLAIM_CANDIDATES:
         if claim in supported:
-            decisions.append({"claim": claim, "status": "kept"})
+            decisions.append(ClaimDecision(claim=claim, status="kept"))
         else:
             discarded.append(claim)
-            decisions.append({"claim": claim, "status": "rejected", "reason": "no Evidence in the Corpus supports this claim"})
+            decisions.append(ClaimDecision(claim=claim, status="rejected", reason="no Evidence in the Corpus supports this claim"))
     return discarded, decisions
 
 DEMO_ACTIONS = [
@@ -403,8 +402,8 @@ async def analyze(
     response with answer, trace, detailed_trace, and known_limitations
     as siblings. Live mode first passes the availability gates: an empty
     vector store yields a Not-available response naming the ingest command,
-    an unreachable store one naming the outage — never a server error for
-    a condition the operator can fix.
+    an unreachable store or LLM provider one naming the outage — never a
+    server error for a condition the operator can fix.
     """
     if settings.regula_mode == Mode.live:
         try:
@@ -418,7 +417,14 @@ async def analyze(
             raise
         if empty:
             return un_ingested_corpus_response()
-        return run_live_analysis(request, llm=llm, retriever=retriever)
+        try:
+            return run_live_analysis(request, llm=llm, retriever=retriever)
+        except LlmUnreachableError as error:
+            # A genuine LLM outage is not a server error: it gets its own
+            # Not-available reply, mirroring the unreachable-store case.
+            # Any other LlmError — a reachable provider rejecting or
+            # malforming an answer — still surfaces as a server error.
+            return unreachable_llm_response(error)
 
     scenario = request.scenario
 
@@ -439,7 +445,7 @@ async def analyze(
         # the Execution trace and detailed trace.
         discarded_claims, claim_decisions = _verify_claims(findings)
         trace = Trace(
-            workflow="planner -> researcher -> verifier",
+            workflow=LIVE_WORKFLOW_MARKER,
             summary="Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier recorded each anticipated-but-unsupported claim as rejected — no Evidence in the Corpus supports it.",
             unsupported_claims_discarded=discarded_claims,
         )
@@ -454,7 +460,7 @@ async def analyze(
             {
                 "step": "verifier",
                 "action": "record the curated anticipated-but-unsupported claims as rejected (no Evidence in the Corpus supports this claim) and tag each finding with its evidence strength",
-                "claim_decisions": claim_decisions,
+                "claim_decisions": [decision.model_dump() for decision in claim_decisions],
             },
         ]
     else:

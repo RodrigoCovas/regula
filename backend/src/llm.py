@@ -33,6 +33,15 @@ class LlmError(RuntimeError):
     """The LLM call failed in a way the operator must see verbatim."""
 
 
+class LlmUnreachableError(LlmError):
+    """OpenRouter could not be reached at all — a genuine network outage.
+
+    A reachable provider that rejected or malformed the answer is a plain
+    ``LlmError``; only this subclass counts as the provider being down, so
+    callers can offer recovery advice without masking real bugs.
+    """
+
+
 def _requests_transport(url: str, headers: dict, payload: dict) -> dict:
     response = requests.post(url, headers=headers, json=payload, timeout=_TIMEOUT_SECONDS)
     response.raise_for_status()
@@ -93,18 +102,15 @@ class Llm(Protocol):
 
 
 class OpenRouterClient:
-    """Posts chat completions to OpenRouter and validates the JSON reply."""
+    """Posts chat completions to OpenRouter and validates the JSON reply.
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str = PINNED_MODEL,
-        max_tokens: int = MAX_COMPLETION_TOKENS,
-        transport=None,
-    ):
+    The model and the completion budget are module-level locks, not
+    parameters — nothing can point the client at a paid model or widen
+    the single-pass budget by construction.
+    """
+
+    def __init__(self, api_key: str, transport=None):
         self._api_key = api_key
-        self._model = model
-        self._max_tokens = max_tokens
         self._transport = transport or _requests_transport
 
     def complete(self, system: str, user: str, schema: type[SchemaT]) -> SchemaT:
@@ -113,8 +119,8 @@ class OpenRouterClient:
             f"no prose, no code fences: {_schema_example(schema)}"
         )
         payload = {
-            "model": self._model,
-            "max_tokens": self._max_tokens,
+            "model": PINNED_MODEL,
+            "max_tokens": MAX_COMPLETION_TOKENS,
             "messages": [
                 {"role": "system", "content": f"{system}\n\n{instruction}"},
                 {"role": "user", "content": user},
@@ -124,7 +130,7 @@ class OpenRouterClient:
         try:
             body = self._transport(OPENROUTER_CHAT_URL, headers, payload)
         except requests.ConnectionError as error:
-            raise LlmError(
+            raise LlmUnreachableError(
                 f"Could not reach OpenRouter at {OPENROUTER_CHAT_URL}: {error}. "
                 "Check the network connection."
             ) from error
@@ -140,13 +146,13 @@ class OpenRouterClient:
             data = _extract_json(content)
         except (ValueError, json.JSONDecodeError) as error:
             raise LlmError(
-                f"Model '{self._model}' did not return parseable JSON for schema "
+                f"Model '{PINNED_MODEL}' did not return parseable JSON for schema "
                 f"{schema.__name__} ({error}): {content!r}"
             ) from error
         try:
             return schema.model_validate(data)
         except ValidationError as error:
             raise LlmError(
-                f"Model '{self._model}' returned JSON that does not match schema "
+                f"Model '{PINNED_MODEL}' returned JSON that does not match schema "
                 f"{schema.__name__}: {content!r} ({error})"
             ) from error
