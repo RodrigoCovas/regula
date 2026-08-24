@@ -3,6 +3,15 @@
 Scores produced Findings against curated ground-truth scenarios using
 Strength-weighted precision, recall, and their harmonic mean (F1).
 
+Matching is a per-case strategy producing expected→produced pairings; the
+Strength-penalty and spurious-subtraction mechanics below are shared by
+every matcher. The default ``verbatim_matcher`` pairs by exact statement
+equality — the Demo tripwire contract of ADR-0001. ``semantic_matcher``
+pairs paraphrases by lexical similarity (token-set cosine over stopword-
+stripped, singularized statements), one-to-one, closest pairs first at
+SEMANTIC_MATCH_THRESHOLD — step 2 of the ADR's fixed sequence, proven by
+synthetic cases until #7's hand-authored ground truths arrive.
+
 Scoring interpretation: the mis-tag penalty ("a matched Finding retains
 weight x (1 - distance/2) of its credit") is applied to the credit that
 feeds BOTH the precision and recall numerators — the only reading that
@@ -16,8 +25,10 @@ that explicit rule.
 """
 
 import json
+import math
+import re
 from dataclasses import dataclass, field
-from typing import Dict, List, TypedDict
+from typing import Callable, Dict, List, Optional, TypedDict
 
 from .models import Strength
 
@@ -60,9 +71,94 @@ def _matched_finding_credit(expected_strength: Strength, produced_strength: Stre
     return STRENGTH_WEIGHTS[expected_strength] * (1 - strength_distance(expected_strength, produced_strength) / 2)
 
 
-def score_scenario(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
-    """Score one eval scenario: weighted recall, weighted precision (spurious Findings subtract
-    credit by the Strength they were produced with), and their harmonic mean.
+# Similarity at or above which two statements count as the same Finding. Only
+# synthetic cases calibrate it this iteration; #7's ground truths are the real
+# validation.
+SEMANTIC_MATCH_THRESHOLD = 0.5
+
+_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+
+_STOP_WORDS = frozenset(
+    """
+    a an the and or of to in on for with as by at from is are be been was were
+    that this it its their they them we you your our nor but if then
+    than so such can may must shall will would should do does did have has had
+    any all each other into under when where which who whom whose what whether
+    only also before after between through during above below up down out off
+    over again further once here there own same s t
+    """.split()
+)
+
+
+def _singular(word: str) -> str:
+    """Naive singular form so plural drift never blocks a lexical match."""
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+        return word[:-1]
+    return word
+
+
+def _content_tokens(statement: str) -> frozenset:
+    words = _TOKEN_PATTERN.findall(statement.lower())
+    return frozenset(_singular(word) for word in words if word not in _STOP_WORDS)
+
+
+def statement_similarity(a: str, b: str) -> float:
+    """Token-set cosine between two statements: 1.0 only for verbatim or
+    re-inflected echoes, 0.0 for disjoint vocabulary."""
+    left, right = _content_tokens(a), _content_tokens(b)
+    if not left or not right:
+        return 0.0
+    return len(left & right) / math.sqrt(len(left) * len(right))
+
+
+Matcher = Callable[[List[ExpectedFinding], List[ProducedFinding]], Dict[int, int]]
+
+
+def verbatim_matcher(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[int, int]:
+    """The Demo tripwire pairing: exact statement equality."""
+    produced_by_statement = {p.statement: j for j, p in enumerate(produced)}
+    return {
+        i: produced_by_statement[e.statement]
+        for i, e in enumerate(expected)
+        if e.statement in produced_by_statement
+    }
+
+
+def semantic_matcher(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[int, int]:
+    """Pair paraphrased-but-equivalent statements one-to-one, closest pairs
+    first; ties break deterministically by position."""
+    scored = sorted(
+        (
+            (statement_similarity(e.statement, p.statement), i, j)
+            for i, e in enumerate(expected)
+            for j, p in enumerate(produced)
+        ),
+        key=lambda candidate: (-candidate[0], candidate[1], candidate[2]),
+    )
+    matches: Dict[int, int] = {}
+    taken: set[int] = set()
+    for similarity, i, j in scored:
+        if similarity >= SEMANTIC_MATCH_THRESHOLD and i not in matches and j not in taken:
+            matches[i] = j
+            taken.add(j)
+    return matches
+
+
+def score_scenario(
+    expected: List[ExpectedFinding],
+    produced: List[ProducedFinding],
+    *,
+    matcher: Optional[Matcher] = None,
+) -> Dict[str, float]:
+    """Score one eval scenario: weighted recall, weighted precision (spurious
+    Findings subtract credit by the Strength they were produced with), and
+    their harmonic mean.
+
+    Pairing comes from the matcher — verbatim statement equality by default;
+    the mis-tag penalty and spurious subtraction are the same for every
+    matcher.
 
     A Scenario with no expected Findings scores 1.0 only when nothing was
     produced; any production is spurious leakage and scores 0.0.
@@ -72,20 +168,17 @@ def score_scenario(expected: List[ExpectedFinding], produced: List[ProducedFindi
             return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-    produced_by_statement = {p.statement: p for p in produced}
+    pairings = (matcher or verbatim_matcher)(expected, produced)
+
     expected_weight_total = sum(STRENGTH_WEIGHTS[e.strength] for e in expected)
     produced_weight_total = sum(STRENGTH_WEIGHTS[p.strength] for p in produced)
 
-    matched_credit = 0.0
-    matched_expected_weight = 0.0
-    for e in expected:
-        p = produced_by_statement.get(e.statement)
-        if p is not None:
-            matched_credit += _matched_finding_credit(e.strength, p.strength)
-            matched_expected_weight += STRENGTH_WEIGHTS[e.strength]
-
+    matched_credit = sum(
+        _matched_finding_credit(expected[i].strength, produced[j].strength) for i, j in pairings.items()
+    )
+    matched_produced = set(pairings.values())
     spurious_weight = sum(
-        STRENGTH_WEIGHTS[p.strength] for p in produced if p.statement not in {e.statement for e in expected}
+        STRENGTH_WEIGHTS[p.strength] for j, p in enumerate(produced) if j not in matched_produced
     )
 
     recall = matched_credit / expected_weight_total
@@ -162,6 +255,9 @@ class EvalScenario:
     scenario_id: str
     question: str
     expected: List[ExpectedFinding]
+    # None selects the verbatim default; Live ground-truth cases pass
+    # semantic_matcher once #7's hand-authored expectations exist.
+    matcher: Optional[Matcher] = None
 
 
 @dataclass
@@ -215,7 +311,7 @@ def run_eval() -> EvalReport:
                 ProducedFinding(statement=f.statement, strength=f.strength)
                 for f in response.answer.findings
             ]
-            result = score_scenario(scenario.expected, produced)
+            result = score_scenario(scenario.expected, produced, matcher=scenario.matcher)
             scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
     finally:
         main.settings = app_settings
