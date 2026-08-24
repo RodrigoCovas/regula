@@ -11,8 +11,8 @@ Locked behaviour:
 - The result set is capped at the single-pass budget (~8): the budget is
   requested from the store, whose LIMIT clause enforces it; retrieval is one
   bounded pass, never a crawl.
-- A relevance threshold excludes junk-only result sets: when nothing in the
-  Corpus matches well enough, the caller gets no Chunks rather than
+- A relevance threshold excludes junk-only search results: when nothing in
+  the Corpus matches well enough, the caller gets no Chunks rather than
   irrelevant Evidence. That empty result is what the Insufficient-evidence
   path builds on. The floor is enforced twice — pushed down into the
   store's search and re-checked here — so the guarantee holds at this seam

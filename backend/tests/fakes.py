@@ -1,14 +1,14 @@
-"""Deterministic fakes for the Live pipeline seams (spec #9, ticket #17).
+"""Deterministic fakes for the Live pipeline seams (spec #9, tickets #17–#18).
 
 Injected at the composition root via FastAPI dependency overrides so the
 HTTP seam runs fully offline — no network, no Ollama, no pgvector. The
-embedder fake also serves tests that drive a real ``VectorRetriever``
-over canned search results.
+embedder, search-store, and scored-hit fakes also drive a real
+``VectorRetriever`` over canned search results (#18).
 """
 
 from src.llm import Llm
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
-from src.models import Chunk, ProvisionKind, Strength
+from src.models import Chunk, ProvisionKind, ScoredChunk, Strength
 from src.retrieval import Retriever
 
 
@@ -21,6 +21,57 @@ class FakeEmbedder:
     def embed(self, texts):
         self.batches.append(list(texts))
         return [[float(len(text)), 1.0] for text in texts]
+
+
+class FakeSearchStore:
+    """Records search calls; replays canned hits regardless of any bound.
+
+    That blind replay is what makes it usable as an adversarial store too:
+    handed junk-only hits, it returns them whatever max_distance the caller
+    pushes down — exactly the situation the seam-side relevance floor (#18)
+    must survive.
+    """
+
+    def __init__(self, hits):
+        self.hits = hits
+        self.calls: list[dict] = []
+
+    def search_chunks(self, query_embedding, limit, max_distance):
+        self.calls.append(
+            {
+                "query_embedding": query_embedding,
+                "limit": limit,
+                "max_distance": max_distance,
+            }
+        )
+        return self.hits
+
+
+def chunk_hit(
+    source_id="ai-act",
+    kind="article",
+    number=6,
+    text="Article 6 body",
+    title=None,
+    index=0,
+    num_chunks=1,
+    distance=0.1,
+) -> ScoredChunk:
+    """One store hit: a valid single-provision Chunk plus its cosine distance."""
+    return ScoredChunk(
+        chunk=Chunk(
+            source_id=source_id,
+            kind=ProvisionKind(kind),
+            title=title,
+            chunk_index=index,
+            num_chunks=num_chunks,
+            article_number=number if kind == "article" else None,
+            recital_number=number if kind == "recital" else None,
+            annex_number=number if kind == "annex" else None,
+            text=text,
+        ),
+        distance=distance,
+    )
 
 
 def make_chunk(

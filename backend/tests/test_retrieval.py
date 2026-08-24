@@ -1,4 +1,4 @@
-"""Unit tests for the retrieval service (spec #9, ticket #15).
+"""Unit tests for the retrieval service (spec #9, tickets #15 and #18).
 
 The service composes the two provider protocols — an Embedder and a
 search-capable Store — into the Retriever seam the Live workflow will call.
@@ -9,59 +9,17 @@ ingested stack.
 
 The exactly-one-target invariant is not re-asserted here: results are
 ScoredChunk-wrapped Chunks, so it is enforced by construction.
+
+Ticket #18 added the threshold-enforcement section: the relevance floor is
+re-checked at this seam, so junk-only search results can never reach drafting.
 """
 
 import pytest
 
-from src.models import Chunk, ProvisionKind, ScoredChunk
+from src.models import ProvisionKind
 from src.retrieval import MAX_RETRIEVED_CHUNKS, VectorRetriever
 
-from fakes import FakeEmbedder
-
-
-class FakeSearchStore:
-    """Records search calls; replays canned hits."""
-
-    def __init__(self, hits):
-        self.hits = hits
-        self.calls: list[dict] = []
-
-    def search_chunks(self, query_embedding, limit, max_distance):
-        self.calls.append(
-            {
-                "query_embedding": query_embedding,
-                "limit": limit,
-                "max_distance": max_distance,
-            }
-        )
-        return self.hits
-
-
-def chunk_hit(
-    source_id="ai-act",
-    kind="article",
-    number=6,
-    text="Article 6 body",
-    title=None,
-    index=0,
-    num_chunks=1,
-    distance=0.1,
-) -> ScoredChunk:
-    """One store hit with its provision metadata validated at construction."""
-    return ScoredChunk(
-        chunk=Chunk(
-            source_id=source_id,
-            kind=ProvisionKind(kind),
-            title=title,
-            chunk_index=index,
-            num_chunks=num_chunks,
-            article_number=number if kind == "article" else None,
-            recital_number=number if kind == "recital" else None,
-            annex_number=number if kind == "annex" else None,
-            text=text,
-        ),
-        distance=distance,
-    )
+from fakes import FakeEmbedder, FakeSearchStore, chunk_hit
 
 
 def make_retriever(hits, min_similarity=0.5):
@@ -118,7 +76,7 @@ def test_retrieve_requests_the_locked_single_pass_budget_from_the_store():
     assert store.calls[0]["limit"] == MAX_RETRIEVED_CHUNKS == 8
 
 
-# --- Threshold: junk-only result sets come back empty --------------------------
+# --- Threshold: junk-only search results come back empty -----------------------
 
 
 def test_retrieve_converts_min_similarity_into_pgvector_max_distance():
@@ -141,7 +99,7 @@ def test_retrieve_yields_no_chunks_when_nothing_clears_the_threshold():
 def test_retrieve_drops_every_hit_beyond_the_relevance_floor():
     """A Store implementation that ignores max_distance cannot smuggle junk
     through the seam: the retriever enforces the relevance floor on every hit
-    itself, so a junk-only result set can never reach drafting."""
+    itself, so junk can never enter the Evidence pool and reach drafting."""
     retriever, _, _ = make_retriever(hits=[chunk_hit(distance=0.9), chunk_hit(distance=0.99)])
 
     assert retriever.retrieve("anything at all") == []
@@ -159,9 +117,11 @@ def test_retrieve_keeps_thin_but_usable_hits_and_drops_junk():
     assert [c.source_id for c in chunks] == ["gdpr"]
 
 
-def test_retrieve_keeps_a_hit_exactly_at_the_floor_like_the_stores_sql_does():
-    """pgvector filters with ``distance <= max_distance``; the seam-side floor
-    agrees on the boundary so both enforcements admit the same hits."""
+def test_retrieve_admits_a_hit_exactly_at_the_floor():
+    """The seam-side floor uses the same inclusive boundary as the store's
+    SQL (``distance <= max_distance``, db.py), so both enforcements admit
+    identical hits. The SQL side itself is exercised against real Postgres
+    by test_ingest_integration.py."""
     at_the_floor = chunk_hit(distance=0.5)
     retriever, _, _ = make_retriever(hits=[at_the_floor], min_similarity=0.5)
 

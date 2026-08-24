@@ -1,4 +1,4 @@
-"""Live-mode pipeline over the HTTP seam (spec #9, ticket #17).
+"""Live-mode pipeline over the HTTP seam (spec #9, tickets #17 and #18).
 
 Every test boots the app in Live mode with an ingested store (the emptiness
 probe is patched) and injects deterministic fakes for the two provider
@@ -18,10 +18,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src import availability
-from src.live_workflow import LIVE_WORKFLOW_MARKER
+from src.live_workflow import LIVE_WORKFLOW_MARKER, DraftClaims
 from src.main import app
 from src.models import Strength
-from src.retrieval import MAX_RETRIEVED_CHUNKS
+from src.retrieval import MAX_RETRIEVED_CHUNKS, VectorRetriever
 
 from conftest import install_fake_pipeline
 from fakes import (
@@ -30,6 +30,8 @@ from fakes import (
     HIGH_RISK_CHUNK,
     FakeEmbedder,
     FakeRetriever,
+    FakeSearchStore,
+    chunk_hit,
     grounded_verdict,
     make_chunk,
     make_offline_llm,
@@ -60,6 +62,19 @@ def post_arbitrary_scenario(client, scenario_id="my-fintech-app", question="Does
             "question": question,
         },
     )
+
+
+def assert_insufficient_evidence_response(data):
+    """The shared shape of an honest Insufficient-evidence answer: zero
+    Findings and Citations, a Known limitation naming the gap, narrowing
+    Actions — served by the live workflow itself, never demo content."""
+    assert data["answer"]["findings"] == []
+    assert data["answer"]["citations"] == []
+    assert any("nothing relevant" in line.lower() for line in data["known_limitations"])
+    actions = data["answer"]["actions"]
+    assert any("rephrase" in a.lower() for a in actions), actions
+    assert any("corpus" in a.lower() for a in actions), actions
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
 
 
 def test_arbitrary_scenario_returns_evidence_backed_findings_with_metadata_derived_citations(live_client):
@@ -128,14 +143,7 @@ def test_empty_retrieval_is_insufficient_evidence_never_invented_findings(monkey
     assert resp.status_code == 200
     data = resp.json()
 
-    assert data["answer"]["findings"] == []
-    assert data["answer"]["citations"] == []
-    assert any("nothing relevant" in line.lower() for line in data["known_limitations"])
-    actions = data["answer"]["actions"]
-    assert len(actions) >= 1
-    assert any("rephrase" in a.lower() for a in actions)
-    # The workflow still ran its gates — this is not a Not-available reply.
-    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
+    assert_insufficient_evidence_response(data)
     # No claims were drafted or verified against no Evidence.
     assert data["trace"]["unsupported_claims_discarded"] == []
     assert "nothing" in data["trace"]["summary"].lower()
@@ -295,30 +303,15 @@ def test_unknown_evidence_labels_are_dropped_never_become_citations(monkeypatch)
 # --- Insufficient evidence over a junk-only Corpus (ticket #18) ----------------
 
 
-class JunkOnlyStore:
-    """An adversarial SearchStore: whatever distance bound it is given, it
-    returns only junk hits — a Corpus holding nothing relevant to the query."""
-
-    def __init__(self, hits):
-        self.hits = hits
-
-    def search_chunks(self, query_embedding, limit, max_distance):
-        return list(self.hits)
-
-
 def test_junk_only_corpus_answers_insufficient_evidence_never_fabricated_findings():
     """Every stored Chunk sits beyond the relevance threshold: the served
     answer says so honestly — zero Findings, a Known limitation naming the
     gap, narrowing Actions — even though the scripted LLM stands ready to
     fabricate grounded-looking claims if it were ever asked to draft."""
-    from src.models import ScoredChunk
-    from src.retrieval import VectorRetriever
-
-    junk = [
-        ScoredChunk(chunk=make_chunk(source_id=f"junk-{i}", number=i + 1), distance=0.9)
-        for i in range(3)
-    ]
-    retriever = VectorRetriever(store=JunkOnlyStore(junk), embedder=FakeEmbedder())
+    junk = [chunk_hit(source_id=f"junk-{i}", number=i + 1, distance=0.9) for i in range(3)]
+    # The shared FakeSearchStore replays its hits whatever bound it is given,
+    # so this models a Corpus holding nothing relevant to the query.
+    retriever = VectorRetriever(store=FakeSearchStore(hits=junk), embedder=FakeEmbedder())
     llm = make_offline_llm()
     install_fake_pipeline(llm, retriever)
 
@@ -327,18 +320,9 @@ def test_junk_only_corpus_answers_insufficient_evidence_never_fabricated_finding
     assert resp.status_code == 200
     data = resp.json()
 
-    assert data["answer"]["findings"] == [], "a fabricated Finding must be impossible"
-    assert data["answer"]["citations"] == []
-    assert any("nothing relevant" in line.lower() for line in data["known_limitations"])
-    actions = data["answer"]["actions"]
-    assert any("rephrase" in a.lower() for a in actions), actions
-    assert any("corpus" in a.lower() for a in actions), actions
-    # The Live workflow ran and answered honestly — not a Not-available reply.
-    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
+    assert_insufficient_evidence_response(data)
     assert "relevant enough" in data["trace"]["summary"].lower()
     # Nothing was drafted over junk Evidence, so nothing was discarded either.
     assert data["trace"]["unsupported_claims_discarded"] == []
-    from src.live_workflow import DraftClaims
-
     drafting_calls = [call for call in llm.calls if call[2] is DraftClaims]
     assert drafting_calls == [], "no Claim may be drafted over junk-only Evidence"
