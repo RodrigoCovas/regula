@@ -1,6 +1,6 @@
 # Regula
 
-Regula is a regulatory research and compliance assistant for answering questions from a small legal corpus with evidence-backed findings and citations.
+Regula is a regulatory research and compliance assistant for answering questions from a small legal corpus with evidence-backed findings and citations. It helps users find the Regulations relevant to their Scenario so qualified legal professionals can act on them; it never dispenses legal advice and never substitutes for professional judgment.
 
 ## Language
 
@@ -9,7 +9,11 @@ The user’s described company, product, jurisdiction, and question.
 _Avoid_: Case, request, prompt
 
 **Regulatory question**:
-A question asking what rules, obligations, or risks may apply in a scenario.
+A question asking what rules, obligations, or risks may apply in a scenario. It leans toward applicability (which Regulations govern) or obligations (what must be done); surfacing obligation depth is the workflow's job regardless of how the user phrases the question.
+
+**Research target**:
+One regulation-scoped line of inquiry the Planner derives from the Regulatory question; a question decomposes into one or more targets. The Evidence pool is sized so every target keeps representation.  
+_Avoid_: Source, query, sub-question
 
 **Corpus**:
 The fixed curated set of source documents Regula reasons over in the MVP.  
@@ -20,6 +24,10 @@ A governing legal instrument such as the EU AI Act, GDPR, or DORA.
 
 **Evidence**:
 Relevant source text that supports or contradicts a finding.
+
+**Evidence pool**:
+The bounded set of Chunks chosen from retrieval to support drafting — the only Evidence the Researcher and Verifier reason over. Its size grows with the number of Research targets so no target is starved, and it surfaces in the Execution trace as the retrieved passages.  
+_Avoid_: Chunk budget, result set, context window
 
 **Citation**:
 A reference to one provision of a source document — an Article, a Recital, or an Annex — supporting a Claim; exact quotes are optional.
@@ -64,10 +72,11 @@ _Avoid_: No results, empty answer
 The user-facing conclusions: the Findings, Citations, and Actions. The API returns the Answer, the Execution trace, the detailed trace, and the Known limitations as siblings — workflow machinery never nests inside the Answer.
 
 **Action**:
-A concrete next step the user should investigate or complete after reading the answer.
+A pointer that aids legal professionals acting on an Answer: it names something only they can settle — a fact the Scenario hinges on that the Corpus cannot determine, or verification of the cited provisions against the company's actual situation. An Action never presumes a Regulation applies to the Scenario and never substitutes for professional judgment.
+_Avoid_: Legal advice, recommendation, compliance task
 
 **Known limitation**:
-A stated boundary of the current system, surfaced alongside every response but never among its Findings or Actions — e.g. the Corpus is English-only.
+A stated boundary of the current system, surfaced alongside every response but never among its Findings or Actions — e.g. the Corpus is English-only, or Regula is a research prototype whose Answers require verification by a qualified professional.
 _Avoid_: Caveat, disclaimer
 
 **Execution trace**:
@@ -86,7 +95,7 @@ The path where the workflow runs for real over the ingested Corpus, answering ar
 _Avoid_: Production mode, online mode
 
 **Not-available response**:
-A user-facing reply explaining why a requested capability cannot be served — an unknown Scenario in Demo mode, an un-ingested Corpus in Live mode — and how to proceed.
+A user-facing reply explaining why a requested capability cannot be served — an unknown Scenario in Demo mode, an un-ingested Corpus, an unreachable store, or an unreachable LLM provider in Live mode — and how to proceed.
 _Avoid_: Error message, fallback, dead end
 
 ## Workflow
@@ -99,3 +108,6 @@ Collects evidence from the corpus and turns it into structured findings.
 
 **Verifier**:
 Checks findings against the evidence and rejects unsupported claims.
+
+**Proposer**:
+Turns kept Findings into referral Actions for legal professionals; every Action it emits must be anchored in a Finding's Evidence, and it never advises on its own authority.
