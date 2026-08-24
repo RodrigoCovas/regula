@@ -14,7 +14,9 @@ Locked behaviour:
 - A relevance threshold excludes junk-only result sets: when nothing in the
   Corpus matches well enough, the caller gets no Chunks rather than
   irrelevant Evidence. That empty result is what the Insufficient-evidence
-  path builds on.
+  path builds on. The floor is enforced twice — pushed down into the
+  store's search and re-checked here — so the guarantee holds at this seam
+  regardless of how a Store implementation behaves.
 - Every returned Chunk arrives wrapped in a ``ScoredChunk``, so its
   provision metadata (source_id plus exactly one provision number kind) was
   validated at construction, ready for deterministic Citation derivation.
@@ -73,12 +75,19 @@ class VectorRetriever:
         self._embedder = embedder
         self._max_chunks = max_chunks
         self._min_similarity = min_similarity
+        # The relevance floor as cosine distance, derived once: the same bound
+        # is pushed down into the store's search and enforced again at this
+        # seam, so both enforcements always agree.
+        self._max_distance = 1 - self._min_similarity
 
     def retrieve(self, query: str) -> list[Chunk]:
         [query_embedding] = self._embedder.embed([query])
         hits = self._store.search_chunks(
             query_embedding=query_embedding,
             limit=self._max_chunks,
-            max_distance=1 - self._min_similarity,
+            max_distance=self._max_distance,
         )
-        return [hit.chunk for hit in hits]
+        # The floor is enforced here, not only in the store's SQL: whatever a
+        # Store implementation returns, no Chunk beyond the relevance floor
+        # can cross this seam and become Evidence.
+        return [hit.chunk for hit in hits if hit.distance <= self._max_distance]

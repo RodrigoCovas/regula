@@ -16,16 +16,7 @@ import pytest
 from src.models import Chunk, ProvisionKind, ScoredChunk
 from src.retrieval import MAX_RETRIEVED_CHUNKS, VectorRetriever
 
-
-class FakeEmbedder:
-    """Deterministic vectors keyed by text length; records every batch."""
-
-    def __init__(self):
-        self.batches: list[list[str]] = []
-
-    def embed(self, texts):
-        self.batches.append(list(texts))
-        return [[float(len(text)), 1.0] for text in texts]
+from fakes import FakeEmbedder
 
 
 class FakeSearchStore:
@@ -142,3 +133,38 @@ def test_retrieve_yields_no_chunks_when_nothing_clears_the_threshold():
     retriever, _, _ = make_retriever(hits=[])
 
     assert retriever.retrieve("quantum gravity") == []
+
+
+# --- Threshold enforcement: the floor holds at the seam, not only in SQL -------
+
+
+def test_retrieve_drops_every_hit_beyond_the_relevance_floor():
+    """A Store implementation that ignores max_distance cannot smuggle junk
+    through the seam: the retriever enforces the relevance floor on every hit
+    itself, so a junk-only result set can never reach drafting."""
+    retriever, _, _ = make_retriever(hits=[chunk_hit(distance=0.9), chunk_hit(distance=0.99)])
+
+    assert retriever.retrieve("anything at all") == []
+
+
+def test_retrieve_keeps_thin_but_usable_hits_and_drops_junk():
+    """The threshold separates 'nothing relevant' from 'thin but usable':
+    a marginal hit just inside the floor survives, junk beyond it does not."""
+    thin_but_usable = chunk_hit(source_id="gdpr", kind="recital", number=71, distance=0.45)
+    junk = chunk_hit(source_id="spam", number=1, distance=0.51)
+    retriever, _, _ = make_retriever(hits=[thin_but_usable, junk], min_similarity=0.5)
+
+    chunks = retriever.retrieve("automated decisions")
+
+    assert [c.source_id for c in chunks] == ["gdpr"]
+
+
+def test_retrieve_keeps_a_hit_exactly_at_the_floor_like_the_stores_sql_does():
+    """pgvector filters with ``distance <= max_distance``; the seam-side floor
+    agrees on the boundary so both enforcements admit the same hits."""
+    at_the_floor = chunk_hit(distance=0.5)
+    retriever, _, _ = make_retriever(hits=[at_the_floor], min_similarity=0.5)
+
+    chunks = retriever.retrieve("oversight duties")
+
+    assert [c.source_id for c in chunks] == ["ai-act"]

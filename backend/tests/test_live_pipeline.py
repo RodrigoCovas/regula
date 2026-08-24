@@ -28,6 +28,7 @@ from fakes import (
     AUTOMATED_DECISION_CHUNK,
     DEFINITIONS_CHUNK,
     HIGH_RISK_CHUNK,
+    FakeEmbedder,
     FakeRetriever,
     grounded_verdict,
     make_chunk,
@@ -289,3 +290,55 @@ def test_unknown_evidence_labels_are_dropped_never_become_citations(monkeypatch)
     verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
     decision = next(d for d in verifier_steps[0]["claim_decisions"] if d["claim"] == statement)
     assert decision["status"] == "kept"
+
+
+# --- Insufficient evidence over a junk-only Corpus (ticket #18) ----------------
+
+
+class JunkOnlyStore:
+    """An adversarial SearchStore: whatever distance bound it is given, it
+    returns only junk hits — a Corpus holding nothing relevant to the query."""
+
+    def __init__(self, hits):
+        self.hits = hits
+
+    def search_chunks(self, query_embedding, limit, max_distance):
+        return list(self.hits)
+
+
+def test_junk_only_corpus_answers_insufficient_evidence_never_fabricated_findings():
+    """Every stored Chunk sits beyond the relevance threshold: the served
+    answer says so honestly — zero Findings, a Known limitation naming the
+    gap, narrowing Actions — even though the scripted LLM stands ready to
+    fabricate grounded-looking claims if it were ever asked to draft."""
+    from src.models import ScoredChunk
+    from src.retrieval import VectorRetriever
+
+    junk = [
+        ScoredChunk(chunk=make_chunk(source_id=f"junk-{i}", number=i + 1), distance=0.9)
+        for i in range(3)
+    ]
+    retriever = VectorRetriever(store=JunkOnlyStore(junk), embedder=FakeEmbedder())
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, retriever)
+
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["findings"] == [], "a fabricated Finding must be impossible"
+    assert data["answer"]["citations"] == []
+    assert any("nothing relevant" in line.lower() for line in data["known_limitations"])
+    actions = data["answer"]["actions"]
+    assert any("rephrase" in a.lower() for a in actions), actions
+    assert any("corpus" in a.lower() for a in actions), actions
+    # The Live workflow ran and answered honestly — not a Not-available reply.
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
+    assert "relevant enough" in data["trace"]["summary"].lower()
+    # Nothing was drafted over junk Evidence, so nothing was discarded either.
+    assert data["trace"]["unsupported_claims_discarded"] == []
+    from src.live_workflow import DraftClaims
+
+    drafting_calls = [call for call in llm.calls if call[2] is DraftClaims]
+    assert drafting_calls == [], "no Claim may be drafted over junk-only Evidence"

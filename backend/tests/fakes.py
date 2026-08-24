@@ -1,13 +1,26 @@
 """Deterministic fakes for the Live pipeline seams (spec #9, ticket #17).
 
 Injected at the composition root via FastAPI dependency overrides so the
-HTTP seam runs fully offline — no network, no Ollama, no pgvector.
+HTTP seam runs fully offline — no network, no Ollama, no pgvector. The
+embedder fake also serves tests that drive a real ``VectorRetriever``
+over canned search results.
 """
 
 from src.llm import Llm
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
 from src.models import Chunk, ProvisionKind, Strength
 from src.retrieval import Retriever
+
+
+class FakeEmbedder:
+    """Deterministic vectors keyed by text length; records every batch."""
+
+    def __init__(self):
+        self.batches: list[list[str]] = []
+
+    def embed(self, texts):
+        self.batches.append(list(texts))
+        return [[float(len(text)), 1.0] for text in texts]
 
 
 def make_chunk(
