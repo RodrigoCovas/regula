@@ -31,18 +31,13 @@ from fastapi.testclient import TestClient
 from .availability import (
     INGEST_COMMAND,
     INGEST_COMMAND_IN_STACK,
+    NOT_AVAILABLE_WORKFLOW,
     UNREACHABLE_STORE_ERRORS,
     vector_store_is_empty,
 )
 from .config import ConfigurationError, Mode, Settings, load_settings
-from .eval_harness import (
-    LIVE_EVAL_SCENARIOS,
-    EvalReport,
-    EvalScenarioResult,
-    ProducedFinding,
-    score_scenario,
-)
-from .models import AnalyzeRequest, AnalyzeResponse, Scenario
+from .eval_harness import LIVE_EVAL_SCENARIOS, EvalReport, score_scenario_report
+from .models import AnalyzeRequest, AnalyzeResponse
 
 
 class LiveEvalRefused(RuntimeError):
@@ -85,6 +80,10 @@ def run_live_eval(settings: Settings) -> EvalReport:
     settings afterwards. The requests cross the real endpoint, so provider
     fakes installed at the composition root (the test seam) are honoured and
     every request appends its observability record like any other.
+
+    A Not-available response mid-run means the ground shifted under the run
+    (the store emptied, an outage began): it is infrastructure failure, never
+    measured quality, so the run aborts instead of scoring silent zeros.
     """
     ensure_runnable(settings)
 
@@ -93,24 +92,23 @@ def run_live_eval(settings: Settings) -> EvalReport:
     client = TestClient(main.app)
     app_settings = main.settings
     main.settings = settings.model_copy(update={"regula_mode": Mode.live})
+
+    def respond(request: AnalyzeRequest) -> AnalyzeResponse:
+        response = client.post("/api/analyze", json=request.model_dump())
+        response.raise_for_status()
+        analyzed = AnalyzeResponse.model_validate(response.json())
+        if analyzed.trace.workflow == NOT_AVAILABLE_WORKFLOW:
+            raise LiveEvalRefused(
+                f"case {request.scenario.id!r} got a Not-available response "
+                f"({analyzed.trace.summary}) — the run's prerequisites broke "
+                "mid-flight; fix them and re-run."
+            )
+        return analyzed
+
     try:
-        scenario_results: list[EvalScenarioResult] = []
-        for case in LIVE_EVAL_SCENARIOS:
-            request = AnalyzeRequest(scenario=Scenario(id=case.scenario_id), question=case.question)
-            response = client.post("/api/analyze", json=request.model_dump())
-            response.raise_for_status()
-            analyzed = AnalyzeResponse.model_validate(response.json())
-            produced = [
-                ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
-                for f in analyzed.answer.findings
-            ]
-            result = score_scenario(case.expected, produced, matcher=case.matcher)
-            scenario_results.append(EvalScenarioResult(id=case.id, **result))
+        return score_scenario_report(LIVE_EVAL_SCENARIOS, respond)
     finally:
         main.settings = app_settings
-
-    mean_f1 = sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results)
-    return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)
 
 
 def print_report(report: EvalReport) -> None:

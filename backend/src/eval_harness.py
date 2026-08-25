@@ -43,10 +43,19 @@ that explicit rule.
 import json
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, TypedDict
 
-from .models import PROVISION_NUMBER_FIELDS, Citation, ProvisionKind, ProvisionTarget, Strength
+from .models import (
+    PROVISION_NUMBER_FIELDS,
+    AnalyzeRequest,
+    AnalyzeResponse,
+    Citation,
+    ProvisionKind,
+    ProvisionTarget,
+    Scenario,
+    Strength,
+)
 
 
 class ExpectedCitation(TypedDict):
@@ -385,18 +394,47 @@ CURATED_SCENARIOS: List[EvalScenario] = [
     EvalScenario(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
 ]
 
-# The Live-quality cases (#20): the same hand-authored ground truth, but only
-# the cases whose expectations mean something against Live mode, where the
-# workflow answers every question. They run with the semantic matcher and
-# citation fidelity through the operator CLI (backend/src/live_eval.py) —
-# never in CI. The non-canonical tripwires above stay Demo-only: they pin
-# canonical-id routing, which Live mode deliberately has no notion of, so
-# their empty expectations would score 0 by construction and measure nothing.
+# The Live-quality cases (#20): the canonical cases' hand-authored ground
+# truth, but only the cases whose expectations mean something against Live
+# mode, where the workflow answers every question. They run with the semantic
+# matcher and citation fidelity through the operator CLI
+# (backend/src/live_eval.py) — never in CI. The non-canonical tripwires stay
+# Demo-only: they pin canonical-id routing, which Live mode deliberately has
+# no notion of, so their empty expectations would score 0 by construction and
+# measure nothing.
+_CANONICAL_CASE_IDS = {"canonical-what-applies", "canonical-loan-denial", "canonical-spanish-question"}
+
 LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
-    EvalScenario(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED, matcher=semantic_matcher),
-    EvalScenario(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED, matcher=semantic_matcher),
-    EvalScenario(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED, matcher=semantic_matcher),
+    replace(scenario, matcher=semantic_matcher)
+    for scenario in CURATED_SCENARIOS
+    if scenario.id in _CANONICAL_CASE_IDS
 ]
+
+
+def score_scenario_report(
+    scenarios: List[EvalScenario],
+    respond: Callable[[AnalyzeRequest], AnalyzeResponse],
+) -> EvalReport:
+    """Run each Scenario through ``respond`` and score the produced Findings.
+
+    The one scoring loop both runners share: ``respond`` answers one request
+    (the Demo harness calls analyze directly, the Live runner crosses HTTP),
+    and everything after — Findings mapping, per-case scoring with the case's
+    matcher, mean F1 — happens identically for every mode.
+    """
+    scenario_results: List[EvalScenarioResult] = []
+    for scenario in scenarios:
+        request = AnalyzeRequest(scenario=Scenario(id=scenario.scenario_id), question=scenario.question)
+        response = respond(request)
+        produced = [
+            ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
+            for f in response.answer.findings
+        ]
+        result = score_scenario(scenario.expected, produced, matcher=scenario.matcher)
+        scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
+
+    mean_f1 = sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results)
+    return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)
 
 
 def run_eval() -> EvalReport:
@@ -412,26 +450,16 @@ def run_eval() -> EvalReport:
     from . import main
     from .config import Mode, Settings
     from .main import analyze
-    from .models import AnalyzeRequest, Scenario
+
+    def respond(request: AnalyzeRequest) -> AnalyzeResponse:
+        return asyncio.run(analyze(request))
 
     app_settings = main.settings
     main.settings = Settings(regula_mode=Mode.demo)
     try:
-        scenario_results: List[EvalScenarioResult] = []
-        for scenario in CURATED_SCENARIOS:
-            request = AnalyzeRequest(scenario=Scenario(id=scenario.scenario_id), question=scenario.question)
-            response = asyncio.run(analyze(request))
-            produced = [
-                ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
-                for f in response.answer.findings
-            ]
-            result = score_scenario(scenario.expected, produced, matcher=scenario.matcher)
-            scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
+        return score_scenario_report(CURATED_SCENARIOS, respond)
     finally:
         main.settings = app_settings
-
-    mean_f1 = sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results)
-    return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ import pytest
 from pydantic import SecretStr
 
 from src.config import Mode, Settings
-from src.eval_harness import LIVE_EVAL_SCENARIOS, EvalScenarioResult
+from src.eval_harness import LIVE_EVAL_SCENARIOS, STRENGTH_WEIGHTS, EvalScenarioResult
 from src.live_eval import LiveEvalRefused, main, run_live_eval
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
 from src.models import ProvisionKind, Strength
@@ -28,6 +28,14 @@ def live_settings(query_log_path) -> Settings:
         openrouter_api_key=SecretStr("sk-or-test"),
         query_log_path=str(query_log_path),
     )
+
+
+@pytest.fixture()
+def ingested_store(monkeypatch):
+    """The precondition probe reports an ingested store for this test."""
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
 
 
 def _paraphrasing_llm() -> ScriptedLlm:
@@ -85,11 +93,7 @@ def test_unreachable_store_refuses_with_the_start_hint(monkeypatch, query_log_pa
 # --- The measured run ---
 
 
-def test_scores_every_live_case_through_the_live_pipeline(monkeypatch, query_log_path):
-    import src.availability as availability
-    import src.main as main_module
-
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+def test_scores_every_live_case_through_the_live_pipeline(ingested_store, query_log_path):
     llm, retriever = _paraphrasing_llm(), _on_target_retriever()
     install_fake_pipeline(llm, retriever)
 
@@ -109,36 +113,27 @@ def test_scores_every_live_case_through_the_live_pipeline(monkeypatch, query_log
     assert llm.calls
 
 
-def test_semantic_matching_and_citation_fidelity_are_applied(monkeypatch, query_log_path):
+def test_semantic_matching_and_citation_fidelity_are_applied(ingested_store, query_log_path):
     """The produced Finding is a paraphrase (verbatim matching would pair
     nothing) whose Citations hit their expected structural targets."""
-    import src.availability as availability
-
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
     install_fake_pipeline(_paraphrasing_llm(), _on_target_retriever())
 
     report = run_live_eval(live_settings(query_log_path))
 
-    expected_weight_total = sum(
-        weight
-        for case in LIVE_EVAL_SCENARIOS[:1]
-        for weight in [sum({Strength.strong: 3, Strength.moderate: 2, Strength.weak: 1}[f.strength] for f in case.expected)]
-    )
+    expected_weight_total = sum(STRENGTH_WEIGHTS[f.strength] for f in LIVE_EVAL_SCENARIOS[0].expected)
     first = report.scenarios[0]
     # One strong Finding matched with full citation fidelity: recall is its
     # share of the expected weight — nonzero only because the semantic
     # matcher paired the paraphrase.
-    assert first.recall == pytest.approx(3 / expected_weight_total)
+    assert first.recall == pytest.approx(STRENGTH_WEIGHTS[Strength.strong] / expected_weight_total)
 
 
-def test_pins_live_mode_and_restores_app_settings(monkeypatch, query_log_path):
+def test_pins_live_mode_and_restores_app_settings(ingested_store, query_log_path):
     """The run forces Live dispatch even when the app booted Demo, and the
     app's settings come back exactly as they were — the run_eval contract,
     mirrored."""
-    import src.availability as availability
     import src.main as main_module
 
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
     install_fake_pipeline(_paraphrasing_llm(), _on_target_retriever())
     before = main_module.settings
 
@@ -146,6 +141,21 @@ def test_pins_live_mode_and_restores_app_settings(monkeypatch, query_log_path):
 
     assert main_module.settings is before
     assert main_module.settings.regula_mode == Mode.demo
+
+
+def test_not_available_mid_run_aborts_instead_of_scoring_zeros(monkeypatch, query_log_path):
+    """A Not-available response mid-run means infrastructure broke after the
+    pre-run checks: scoring it would print silent zeros dressed as quality."""
+    import src.availability as availability
+    import src.main as main_module
+
+    install_fake_pipeline(_paraphrasing_llm(), _on_target_retriever())
+    # The store passes the pre-run probe, then empties before the requests.
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setattr(main_module, "vector_store_is_empty", lambda _database_url: True)
+
+    with pytest.raises(LiveEvalRefused, match="Not-available"):
+        run_live_eval(live_settings(query_log_path))
 
 
 # --- The operator CLI ---
