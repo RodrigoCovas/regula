@@ -233,6 +233,23 @@ Until the LLM/RAG pipeline lands, these cases act as functional tripwires
 (see `docs/adr/0001-eval-cases-are-functional-tripwires.md`): mean F1 is 1.0
 by construction, so any drop signals a regression, not poor quality.
 
+### Measuring Live answer quality (operator only)
+
+Live-mode quality is measured by one operator command — it is never part of
+CI and needs the Live prerequisites already in place (API key plus ingested
+Corpus; see the setup section above):
+
+```bash
+python -m backend.src.live_eval
+```
+
+It runs the hand-authored ground-truth cases through `/api/analyze` in Live
+mode, scores each Answer with semantic matching (paraphrased Findings pair
+with their expectations) and citation fidelity (missed, mistargeted, or extra
+Citations cost credit), and prints per-case precision/recall/F1 plus the
+aggregate mean F1. Without a key or an ingested Corpus it refuses with the
+fix instead of measuring garbage.
+
 ## Deployment
 
 - **Permanently local:** Docker Compose only. Regula will not be deployed to any

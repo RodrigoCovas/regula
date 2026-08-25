@@ -385,6 +385,19 @@ CURATED_SCENARIOS: List[EvalScenario] = [
     EvalScenario(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
 ]
 
+# The Live-quality cases (#20): the same hand-authored ground truth, but only
+# the cases whose expectations mean something against Live mode, where the
+# workflow answers every question. They run with the semantic matcher and
+# citation fidelity through the operator CLI (backend/src/live_eval.py) —
+# never in CI. The non-canonical tripwires above stay Demo-only: they pin
+# canonical-id routing, which Live mode deliberately has no notion of, so
+# their empty expectations would score 0 by construction and measure nothing.
+LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
+    EvalScenario(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED, matcher=semantic_matcher),
+    EvalScenario(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED, matcher=semantic_matcher),
+    EvalScenario(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED, matcher=semantic_matcher),
+]
+
 
 def run_eval() -> EvalReport:
     """Run every curated scenario against the analyze workflow and score the produced Findings.
