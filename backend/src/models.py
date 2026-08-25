@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import List, Literal, NamedTuple, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -36,6 +36,16 @@ PROVISION_NUMBER_FIELDS: dict[ProvisionKind, str] = {
 }
 
 
+class ProvisionTarget(NamedTuple):
+    """The one concrete provision a Citation points at: its source document,
+    the provision kind, and the document's structural number — what ground
+    truth and production are compared on."""
+
+    source_id: str
+    kind: ProvisionKind
+    number: int
+
+
 class Citation(BaseModel):
     source_id: str
     source_short_name: Optional[str] = None
@@ -54,6 +64,16 @@ class Citation(BaseModel):
                 "A Citation must target exactly one of article_number, recital_number, or annex_number"
             )
         return self
+
+    @property
+    def provision_target(self) -> ProvisionTarget:
+        """This Citation's structural target, from its validated exactly-one
+        metadata — never its free-text provision label."""
+        for kind, field_name in PROVISION_NUMBER_FIELDS.items():
+            number = getattr(self, field_name)
+            if number is not None:
+                return ProvisionTarget(self.source_id, kind, number)
+        raise ValueError("Citation carries no provision number")  # unreachable: validator-enforced
 
 
 class Finding(BaseModel):

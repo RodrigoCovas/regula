@@ -12,10 +12,23 @@ stripped, singularized statements), one-to-one, closest pairs first at
 SEMANTIC_MATCH_THRESHOLD — step 2 of the ADR's fixed sequence, proven by
 synthetic cases until #7's hand-authored ground truths arrive.
 
+A matched Finding's credit also scales by its citation fidelity (step 3):
+an expected Citation is hit when a produced Citation targets the same
+source and structural provision (kind + number), compared via
+``parse_provision`` and ``Citation.provision_target`` — never by label
+string. Fidelity is the hit fraction of the union of both target sets, so
+missed, mistargeted, and extra produced Citations all lower it; vacuously
+1.0 when neither side names any. Demo production derives from the same
+locked targets as its ground truth, so demo fidelity is 1.0 while every
+expected target still resolves in the Corpus; one that stops resolving
+lowers the score loudly — the tripwire doing its job (see ADR-0001's
+step-3 update).
+
 Scoring interpretation: the mis-tag penalty ("a matched Finding retains
-weight x (1 - distance/2) of its credit") is applied to the credit that
-feeds BOTH the precision and recall numerators — the only reading that
-gives the penalty any effect on the score. Spurious Findings subtract
+weight x (1 - distance/2) of its credit") and the citation-fidelity scale
+apply to the same matched-Finding credit, which feeds BOTH the precision
+and recall numerators — the only reading that gives either mechanism any
+effect on the score. Spurious Findings subtract
 weight(produced strength) from the precision numerator, and pairing is
 one-to-one per the matcher: a repeated production of an already-paired
 statement adds no credit and its full weight subtracts as spurious
@@ -33,7 +46,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, TypedDict
 
-from .models import Strength
+from .models import PROVISION_NUMBER_FIELDS, Citation, ProvisionKind, ProvisionTarget, Strength
 
 
 class ExpectedCitation(TypedDict):
@@ -62,6 +75,7 @@ class ExpectedFinding:
 class ProducedFinding:
     statement: str
     strength: Strength
+    citations: List[Citation] = field(default_factory=list)
 
 
 def strength_distance(a: Strength, b: Strength) -> int:
@@ -69,9 +83,79 @@ def strength_distance(a: Strength, b: Strength) -> int:
     return abs(_STRENGTH_ORDER.index(a) - _STRENGTH_ORDER.index(b))
 
 
-def _matched_finding_credit(expected_strength: Strength, produced_strength: Strength) -> float:
-    """Credit a matched Finding retains after the distance-scaled mis-tag penalty."""
-    return STRENGTH_WEIGHTS[expected_strength] * (1 - strength_distance(expected_strength, produced_strength) / 2)
+# Ground-truth provision label grammar per ProvisionKind. The number is the
+# document's structural provision number — paragraphs and points like "(2)" or
+# "point 5(b)" refine one target and never change which Article/Recital/Annex
+# is cited. Keyed by the same kinds PROVISION_NUMBER_FIELDS maps, so a new kind
+# must add both a Citation field there and a grammar here.
+_PROVISION_PATTERNS: Dict[ProvisionKind, re.Pattern] = {
+    ProvisionKind.article: re.compile(r"article\s+(\d+)", re.IGNORECASE),
+    ProvisionKind.recital: re.compile(r"recital\s+(\d+)", re.IGNORECASE),
+    ProvisionKind.annex: re.compile(r"annex\s+([0-9]+|[ivxlcdm]+)\b", re.IGNORECASE),
+}
+
+if set(_PROVISION_PATTERNS) != set(PROVISION_NUMBER_FIELDS):
+    raise RuntimeError(
+        "every ProvisionKind needs both a Citation number field "
+        "(models.PROVISION_NUMBER_FIELDS) and a ground-truth label pattern"
+    )
+
+_ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+
+# Strict Roman-numeral grammar, so a malformed label like "Annex vx" fails
+# loudly instead of scoring as some accidental value.
+_ROMAN_NUMERAL = re.compile(r"m*(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})", re.IGNORECASE)
+
+
+def _roman_to_int(numeral: str) -> int:
+    """The value of a strictly-formed Roman numeral; anything else fails loudly."""
+    if not _ROMAN_NUMERAL.fullmatch(numeral):
+        raise ValueError(f"{numeral!r} is not a valid Roman numeral")
+    values = [_ROMAN_VALUES[ch] for ch in numeral.lower()]
+    return sum(-v if v < nxt else v for v, nxt in zip(values, values[1:] + [0]))
+
+
+def parse_provision(source_id: str, label: str) -> ProvisionTarget:
+    """The structural target a hand-authored ground-truth provision label
+    names for the given source.
+
+    Understands the shapes ground truth uses — "Article 6(2)",
+    "Article 26(2), (4)", "Recital 71", "Annex III point 5(b)", "Annex 3".
+    Anything else is a ground-truth authoring bug and fails loudly.
+    """
+    for kind in PROVISION_NUMBER_FIELDS:
+        match = _PROVISION_PATTERNS[kind].search(label)
+        if match:
+            raw = match.group(1)
+            return ProvisionTarget(source_id, kind, int(raw) if raw.isdigit() else _roman_to_int(raw))
+    raise ValueError(
+        f"Cannot parse ground-truth provision label {label!r}: expected an "
+        "Article/Recital/Annex label such as 'Article 6(2)', 'Recital 71', "
+        "or 'Annex III point 5(b)'"
+    )
+
+
+def citation_fidelity(expected: List[ExpectedCitation], produced: List[Citation]) -> float:
+    """Structural agreement between the expected and produced Citation targets:
+    the hit fraction of their union. A missed, mistargeted, or extra produced
+    Citation lowers fidelity; vacuously 1.0 when neither side names any."""
+    expected_targets = {
+        parse_provision(expectation["source_id"], expectation["provision"])
+        for expectation in expected
+    }
+    produced_targets = {citation.provision_target for citation in produced}
+    if not expected_targets and not produced_targets:
+        return 1.0
+    return len(expected_targets & produced_targets) / len(expected_targets | produced_targets)
+
+
+def _matched_finding_credit(expected: ExpectedFinding, produced: ProducedFinding) -> float:
+    """Credit a matched Finding retains after the distance-scaled mis-tag
+    penalty, further scaled by its citation fidelity."""
+    fidelity_scale = (
+        1 - strength_distance(expected.strength, produced.strength) / 2
+    ) * citation_fidelity(expected.citations, produced.citations)
+    return STRENGTH_WEIGHTS[expected.strength] * fidelity_scale
 
 
 # Similarity at or above which two statements count as the same Finding. Only
@@ -174,8 +258,8 @@ def score_scenario(
     their harmonic mean.
 
     Pairing comes from the matcher — verbatim statement equality by default;
-    the mis-tag penalty and spurious subtraction are the same for every
-    matcher.
+    the mis-tag penalty, the citation-fidelity scale on matched credit, and
+    spurious subtraction are the same for every matcher.
 
     A Scenario with no expected Findings scores 1.0 only when nothing was
     produced; any production is spurious leakage and scores 0.0.
@@ -191,7 +275,7 @@ def score_scenario(
     produced_weight_total = sum(STRENGTH_WEIGHTS[p.strength] for p in produced)
 
     matched_credit = sum(
-        _matched_finding_credit(expected[i].strength, produced[j].strength) for i, j in pairings.items()
+        _matched_finding_credit(expected[i], produced[j]) for i, j in pairings.items()
     )
     matched_produced = set(pairings.values())
     spurious_weight = sum(
@@ -325,7 +409,7 @@ def run_eval() -> EvalReport:
             request = AnalyzeRequest(scenario=Scenario(id=scenario.scenario_id), question=scenario.question)
             response = asyncio.run(analyze(request))
             produced = [
-                ProducedFinding(statement=f.statement, strength=f.strength)
+                ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
                 for f in response.answer.findings
             ]
             result = score_scenario(scenario.expected, produced, matcher=scenario.matcher)
