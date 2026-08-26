@@ -75,6 +75,9 @@ The user-facing conclusions: the Findings, Citations, and Actions. The API retur
 A pointer that aids legal professionals acting on an Answer: it names something only they can settle — a fact the Scenario hinges on that the Corpus cannot determine, or verification of the cited provisions against the company's actual situation. An Action never presumes a Regulation applies to the Scenario and never substitutes for professional judgment.
 _Avoid_: Legal advice, recommendation, compliance task
 
+**Action proposal**:
+A candidate Action the Proposer emits for the grounding gate; only proposals whose Citations resolve to a kept moderate- or strong Finding become Actions, and rejected proposals stay visible in the detailed trace.
+
 **Known limitation**:
 A stated boundary of the current system, surfaced alongside every response but never among its Findings or Actions — e.g. the Corpus is English-only, or Regula is a research prototype whose Answers require verification by a qualified professional.
 _Avoid_: Caveat, disclaimer

@@ -40,6 +40,13 @@ ENGLISH_ONLY_LIMITATION = (
     "Known limitation: the corpus is English-only; questions in other languages are answered in English."
 )
 
+# A Known limitation, never an Action (ADR-0004): the boundary moved out of
+# the demo's action sheet so a limitation can never read like a directive.
+PROTOTYPE_LIMITATION = (
+    "Known limitation: Regula is a research prototype, not legal advice; answers "
+    "require verification by a qualified professional."
+)
+
 
 # Failure modes that mean "cannot reach the store": connection-level outages
 # only. Anything else — a missing table, a bad query, a canceled statement —

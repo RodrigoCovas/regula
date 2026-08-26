@@ -18,7 +18,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src import availability
-from src.live_workflow import LIVE_WORKFLOW_MARKER, SEATS_PER_TARGET, DraftClaims
+from src.live_workflow import (
+    LIVE_WORKFLOW_MARKER,
+    NARROW_THE_QUESTION_ACTIONS,
+    SEATS_PER_TARGET,
+    SEEK_COUNSEL_ACTION,
+    ActionProposal,
+    ActionProposals,
+    DraftClaims,
+)
 from src.main import app
 from src.models import Strength
 from src.retrieval import PER_TARGET_DEPTH, VectorRetriever
@@ -166,11 +174,15 @@ def test_researcher_touches_the_corpus_only_via_the_retrieval_tool(live_client):
     assert [call["input"]["query"] for call in tool_calls] == planned
     assert all(call["chunks_returned"] == 3 for call in tool_calls)
     # Each LLM call is visible in the scripted client's log.
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 4
     # The Verifier receives the drafted claims as JSON, not a Python repr.
     verifier_user = llm.calls[2][1]
     claims_segment = verifier_user.split("Drafted claims:\n")[1]
     assert json.loads(claims_segment)[0]["statement"].startswith("Creditworthiness")
+    # The Proposer receives the kept Findings with their labelled Citations.
+    proposer_user = llm.calls[3][1]
+    assert "Kept Findings with their supporting Citations" in proposer_user
+    assert "[C1]" in proposer_user
 
 
 def test_drafted_claim_without_a_verdict_is_still_recorded_as_rejected(monkeypatch):
@@ -375,3 +387,201 @@ def test_junk_only_corpus_answers_insufficient_evidence_never_fabricated_finding
     assert data["trace"]["unsupported_claims_discarded"] == []
     drafting_calls = [call for call in llm.calls if call[2] is DraftClaims]
     assert drafting_calls == [], "no Claim may be drafted over junk-only Evidence"
+
+
+# --- Proposer: referral Actions grounded in kept Findings (ticket #24) --------
+
+
+def proposer_step(data) -> dict:
+    """The Proposer's detailed-trace step."""
+    return [s for s in data["detailed_trace"] if s["step"] == "proposer"][0]
+
+
+def test_happy_path_serves_grounded_referral_actions_with_the_hand_off_last(live_client):
+    """The Live happy path under-delivers no more: a validated grounded
+    Action reaches the Answer, referral-voiced, with the standing seek-counsel
+    hand-off appended last — the sheet can no longer be empty (#24)."""
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    actions = data["answer"]["actions"]
+    assert actions, "the happy path never returns an empty action sheet"
+    assert actions[-1] == SEEK_COUNSEL_ACTION
+    assert actions[0] == "Have a qualified professional verify that the company's credit evaluation duties match the high-risk provisions cited."
+    assert "qualified" in actions[0].lower(), "Actions are referral-voiced"
+
+    decisions = proposer_step(data)["action_decisions"]
+    kept = [d for d in decisions if d["status"] == "kept"]
+    assert [d["action"] for d in kept] == [actions[0]]
+
+
+def test_ungrounded_proposals_are_dropped_and_recorded_in_the_detailed_trace(live_client):
+    """A proposal whose citations resolve to no kept Finding never reaches the
+    Answer and never vanishes silently: it is recorded as rejected with why
+    (mirrors the ClaimDecision pattern)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(action="Verify the DORA applicability conclusion.", citation_refs=["C1"]),
+            ActionProposal(action="An action grounded on nothing.", citation_refs=[]),
+            ActionProposal(
+                action="An action grounded on a label matching no kept Finding.",
+                citation_refs=["C99"],
+            ),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    actions = data["answer"]["actions"]
+    assert actions[0] == "Verify the DORA applicability conclusion."
+    assert "An action grounded on nothing." not in actions
+    assert "An action grounded on a label matching no kept Finding." not in actions
+
+    decisions = {d["action"]: d for d in proposer_step(data)["action_decisions"]}
+    for rejected_text in ("An action grounded on nothing.", "An action grounded on a label matching no kept Finding."):
+        decision = decisions[rejected_text]
+        assert decision["status"] == "rejected"
+        assert "resolve to no kept Finding" in decision["reason"]
+    assert decisions["Verify the DORA applicability conclusion."]["status"] == "kept"
+
+
+def test_an_action_anchored_only_by_weak_findings_is_rejected(live_client):
+    """Weak Findings may enrich an anchored Action but never support one
+    alone: a proposal grounding only on the weak definitions Finding's
+    Citation is rejected, leaving the hand-off alone (ADR-0004)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(action="Confirm the AI-system definition applies.", citation_refs=["C2"]),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"] == [SEEK_COUNSEL_ACTION]
+    decisions = proposer_step(data)["action_decisions"]
+    assert decisions[0]["status"] == "rejected"
+    assert "weak" in decisions[0]["reason"]
+
+
+def test_weak_only_findings_never_yield_standalone_actions(monkeypatch):
+    """With only a weak Finding kept, even a proposal grounded on its
+    Citation is rejected: the hand-off alone is served, never a standalone
+    Action built on framing Evidence."""
+    from src.live_workflow import DraftClaim, Plan, ResearchTarget, Verdicts
+
+    statement = "The system qualifies as an AI system under the definitions."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="definitions")])
+    llm.claims = DraftClaims(claims=[DraftClaim(statement=statement, evidence_refs=["E1"])])
+    llm.verdicts = Verdicts(verdicts=[grounded_verdict(statement, Strength.weak, ["E1"])])
+    llm.proposals = ActionProposals(
+        proposals=[ActionProposal(action="Act on the definition.", citation_refs=["C1"])]
+    )
+    install_fake_pipeline(llm, FakeRetriever(per_query={"definitions": [DEFINITIONS_CHUNK]}))
+
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"] == [SEEK_COUNSEL_ACTION]
+    decisions = proposer_step(data)["action_decisions"]
+    assert decisions[0]["status"] == "rejected"
+    assert "weak" in decisions[0]["reason"]
+
+
+def test_at_most_five_validated_actions_plus_the_hand_off_are_served(live_client):
+    """The sheet is capped: more validated proposals than the budget are
+    recorded as rejected, and exactly five Actions plus the hand-off reach
+    the Answer (ADR-0004)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(action=f"Referral action {index}.", citation_refs=["C1"])
+            for index in range(7)
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    actions = data["answer"]["actions"]
+    assert len(actions) == 6, actions
+    assert actions[5] == SEEK_COUNSEL_ACTION
+    assert actions[:5] == [f"Referral action {index}." for index in range(5)]
+
+    decisions = proposer_step(data)["action_decisions"]
+    statuses = [d["status"] for d in decisions]
+    assert statuses == ["kept"] * 5 + ["rejected"] * 2, statuses
+    assert "at most 5" in decisions[5]["reason"]
+
+
+def test_insufficient_evidence_path_is_unchanged_and_never_calls_the_proposer(monkeypatch):
+    """Nothing retrieved → the narrowing Actions as before, and the Proposer
+    makes no LLM call over no kept Findings."""
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, FakeRetriever(chunks=[]))
+
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert_insufficient_evidence_response(data)
+    assert data["answer"]["actions"] == NARROW_THE_QUESTION_ACTIONS
+    assert [call for call in llm.calls if call[2] is ActionProposals] == []
+
+
+def test_no_kept_findings_serves_the_hand_off_alone_without_a_proposer_call(monkeypatch):
+    """Evidence retrieved but every Claim rejected: the Proposer handles the
+    no-findings edge by serving the hand-off alone, without an LLM call."""
+    from src.live_workflow import Verdicts
+
+    llm = make_offline_llm()
+    llm.verdicts = Verdicts(verdicts=[])
+    install_fake_pipeline(llm, FakeRetriever())
+
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"] == [SEEK_COUNSEL_ACTION]
+    assert [call for call in llm.calls if call[2] is ActionProposals] == []
+    assert "0 referral Action(s)" in data["trace"]["summary"]
+
+
+# --- Citation rider: source_short_name from corpus metadata (#24) ------------
+
+
+def test_live_citations_carry_the_source_short_name_from_corpus_metadata(live_client):
+    """The Live Citation rider (#24): every Citation names its source the way
+    the demo's do, populated from corpus metadata via the source id."""
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    short_names = {c["source_id"]: c.get("source_short_name") for c in data["answer"]["citations"]}
+    assert short_names["ai-act"] == "EU AI Act"
+
+
+def test_derive_citation_populates_the_short_name_only_for_known_sources():
+    """Unknown source ids degrade to no short name — the rider never invents
+    corpus metadata for a source the corpus does not carry."""
+    from src.live_workflow import derive_citation
+
+    known = derive_citation(make_chunk(source_id="ai-act", number=6))
+    assert known.source_short_name == "EU AI Act"
+    unknown = derive_citation(make_chunk(source_id="some-future-regulation", number=1))
+    assert unknown.source_short_name is None

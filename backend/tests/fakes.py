@@ -7,7 +7,16 @@ embedder, search-store, and scored-hit fakes also drive a real
 """
 
 from src.llm import Llm
-from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
+from src.live_workflow import (
+    ActionProposal,
+    ActionProposals,
+    DraftClaim,
+    DraftClaims,
+    Plan,
+    ResearchTarget,
+    Verdict,
+    Verdicts,
+)
 from src.models import Chunk, ProvisionKind, ScoredChunk, Strength
 from src.retrieval import Retriever
 
@@ -134,11 +143,13 @@ class ScriptedLlm:
         plan: Plan | None = None,
         claims: DraftClaims | None = None,
         verdicts: Verdicts | None = None,
+        proposals: ActionProposals | None = None,
         usage: dict | None = None,
     ):
         self.plan = plan or Plan(targets=[ResearchTarget(query="creditworthiness evaluation")])
         self.claims = claims or DraftClaims(claims=[])
         self.verdicts = verdicts or Verdicts(verdicts=[])
+        self.proposals = proposals or ActionProposals(proposals=[])
         self._canned_usage = usage
         self.calls: list[tuple[str, str, type]] = []
         self.usage: list[dict] = []
@@ -147,7 +158,12 @@ class ScriptedLlm:
         self.calls.append((system, user, schema))
         if self._canned_usage is not None:
             self.usage.append(dict(self._canned_usage))
-        canned = {Plan: self.plan, DraftClaims: self.claims, Verdicts: self.verdicts}[schema]  # type: ignore[index]
+        canned = {
+            Plan: self.plan,
+            DraftClaims: self.claims,
+            Verdicts: self.verdicts,
+            ActionProposals: self.proposals,
+        }[schema]  # type: ignore[index]
         return canned.model_copy(deep=True)
 
 
@@ -156,7 +172,12 @@ def grounded_verdict(statement: str, strength: Strength, refs: list[str]) -> Ver
 
 
 def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
-    """One strong grounded claim, one weak framing claim, one unsupported claim."""
+    """One strong grounded claim, one weak framing claim, one unsupported claim.
+
+    The canned proposal is grounded on C1 — the first kept Finding's first
+    Citation (the strong high-risk claim in the default scenario) — so the
+    happy path serves one validated referral Action plus the hand-off.
+    """
     return ScriptedLlm(
         usage=usage,
         plan=Plan(targets=[
@@ -184,6 +205,14 @@ def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
                 Verdict(statement="Creditworthiness evaluation is a high-risk use case.", supported=True, strength=Strength.strong, evidence_refs=["E1"]),
                 Verdict(statement="Loan scoring data counts as special-category data.", supported=False),
                 Verdict(statement="The system qualifies as an AI system under the definitions.", supported=True, strength=Strength.weak, evidence_refs=["E3"]),
+            ]
+        ),
+        proposals=ActionProposals(
+            proposals=[
+                ActionProposal(
+                    action="Have a qualified professional verify that the company's credit evaluation duties match the high-risk provisions cited.",
+                    citation_refs=["C1"],
+                ),
             ]
         ),
     )

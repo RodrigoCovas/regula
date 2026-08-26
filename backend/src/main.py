@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .availability import (
     ENGLISH_ONLY_LIMITATION,
+    PROTOTYPE_LIMITATION,
     UNREACHABLE_STORE_ERRORS,
     log_startup_store_warning,
     store_unreachable,
@@ -28,7 +29,7 @@ from .config import ConfigurationError, Mode, load_settings
 from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
-from .live_workflow import LIVE_WORKFLOW_MARKER, run_live_analysis
+from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
 from .query_log import (
     STATUS_FAILURE,
@@ -284,13 +285,19 @@ def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[ClaimDecisi
             decisions.append(ClaimDecision(claim=claim, status="rejected", reason="no Evidence in the Corpus supports this claim"))
     return discarded, decisions
 
+# Referral-voiced Actions (ADR-0004): each names something only a qualified
+# professional can settle — a contingency the Corpus cannot determine, or
+# verification of a cited provision against the company's actual situation.
+# Never a directive compliance task, never a presumption that a Regulation
+# applies. The standing seek-counsel hand-off closes the sheet; the
+# research-prototype boundary lives in known_limitations, never among Actions.
 DEMO_ACTIONS = [
-    "Determine whether the company will be a provider or a deployer under the AI Act; the obligation set differs (AI Act Article 3(3)-(4)).",
-    "Confirm whether the company is a licensed financial entity under DORA Article 2, which decides whether DORA applies in full.",
-    "Run a GDPR data protection impact assessment (Article 35(3)(a)) and the AI Act Fundamental Rights Impact Assessment (Article 27) before first deployment.",
-    "Design human oversight into the credit decision process (AI Act Article 26; GDPR Article 22(3)) so decisions are not solely automated.",
-    "Provide applicants clear explanations of the system's role in decisions (AI Act Article 86; GDPR Articles 13(2)(f) and 15(1)(h)).",
-    "This is a research prototype, not legal advice; confirm obligations with a qualified professional.",
+    "Have a qualified professional determine whether the company is a provider or a deployer under the AI Act, since the obligation sets differ (AI Act Article 3(3)-(4)).",
+    "Have a qualified professional confirm whether the company is a licensed financial entity under DORA Article 2, which decides whether DORA applies in full.",
+    "Have a qualified professional assess whether a GDPR data protection impact assessment (Article 35(3)(a)) and an AI Act Fundamental Rights Impact Assessment (Article 27) are required before first deployment.",
+    "Have a qualified professional verify that human oversight accompanies the credit decision process (AI Act Article 26; GDPR Article 22(3)), so decisions are not solely automated.",
+    "Have a qualified professional confirm how applicants will be informed of the AI system's role in decisions (AI Act Article 86; GDPR Articles 13(2)(f) and 15(1)(h)).",
+    SEEK_COUNSEL_ACTION,
 ]
 
 
@@ -560,7 +567,7 @@ def _dispatch_analyze(
         answer=answer,
         trace=trace,
         detailed_trace=detailed_trace,
-        known_limitations=[ENGLISH_ONLY_LIMITATION],
+        known_limitations=[ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION],
     )
 
 

@@ -71,6 +71,22 @@ def test_analyze_spanish_fintech_demo():
     assert "english-only" not in actions_text
 
 
+def test_demo_actions_are_referral_voiced_and_the_prototype_boundary_is_a_limitation():
+    """ADR-0004: demo Actions name only what a qualified professional can
+    settle, and the research-prototype boundary lives in known_limitations —
+    a Known limitation is never an Action."""
+    data = analyze("spanish-fintech", "What regulations apply?")
+    actions = data["answer"]["actions"]
+    assert actions, "the demo sheet is not empty"
+    assert all(a.startswith("Have a qualified") for a in actions), actions
+    actions_text = " ".join(actions).lower()
+    assert "research prototype" not in actions_text
+    assert "not legal advice" not in actions_text
+    limitations = " ".join(data["known_limitations"]).lower()
+    assert "research prototype" in limitations
+    assert "not legal advice" in limitations
+
+
 def test_response_shape_has_siblings_not_nested():
     """API returns answer, trace, detailed_trace, known_limitations as siblings; trace is NOT nested inside answer."""
     data = analyze("spanish-fintech", "What regulations apply?")

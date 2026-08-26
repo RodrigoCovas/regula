@@ -1,36 +1,44 @@
-"""The Live workflow: Planner → Researcher → Verifier as a LangGraph graph.
+"""The Live workflow: Planner → Researcher → Verifier → Proposer as a LangGraph graph.
 
 One pass answers an arbitrary Scenario: the Planner decomposes the
 Regulatory question into research targets; the Researcher gathers Evidence
 exclusively through the retrieval tool under an Evidence pool derived from
 its own decomposition (``SEATS_PER_TARGET`` seats per Research target); the
 Verifier checks every produced Claim against the retrieved Evidence, tags
-its Strength, and discards Unsupported claims into the Execution trace.
+its Strength, and discards Unsupported claims into the Execution trace;
+the Proposer distills the kept Findings into referral Actions, each
+grounded in a kept Finding's Citations (ADR-0004).
 
-Two rules are enforced by application code, never trusted to the LLM:
+Three rules are enforced by application code, never trusted to the LLM:
 
 - Citations are derived deterministically from Chunk provision metadata —
   the LLM only selects which Chunks support a Claim by their label, and a
   Claim whose references resolve to no Chunk cannot become a Finding.
 - A Claim no verdict supports is an Unsupported claim: absent from the
   Answer, recorded in the Execution trace.
+- A proposed Action whose citation references do not resolve to a
+  moderate- or strong-anchored kept Finding is dropped and recorded in
+  the detailed trace — an ungrounded referral never reaches the Answer,
+  and the standing seek-counsel hand-off keeps the sheet never empty.
 
 When retrieval returns nothing relevant enough (no Chunk clears the
-relevance threshold), no LLM call drafts or verifies claims: the response
-is the Insufficient-evidence path — empty Findings, a Known limitation
-explaining the gap, and Actions suggesting how to narrow the question.
+relevance threshold), no LLM call drafts, verifies, or proposes anything:
+the response is the Insufficient-evidence path — empty Findings, a Known
+limitation explaining the gap, and Actions suggesting how to narrow the
+question.
 """
 
 import json
 import logging
 import time
 from collections import Counter
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field, field_validator
 
-from .availability import ENGLISH_ONLY_LIMITATION
+from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
 from .llm import Llm
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, Strength, Trace, PROVISION_NUMBER_FIELDS, quote_snippet
 from .query_log import RequestObservation
@@ -39,7 +47,7 @@ from .retrieval import Retriever
 logger = logging.getLogger(__name__)
 
 # The workflow marker the Execution trace carries for every served Live answer.
-LIVE_WORKFLOW_MARKER = "planner -> researcher -> verifier"
+LIVE_WORKFLOW_MARKER = "planner -> researcher -> verifier -> proposer"
 
 # Prompt-side bound: each retrieved Chunk contributes at most this many
 # characters of Evidence to a prompt, so even a full pool stays within a
@@ -63,6 +71,18 @@ NARROW_THE_QUESTION_ACTIONS = [
     "Rephrase the Regulatory question using the vocabulary of the Corpus — EU AI Act, GDPR, or DORA terms such as 'high-risk AI system', 'automated decision-making', or 'ICT third-party risk'.",
     "Check whether the obligation you are asking about falls outside the Corpus (e.g. national requirements of a single member state).",
 ]
+
+# The standing hand-off appended last to every Live answer that carries
+# Findings or proposals: an Action in referral voice, never a Known
+# limitation (ADR-0004) — it points at the professional, not at the system.
+SEEK_COUNSEL_ACTION = (
+    "Have a qualified legal professional verify these findings against the company's "
+    "actual situation before acting on them."
+)
+
+# The most validated Actions an Answer serves, plus the hand-off last
+# (ADR-0004): the sheet is capped, never empty.
+MAX_ACTIONS = 5
 
 
 # --- Workflow boundaries: every agent input/output crosses as a validated schema ---
@@ -109,6 +129,33 @@ class Verdicts(BaseModel):
     verdicts: list[Verdict] = Field(default_factory=list)
 
 
+class ActionProposal(BaseModel):
+    """One candidate Action the Proposer distilled from kept Findings.
+
+    ``citation_refs`` names the Citations of kept Findings that ground the
+    Action; a proposal that resolves to no moderate- or strong-anchored
+    kept Finding is rejected by application code, never the LLM.
+    """
+
+    action: str
+    citation_refs: list[str] = Field(default_factory=list)
+
+
+class ActionProposals(BaseModel):
+    proposals: list[ActionProposal] = Field(default_factory=list)
+
+
+class ActionDecision(BaseModel):
+    """One Proposer decision in the detailed trace: kept, or rejected with why.
+
+    Mirrors ``ClaimDecision``: rejected proposals must not vanish silently.
+    """
+
+    action: str
+    status: Literal["kept", "rejected"]
+    reason: Optional[str] = None
+
+
 class LabeledEvidence(BaseModel):
     """One retrieved Chunk with the stable label the agents reference it by."""
 
@@ -117,7 +164,7 @@ class LabeledEvidence(BaseModel):
 
 
 class LiveState(BaseModel):
-    """The LangGraph state: one field per boundary between the three agents."""
+    """The LangGraph state: one field per boundary between the agents."""
 
     scenario_description: str = ""
     question: str = ""
@@ -126,6 +173,15 @@ class LiveState(BaseModel):
     retrievals: list[dict] = Field(default_factory=list)  # one record per retrieval-tool call
     drafted: DraftClaims = Field(default_factory=DraftClaims)
     verdicts: Verdicts = Field(default_factory=Verdicts)
+    proposals: ActionProposals = Field(default_factory=ActionProposals)
+    # The Proposer's one application-code derivation of the Verifier's output:
+    # kept Findings, per-claim decisions, and the prompt's citation labels all
+    # come from this single computation, so the grounding gate validates
+    # exactly the labels the Proposer was shown.
+    kept_findings: list[Finding] = Field(default_factory=list)
+    claim_decisions: list[ClaimDecision] = Field(default_factory=list)
+    citation_by_label: dict[str, Citation] = Field(default_factory=dict)
+    anchor_by_label: dict[str, Strength] = Field(default_factory=dict)
 
 
 # --- Prompts: JSON-only instructions; the client repeats the schema contract ---
@@ -161,6 +217,19 @@ _VERIFIER_SYSTEM = (
     "labels of the supporting provisions, empty for unsupported claims."
 )
 
+_PROPOSER_SYSTEM = (
+    "You are the Proposer of a regulatory research assistant. You are given the Findings kept "
+    "for an Answer, each badged with its Strength and carrying the Citations of the provisions "
+    "that support it. "
+    f"Propose at most {MAX_ACTIONS} referral Actions for legal professionals: each names "
+    "something only a professional can settle — a contingency the Findings cannot determine, "
+    "or verification of a cited provision against the company's actual situation. Ground each "
+    "Action in the citation labels of the Findings it leans on: moderate Findings anchor "
+    "contingency referrals, strong Findings anchor verify-against-facts referrals. Weak "
+    "Findings may enrich an Action's wording but never support one alone. Never propose a "
+    "compliance task, never presume a Regulation applies, never advise on your own authority."
+)
+
 
 def _evidence_block(evidence: list[LabeledEvidence]) -> str:
     parts = []
@@ -184,10 +253,41 @@ def _provision_label(chunk: Chunk) -> str:
     return f"{_PROVISION_NOUNS[chunk.kind]} {chunk.provision_number}"
 
 
+# The corpus documents the short names are read from — same layout the demo
+# path loads at startup; a fixed, repo-local set (ADR-0002).
+_CORPUS_DIR = Path(__file__).resolve().parents[2] / "data" / "regulations"
+
+_source_short_names: Optional[dict[str, str]] = None
+
+
+def _load_source_short_names() -> dict[str, str]:
+    """Source id → short name, from the corpus documents' metadata.
+
+    Loaded lazily once per process and cached: the lookup is a cheap dict
+    hit after that, and a missing or unreadable corpus degrades to no short
+    names — never an error on the request path.
+    """
+    global _source_short_names
+    if _source_short_names is None:
+        names: dict[str, str] = {}
+        if _CORPUS_DIR.is_dir():
+            for path in sorted(_CORPUS_DIR.glob("*.json")):
+                try:
+                    document = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                metadata = document.get("metadata") or {}
+                if metadata.get("id") and metadata.get("shortName"):
+                    names[str(metadata["id"])] = str(metadata["shortName"])
+        _source_short_names = names
+    return _source_short_names
+
+
 def derive_citation(chunk: Chunk) -> Citation:
     """Build the Citation for one Chunk from its stored provision metadata."""
     return Citation.model_validate({
         "source_id": chunk.source_id,
+        "source_short_name": _load_source_short_names().get(chunk.source_id),
         "section": chunk.title,
         "provision": _provision_label(chunk),
         "quote": quote_snippet(chunk.text),
@@ -257,7 +357,93 @@ def _decide_claims(
     return findings, discarded, decisions
 
 
-# --- The graph: START → planner → researcher → verifier → END ---
+# --- Proposer grounding: labels over the kept Findings' Citations ---
+
+
+def _labelled_findings(
+    findings: list[Finding],
+) -> tuple[str, dict[str, Citation], dict[str, Strength]]:
+    """The kept Findings block the Proposer reads, plus the label maps the
+    grounding gate validates against.
+
+    One enumeration serves both, so a label shown to the LLM always resolves
+    the same way in validation. ``C`` labels are flat across Findings;
+    ``anchor_by_label`` records the Strength of the Finding owning each
+    Citation — the gate's anchor rule reads it.
+    """
+    citations: dict[str, Citation] = {}
+    anchors: dict[str, Strength] = {}
+    lines: list[str] = []
+    index = 0
+    for position, finding in enumerate(findings, 1):
+        lines.append(f"[F{position} strength={finding.strength.value}] {finding.statement}")
+        for citation in finding.citations:
+            index += 1
+            label = f"C{index}"
+            citations[label] = citation
+            anchors[label] = finding.strength
+            name = citation.source_short_name or citation.source_id
+            lines.append(f"  [{label}] {name} {citation.provision or ''}".rstrip())
+    return "\n".join(lines), citations, anchors
+
+
+_NO_RESOLVABLE_CITATION_REASON = "its citations resolve to no kept Finding"
+_WEAK_ANCHOR_REASON = (
+    "its citations resolve only to weak Findings; an Action needs a moderate or strong anchor"
+)
+_TOO_MANY_ACTIONS_REASON = f"the Answer serves at most {MAX_ACTIONS} Actions"
+
+
+def _validate_proposals(
+    proposals: ActionProposals,
+    citation_by_label: dict[str, Citation],
+    anchor_by_label: dict[str, Strength],
+) -> tuple[list[str], list[ActionDecision]]:
+    """The grounding gate: only anchored referral Actions reach the Answer.
+
+    A proposal is kept when at least one of its citation references resolves
+    to a kept Finding's Citation AND that Citation anchors a moderate or
+    strong Finding — weak Findings never anchor an Action alone (ADR-0004).
+    Unknown references are dropped from the grounding; proposals left with
+    none are rejected and recorded in the detailed trace, so nothing
+    proposed may vanish silently. At most ``MAX_ACTIONS`` validated Actions
+    are served, the rest recorded as rejected.
+    """
+    served: list[str] = []
+    decisions: list[ActionDecision] = []
+    for proposal in proposals.proposals:
+        unknown = [ref for ref in proposal.citation_refs if ref not in citation_by_label]
+        resolved = [ref for ref in proposal.citation_refs if ref in citation_by_label]
+        if unknown:
+            logger.warning(
+                "proposer cited labels matching no kept Finding's Citation (%s); dropped from the Action's grounding",
+                ", ".join(unknown),
+            )
+        if not resolved:
+            decisions.append(
+                ActionDecision(
+                    action=proposal.action,
+                    status="rejected",
+                    reason=_NO_RESOLVABLE_CITATION_REASON,
+                )
+            )
+            continue
+        if not any(anchor_by_label[ref] in (Strength.moderate, Strength.strong) for ref in resolved):
+            decisions.append(
+                ActionDecision(action=proposal.action, status="rejected", reason=_WEAK_ANCHOR_REASON)
+            )
+            continue
+        if len(served) >= MAX_ACTIONS:
+            decisions.append(
+                ActionDecision(action=proposal.action, status="rejected", reason=_TOO_MANY_ACTIONS_REASON)
+            )
+            continue
+        served.append(proposal.action)
+        decisions.append(ActionDecision(action=proposal.action, status="kept"))
+    return served, decisions
+
+
+# --- The graph: START → planner → researcher → verifier → proposer → END ---
 
 
 def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation | None):
@@ -352,14 +538,55 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
         logger.info("verifier: %d decision(s) in %.2fs", len(verdicts.verdicts), time.perf_counter() - started)
         return {"verdicts": verdicts}
 
+    def proposer(state: LiveState) -> dict:
+        """Distill the kept Findings into referral Actions grounded in their Citations.
+
+        The one application-code derivation of the Verifier's output happens
+        here: kept Findings, per-claim decisions, and the prompt's citation
+        labels all come from this single computation, carried through the
+        state so the grounding gate validates exactly the labels the LLM saw.
+        """
+        evidence_by_label = {item.label: item.chunk for item in state.evidence}
+        findings, _, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label)
+        if not findings:
+            # No kept Finding anchors anything: the hand-off alone is served,
+            # and no LLM call is made over nothing.
+            return {
+                "proposals": ActionProposals(),
+                "kept_findings": findings,
+                "claim_decisions": decisions,
+            }
+        block, citation_by_label, anchor_by_label = _labelled_findings(findings)
+        user = (
+            f"Regulatory question: {state.question}\n\n"
+            f"Kept Findings with their supporting Citations:\n\n{block}"
+        )
+        started = time.perf_counter()
+        proposals = llm.complete(system=_PROPOSER_SYSTEM, user=user, schema=ActionProposals)
+        logger.info(
+            "proposer: %d proposal(s) over %d finding(s) in %.2fs",
+            len(proposals.proposals),
+            len(findings),
+            time.perf_counter() - started,
+        )
+        return {
+            "proposals": proposals,
+            "kept_findings": findings,
+            "claim_decisions": decisions,
+            "citation_by_label": citation_by_label,
+            "anchor_by_label": anchor_by_label,
+        }
+
     builder = StateGraph(LiveState)
     builder.add_node("planner", planner)
     builder.add_node("researcher", researcher)
     builder.add_node("verifier", verifier)
+    builder.add_node("proposer", proposer)
     builder.add_edge(START, "planner")
     builder.add_edge("planner", "researcher")
     builder.add_edge("researcher", "verifier")
-    builder.add_edge("verifier", END)
+    builder.add_edge("verifier", "proposer")
+    builder.add_edge("proposer", END)
     return builder.compile()
 
 
@@ -383,8 +610,12 @@ def run_live_analysis(
     )
     state = result if isinstance(result, LiveState) else LiveState.model_validate(result)
 
-    evidence_by_label = {item.label: item.chunk for item in state.evidence}
-    findings, discarded, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label)
+    # The Verifier's output was decided once, by the Proposer: kept Findings,
+    # per-claim decisions, and the citation labels the grounding gate reads
+    # all travel through the state from that single computation.
+    findings = state.kept_findings
+    decisions = state.claim_decisions
+    discarded = [decision.claim for decision in decisions if decision.status == "rejected"]
     all_citations = [citation for finding in findings for citation in finding.citations]
     retrieved_chunks = [
         {
@@ -400,8 +631,22 @@ def run_live_analysis(
     ]
 
     insufficient = not state.evidence
-    known_limitations = [ENGLISH_ONLY_LIMITATION] + ([INSUFFICIENT_EVIDENCE_LIMITATION] if insufficient else [])
-    actions = list(NARROW_THE_QUESTION_ACTIONS) if insufficient else []
+    known_limitations = [ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION] + (
+        [INSUFFICIENT_EVIDENCE_LIMITATION] if insufficient else []
+    )
+
+    proposal_decisions: list[ActionDecision] = []
+    if insufficient:
+        # The Insufficient-evidence path is unchanged: narrowing suggestions,
+        # and the Proposer made no LLM call over nothing.
+        actions = list(NARROW_THE_QUESTION_ACTIONS)
+    else:
+        actions, proposal_decisions = _validate_proposals(
+            state.proposals, state.citation_by_label, state.anchor_by_label
+        )
+        # Never empty (ADR-0004): the standing seek-counsel hand-off closes
+        # the sheet, whether proposals survived the gate or none were made.
+        actions = actions + [SEEK_COUNSEL_ACTION]
 
     queries = [t.query for t in state.plan]
     plan_summary = ", ".join(queries) if queries else "no research targets"
@@ -412,11 +657,14 @@ def run_live_analysis(
             "for this question."
         )
     else:
+        rejected_proposals = sum(1 for d in proposal_decisions if d.status == "rejected")
         summary = (
             f"Planner identified research targets ({plan_summary}); Researcher retrieved "
             f"{len(retrieved_chunks)} Chunk(s) via the retrieval tool and drafted "
             f"{len(state.drafted.claims)} claim(s); Verifier kept {len(findings)} Finding(s) "
-            f"and recorded {len(discarded)} Unsupported claim(s) as rejected."
+            f"and recorded {len(discarded)} Unsupported claim(s) as rejected; Proposer "
+            f"distilled {len(actions) - 1} referral Action(s) from the kept Findings "
+            f"and recorded {rejected_proposals} ungrounded proposal(s) as rejected."
         )
 
     detailed_trace: list[dict[str, Any]] = [
@@ -431,6 +679,11 @@ def run_live_analysis(
             "step": "verifier",
             "action": "check each Claim against the retrieved Evidence, tag its Strength, discard Unsupported claims",
             "claim_decisions": [decision.model_dump() for decision in decisions],
+        },
+        {
+            "step": "proposer",
+            "action": "distill the kept Findings into referral Actions, each grounded in a kept Finding's Citations",
+            "action_decisions": [decision.model_dump() for decision in proposal_decisions],
         },
     ]
 

@@ -89,7 +89,8 @@ def test_noop_scenario_logs_zero_retrieved_chunks(query_log_path):
 
 def test_live_success_reports_mode_chunk_pool_and_aggregated_tokens(query_log_path, monkeypatch):
     """A served Live answer logs the Evidence-pool size and the token usage
-    summed across every completed LLM call (planner + researcher + verifier)."""
+    summed across every completed LLM call (planner + researcher + verifier +
+    proposer)."""
     per_call = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
     llm = make_offline_llm(usage=per_call)
     with boot_live_with_fakes(monkeypatch, llm, FakeRetriever()) as live_client:
@@ -106,8 +107,8 @@ def test_live_success_reports_mode_chunk_pool_and_aggregated_tokens(query_log_pa
     assert record["workflow"] == LIVE_WORKFLOW_MARKER
     researcher = next(s for s in data["detailed_trace"] if s["step"] == "researcher")
     assert record["retrieved_chunks"] == len(researcher["retrieved"])
-    # Three completed calls × the canned per-call usage.
-    assert record["tokens"] == {"prompt": 300, "completion": 60, "total": 360}
+    # Four completed calls × the canned per-call usage.
+    assert record["tokens"] == {"prompt": 400, "completion": 80, "total": 480}
 
 
 class FailsAfterRetrievalLlm:
