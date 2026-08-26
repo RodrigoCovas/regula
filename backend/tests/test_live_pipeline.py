@@ -228,21 +228,21 @@ def served_evidence(data) -> list[dict]:
     return researcher_steps[0]["retrieved"]
 
 
-def run_plan(live_client, queries, per_query):
-    """Serve a scenario under a plan with the given target queries."""
+def run_plan(live_client, targets, per_query):
+    """Serve a scenario under a plan with the given Research targets."""
     from src.live_workflow import Plan, ResearchTarget
 
     llm = make_offline_llm()
-    llm.plan = Plan(targets=[ResearchTarget(query=query) for query in queries])
+    llm.plan = Plan(targets=[ResearchTarget(query=target) for target in targets])
     install_fake_pipeline(llm, FakeRetriever(per_query=per_query))
     resp = post_arbitrary_scenario(live_client)
     assert resp.status_code == 200
     return resp.json()
 
 
-def depth_results(query):
-    """One full-depth retrieval for a query: PER_TARGET_DEPTH unique Chunks."""
-    return [make_chunk(source_id=f"{query}-{i}", number=i + 1) for i in range(PER_TARGET_DEPTH)]
+def depth_results(target):
+    """One full-depth retrieval for a target: PER_TARGET_DEPTH unique Chunks."""
+    return [make_chunk(source_id=f"{target}-{i}", number=i + 1) for i in range(PER_TARGET_DEPTH)]
 
 
 def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(live_client):
@@ -250,7 +250,7 @@ def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(l
     target claims its fair share before leftovers backfill the rest — and
     the pool itself derives from the plan (#23), so two targets seat more
     Chunks than any single retrieval could return."""
-    queries = ["creditworthiness", "automated decisions"]
+    targets = ["creditworthiness", "automated decisions"]
     broad = depth_results("broad")
     narrow = [
         make_chunk(source_id="narrow-a", number=21),
@@ -258,17 +258,17 @@ def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(l
     ]
     data = run_plan(
         live_client,
-        queries,
+        targets,
         {"creditworthiness": broad, "automated decisions": narrow},
     )
 
     retrieved = served_evidence(data)
     sources = {r["source_id"] for r in retrieved}
-    # Every fresh Chunk fits under the plan-derived cap (len(queries) targets ×
+    # Every fresh Chunk fits under the plan-derived cap (len(targets) targets ×
     # SEATS_PER_TARGET seats); the thin second target simply leaves seats open.
     assert len(retrieved) == len(broad) + len(narrow)
     assert len(retrieved) > PER_TARGET_DEPTH, "the widened pool out-seats one retrieval's depth — #23's fix"
-    assert len(retrieved) <= SEATS_PER_TARGET * len(queries), "the plan-derived cap holds"
+    assert len(retrieved) <= SEATS_PER_TARGET * len(targets), "the plan-derived cap holds"
     assert any(s.startswith("narrow-") for s in sources), "the second target is represented"
     assert any(s.startswith("broad-") for s in sources), "the first target is still represented"
 
@@ -277,14 +277,14 @@ def test_evidence_pool_scales_with_the_planned_target_count(live_client):
     """Seat demand tracks the Planner's decomposition (ADR-0003): a third
     research target widens the pool again, and every target keeps its share
     of seats."""
-    queries = ["creditworthiness", "automated decisions", "deployer obligations"]
-    data = run_plan(live_client, queries, {query: depth_results(query) for query in queries})
+    targets = ["creditworthiness", "automated decisions", "deployer obligations"]
+    data = run_plan(live_client, targets, {target: depth_results(target) for target in targets})
 
     retrieved = served_evidence(data)
     sources = {r["source_id"] for r in retrieved}
-    assert len(retrieved) == SEATS_PER_TARGET * len(queries)
-    for query in queries:
-        assert any(s.startswith(f"{query}-") for s in sources), f"{query} keeps representation"
+    assert len(retrieved) == SEATS_PER_TARGET * len(targets)
+    for target in targets:
+        assert any(s.startswith(f"{target}-") for s in sources), f"{target} keeps representation"
 
 
 def test_pool_derives_from_the_plan_not_from_retrieval_volume(live_client):
@@ -423,10 +423,11 @@ def test_ungrounded_proposals_are_dropped_and_recorded_in_the_detailed_trace(liv
     llm = make_offline_llm()
     llm.proposals = ActionProposals(
         proposals=[
-            ActionProposal(action="Verify the DORA applicability conclusion.", citation_refs=["C1"]),
-            ActionProposal(action="An action grounded on nothing.", citation_refs=[]),
+            ActionProposal(action="Verify the DORA applicability conclusion.", kind="verify_against_facts", citation_refs=["C1"]),
+            ActionProposal(action="An action grounded on nothing.", kind="contingency", citation_refs=[]),
             ActionProposal(
                 action="An action grounded on a label matching no kept Finding.",
+                kind="contingency",
                 citation_refs=["C99"],
             ),
         ]
@@ -457,7 +458,7 @@ def test_an_action_anchored_only_by_weak_findings_is_rejected(live_client):
     llm = make_offline_llm()
     llm.proposals = ActionProposals(
         proposals=[
-            ActionProposal(action="Confirm the AI-system definition applies.", citation_refs=["C2"]),
+            ActionProposal(action="Confirm the AI-system definition applies.", kind="contingency", citation_refs=["C2"]),
         ]
     )
     install_fake_pipeline(llm, FakeRetriever())
@@ -484,7 +485,7 @@ def test_weak_only_findings_never_yield_standalone_actions(monkeypatch):
     llm.claims = DraftClaims(claims=[DraftClaim(statement=statement, evidence_refs=["E1"])])
     llm.verdicts = Verdicts(verdicts=[grounded_verdict(statement, Strength.weak, ["E1"])])
     llm.proposals = ActionProposals(
-        proposals=[ActionProposal(action="Act on the definition.", citation_refs=["C1"])]
+        proposals=[ActionProposal(action="Act on the definition.", kind="contingency", citation_refs=["C1"])]
     )
     install_fake_pipeline(llm, FakeRetriever(per_query={"definitions": [DEFINITIONS_CHUNK]}))
 
@@ -506,7 +507,7 @@ def test_at_most_five_validated_actions_plus_the_hand_off_are_served(live_client
     llm = make_offline_llm()
     llm.proposals = ActionProposals(
         proposals=[
-            ActionProposal(action=f"Referral action {index}.", citation_refs=["C1"])
+            ActionProposal(action=f"Referral action {index}.", kind="verify_against_facts", citation_refs=["C1"])
             for index in range(7)
         ]
     )
@@ -527,6 +528,86 @@ def test_at_most_five_validated_actions_plus_the_hand_off_are_served(live_client
     assert "at most 5" in decisions[5]["reason"]
 
 
+def test_kind_anchor_mismatch_is_rejected_by_the_gate(monkeypatch):
+    """The referral mapping is application code, not just a prompt (AC 2): a
+    verify-kind proposal anchored only by a moderate Finding is rejected with
+    why, while the matching contingency kind passes the same anchors."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
+
+    moderate = "A moderate finding."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="definitions")])
+    llm.claims = DraftClaims(claims=[DraftClaim(statement=moderate, evidence_refs=["E1"])])
+    llm.verdicts = Verdicts(verdicts=[grounded_verdict(moderate, Strength.moderate, ["E1"])])
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(action="Verify the moderate finding.", kind="verify_against_facts", citation_refs=["C1"]),
+            ActionProposal(action="Check the contingency.", kind="contingency", citation_refs=["C1"]),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever(per_query={"definitions": [DEFINITIONS_CHUNK]}))
+
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"] == ["Check the contingency.", SEEK_COUNSEL_ACTION]
+    decisions = proposer_step(data)["action_decisions"]
+    verify = next(d for d in decisions if d["action"] == "Verify the moderate finding.")
+    assert verify["status"] == "rejected"
+    assert "referral kind" in verify["reason"]
+    assert verify["reason"].endswith("(moderate)")
+
+
+def test_contingency_kind_on_a_strong_anchor_is_rejected(live_client):
+    """The gate's mapping runs both ways (AC 2): a contingency-kind proposal
+    grounded only on the strong Finding is rejected, leaving the hand-off."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(action="A contingency on a strong claim.", kind="contingency", citation_refs=["C1"]),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"] == [SEEK_COUNSEL_ACTION]
+    decisions = proposer_step(data)["action_decisions"]
+    assert decisions[0]["status"] == "rejected"
+    assert "referral kind" in decisions[0]["reason"]
+    assert decisions[0]["reason"].endswith("(strong)")
+
+
+def test_partial_grounding_drops_are_recorded_on_the_kept_decision(live_client):
+    """A kept proposal citing both resolvable and unknown labels records the
+    dropped labels on its decision — a partial grounding failure never
+    vanishes from the detailed trace either (AC 3)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(
+                action="Verify the high-risk duties.",
+                kind="verify_against_facts",
+                citation_refs=["C1", "C99"],
+            ),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"][0] == "Verify the high-risk duties."
+    decisions = proposer_step(data)["action_decisions"]
+    kept = next(d for d in decisions if d["status"] == "kept")
+    assert kept["dropped_refs"] == ["C99"]
+
+
 def test_insufficient_evidence_path_is_unchanged_and_never_calls_the_proposer(monkeypatch):
     """Nothing retrieved → the narrowing Actions as before, and the Proposer
     makes no LLM call over no kept Findings."""
@@ -541,6 +622,12 @@ def test_insufficient_evidence_path_is_unchanged_and_never_calls_the_proposer(mo
     assert_insufficient_evidence_response(data)
     assert data["answer"]["actions"] == NARROW_THE_QUESTION_ACTIONS
     assert [call for call in llm.calls if call[2] is ActionProposals] == []
+    # The trace stays honest about the skipped pass (AC 5): it says nothing
+    # was distilled, not that Findings were distilled.
+    step = proposer_step(data)
+    assert "Insufficient-evidence path" in step["action"]
+    assert "no LLM call" in step["action"]
+    assert step["action_decisions"] == []
 
 
 def test_no_kept_findings_serves_the_hand_off_alone_without_a_proposer_call(monkeypatch):
@@ -560,6 +647,10 @@ def test_no_kept_findings_serves_the_hand_off_alone_without_a_proposer_call(monk
     assert data["answer"]["actions"] == [SEEK_COUNSEL_ACTION]
     assert [call for call in llm.calls if call[2] is ActionProposals] == []
     assert "0 referral Action(s)" in data["trace"]["summary"]
+    # The node itself emitted the hand-off alone (AC 1), and the trace says so.
+    step = proposer_step(data)
+    assert "hand-off was served alone" in step["action"]
+    assert step["action_decisions"] == []
 
 
 # --- Citation rider: source_short_name from corpus metadata (#24) ------------

@@ -211,6 +211,7 @@ def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
             proposals=[
                 ActionProposal(
                     action="Have a qualified professional verify that the company's credit evaluation duties match the high-risk provisions cited.",
+                    kind="verify_against_facts",
                     citation_refs=["C1"],
                 ),
             ]

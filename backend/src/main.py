@@ -5,11 +5,8 @@ Backend entry point
 
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterator, List, Optional, TypedDict
-import glob
-import json
 import logging
 import time
-from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +23,7 @@ from .availability import (
     vector_store_is_empty,
 )
 from .config import ConfigurationError, Mode, load_settings
+from .corpus import load_documents
 from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
@@ -78,23 +76,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load small curated corpus (metadata + articles + recitals + annexes) at startup
-_CORPUS = {}
-# Resolve repo root relative to backend/ package: go up two parents to repo root
-_CORPUS_PATH = Path(__file__).resolve().parents[2] / "data" / "regulations"
-if not _CORPUS_PATH.exists():
-    logger.warning("Corpus path %s does not exist; retrieval will be limited", _CORPUS_PATH)
-for path in glob.glob(str(_CORPUS_PATH / "*.json")):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            doc = json.load(f)
-            doc_id = doc.get("metadata", {}).get("id")
-            if doc_id:
-                _CORPUS[doc_id] = doc
-    except (OSError, json.JSONDecodeError) as e:
-        # Log parse/read failures so maintainers can fix data issues
-        logger.warning("Skipping corpus file %s: %s", path, e)
-        continue
+# The small curated corpus (metadata + articles + recitals + annexes), loaded
+# once per process through the shared loader (corpus.py) — the Live path
+# derives Citation short names from the same documents.
+_CORPUS = load_documents()
 
 
 def _find_article_context(doc: dict, number: int) -> Optional[Dict[str, Any]]:
@@ -381,7 +366,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
 
 
 def get_llm() -> Llm:
-    """The structured-completion client: pinned model via OpenRouter."""
+    """The structured-completion client: pinned ``upstage/solar-pro4`` via OpenRouter."""
     key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
     return OpenRouterClient(api_key=key)
 

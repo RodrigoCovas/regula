@@ -17,8 +17,9 @@ Three rules are enforced by application code, never trusted to the LLM:
 - A Claim no verdict supports is an Unsupported claim: absent from the
   Answer, recorded in the Execution trace.
 - A proposed Action whose citation references do not resolve to a
-  moderate- or strong-anchored kept Finding is dropped and recorded in
-  the detailed trace — an ungrounded referral never reaches the Answer,
+  moderate- or strong-anchored kept Finding — or whose declared referral
+  kind contradicts its strongest anchor — is dropped and recorded in
+  the detailed trace: an ungrounded referral never reaches the Answer,
   and the standing seek-counsel hand-off keeps the sheet never empty.
 
 When retrieval returns nothing relevant enough (no Chunk clears the
@@ -32,13 +33,13 @@ import json
 import logging
 import time
 from collections import Counter
-from pathlib import Path
 from typing import Any, Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
+from .corpus import source_short_names
 from .llm import Llm
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, Strength, Trace, PROVISION_NUMBER_FIELDS, quote_snippet
 from .query_log import RequestObservation
@@ -57,7 +58,7 @@ _MAX_CHUNK_CHARS = 1500
 # The Evidence pool derives from the plan (ADR-0003): every Research target
 # claims this many seats, so seat demand scales with the Planner's
 # decomposition — breadth arriving as more targets, depth as finer-grained
-# ones — and sharpening queries automatically widens the pool. Per-target
+# ones — and sharper targets automatically widen the pool. Per-target
 # retrieval depth stays a separate concern (retrieval.PER_TARGET_DEPTH):
 # widening this pool never deepens crawling. Adjust only on scored evidence.
 SEATS_PER_TARGET = 6
@@ -89,7 +90,9 @@ MAX_ACTIONS = 5
 
 
 class ResearchTarget(BaseModel):
-    """One retrieval query the Planner wants researched."""
+    """One regulation-scoped line of inquiry the Planner derived from the
+    Regulatory question; ``query`` carries the keyword search string used
+    for retrieval."""
 
     query: str
 
@@ -98,11 +101,6 @@ class Plan(BaseModel):
     """The Planner's decomposition of the Regulatory question."""
 
     targets: list[ResearchTarget] = Field(default_factory=list)
-
-    @field_validator("targets", mode="before")
-    @classmethod
-    def _coerce_strings(cls, v: list) -> list:
-        return [{"query": t} if isinstance(t, str) else t for t in v]
 
 
 class DraftClaim(BaseModel):
@@ -132,12 +130,16 @@ class Verdicts(BaseModel):
 class ActionProposal(BaseModel):
     """One candidate Action the Proposer distilled from kept Findings.
 
-    ``citation_refs`` names the Citations of kept Findings that ground the
-    Action; a proposal that resolves to no moderate- or strong-anchored
-    kept Finding is rejected by application code, never the LLM.
+    ``kind`` declares the referral voice: ``contingency`` when the strongest
+    anchor Finding is moderate, ``verify_against_facts`` when it is strong —
+    the gate rejects a mismatch, never trusting the LLM. ``citation_refs``
+    names the Citations of kept Findings that ground the Action; a proposal
+    that resolves to no moderate- or strong-anchored kept Finding is
+    rejected by application code, never the LLM.
     """
 
     action: str
+    kind: Literal["contingency", "verify_against_facts"]
     citation_refs: list[str] = Field(default_factory=list)
 
 
@@ -149,11 +151,15 @@ class ActionDecision(BaseModel):
     """One Proposer decision in the detailed trace: kept, or rejected with why.
 
     Mirrors ``ClaimDecision``: rejected proposals must not vanish silently.
+    ``dropped_refs`` carries the citation labels that matched no kept Finding
+    and were dropped from the proposal's grounding — kept proposals record
+    them too, so a partial grounding failure never vanishes either.
     """
 
     action: str
     status: Literal["kept", "rejected"]
     reason: Optional[str] = None
+    dropped_refs: list[str] = Field(default_factory=list)
 
 
 class LabeledEvidence(BaseModel):
@@ -161,6 +167,15 @@ class LabeledEvidence(BaseModel):
 
     label: str
     chunk: Chunk
+
+
+class Grounding(BaseModel):
+    """One label the Proposer reads, paired with what validates it: the kept
+    Finding's Citation plus the Strength of the Finding owning it — the two
+    values the grounding gate checks every proposal reference against."""
+
+    citation: Citation
+    anchor: Strength
 
 
 class LiveState(BaseModel):
@@ -180,8 +195,12 @@ class LiveState(BaseModel):
     # exactly the labels the Proposer was shown.
     kept_findings: list[Finding] = Field(default_factory=list)
     claim_decisions: list[ClaimDecision] = Field(default_factory=list)
-    citation_by_label: dict[str, Citation] = Field(default_factory=dict)
-    anchor_by_label: dict[str, Strength] = Field(default_factory=dict)
+    grounding_by_label: dict[str, Grounding] = Field(default_factory=dict)
+    # The Proposer's no-findings edge (issue #24): with no kept Finding to
+    # anchor an Action, the node itself emits the standing seek-counsel
+    # hand-off alone — the composition serves this sheet verbatim, except on
+    # the Insufficient-evidence path, whose narrowing Actions it owns.
+    actions: list[str] = Field(default_factory=list)
 
 
 # --- Prompts: JSON-only instructions; the client repeats the schema contract ---
@@ -189,14 +208,14 @@ class LiveState(BaseModel):
 
 _PLANNER_SYSTEM = (
     "You are the Planner of a regulatory research assistant. Decompose the regulatory "
-    "question into 1-3 short keyword retrieval queries that would locate the relevant "
+    "question into 1-3 short keyword Research targets that would locate the relevant "
     "provisions (articles, recitals, annexes) in a corpus of EU regulations: the AI Act, "
     "GDPR, and DORA. Name concepts and likely provision subjects, not full sentences. "
     "When the question asks what applies or what obligations exist, do not stop at "
     "regime-level classification: give the operational duties each regulation imposes in "
-    "this scenario their own query — e.g. 'AI Act deployer obligations human oversight "
-    "logging' or 'automated decision information duties' — so duty-bearing provisions "
-    "surface alongside the classification ones."
+    "this scenario their own Research target — e.g. 'AI Act deployer obligations human "
+    "oversight logging' or 'automated decision information duties' — so duty-bearing "
+    "provisions surface alongside the classification ones."
 )
 
 _RESEARCHER_SYSTEM = (
@@ -225,7 +244,9 @@ _PROPOSER_SYSTEM = (
     "something only a professional can settle — a contingency the Findings cannot determine, "
     "or verification of a cited provision against the company's actual situation. Ground each "
     "Action in the citation labels of the Findings it leans on: moderate Findings anchor "
-    "contingency referrals, strong Findings anchor verify-against-facts referrals. Weak "
+    "contingency referrals, strong Findings anchor verify-against-facts referrals, so set "
+    "kind='contingency' when the strongest anchor is moderate and "
+    "kind='verify_against_facts' when it is strong — the gate rejects a mismatch. Weak "
     "Findings may enrich an Action's wording but never support one alone. Never propose a "
     "compliance task, never presume a Regulation applies, never advise on your own authority."
 )
@@ -253,41 +274,11 @@ def _provision_label(chunk: Chunk) -> str:
     return f"{_PROVISION_NOUNS[chunk.kind]} {chunk.provision_number}"
 
 
-# The corpus documents the short names are read from — same layout the demo
-# path loads at startup; a fixed, repo-local set (ADR-0002).
-_CORPUS_DIR = Path(__file__).resolve().parents[2] / "data" / "regulations"
-
-_source_short_names: Optional[dict[str, str]] = None
-
-
-def _load_source_short_names() -> dict[str, str]:
-    """Source id → short name, from the corpus documents' metadata.
-
-    Loaded lazily once per process and cached: the lookup is a cheap dict
-    hit after that, and a missing or unreadable corpus degrades to no short
-    names — never an error on the request path.
-    """
-    global _source_short_names
-    if _source_short_names is None:
-        names: dict[str, str] = {}
-        if _CORPUS_DIR.is_dir():
-            for path in sorted(_CORPUS_DIR.glob("*.json")):
-                try:
-                    document = json.loads(path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    continue
-                metadata = document.get("metadata") or {}
-                if metadata.get("id") and metadata.get("shortName"):
-                    names[str(metadata["id"])] = str(metadata["shortName"])
-        _source_short_names = names
-    return _source_short_names
-
-
 def derive_citation(chunk: Chunk) -> Citation:
     """Build the Citation for one Chunk from its stored provision metadata."""
     return Citation.model_validate({
         "source_id": chunk.source_id,
-        "source_short_name": _load_source_short_names().get(chunk.source_id),
+        "source_short_name": source_short_names().get(chunk.source_id),
         "section": chunk.title,
         "provision": _provision_label(chunk),
         "quote": quote_snippet(chunk.text),
@@ -362,17 +353,16 @@ def _decide_claims(
 
 def _labelled_findings(
     findings: list[Finding],
-) -> tuple[str, dict[str, Citation], dict[str, Strength]]:
-    """The kept Findings block the Proposer reads, plus the label maps the
-    grounding gate validates against.
+) -> tuple[str, dict[str, Grounding]]:
+    """The kept Findings block the Proposer reads, plus the groundings the
+    gate validates against.
 
     One enumeration serves both, so a label shown to the LLM always resolves
-    the same way in validation. ``C`` labels are flat across Findings;
-    ``anchor_by_label`` records the Strength of the Finding owning each
-    Citation — the gate's anchor rule reads it.
+    the same way in validation. ``C`` labels are flat across Findings; each
+    Grounding pairs the Citation with the Strength of the Finding owning it —
+    the gate's anchor rule reads it.
     """
-    citations: dict[str, Citation] = {}
-    anchors: dict[str, Strength] = {}
+    groundings: dict[str, Grounding] = {}
     lines: list[str] = []
     index = 0
     for position, finding in enumerate(findings, 1):
@@ -380,66 +370,75 @@ def _labelled_findings(
         for citation in finding.citations:
             index += 1
             label = f"C{index}"
-            citations[label] = citation
-            anchors[label] = finding.strength
+            groundings[label] = Grounding(citation=citation, anchor=finding.strength)
             name = citation.source_short_name or citation.source_id
             lines.append(f"  [{label}] {name} {citation.provision or ''}".rstrip())
-    return "\n".join(lines), citations, anchors
+    return "\n".join(lines), groundings
 
 
 _NO_RESOLVABLE_CITATION_REASON = "its citations resolve to no kept Finding"
 _WEAK_ANCHOR_REASON = (
     "its citations resolve only to weak Findings; an Action needs a moderate or strong anchor"
 )
+_KIND_ANCHOR_MISMATCH_REASON = (
+    "its referral kind ({kind}) does not match its strongest anchor ({anchor})"
+)
 _TOO_MANY_ACTIONS_REASON = f"the Answer serves at most {MAX_ACTIONS} Actions"
 
 
 def _validate_proposals(
     proposals: ActionProposals,
-    citation_by_label: dict[str, Citation],
-    anchor_by_label: dict[str, Strength],
+    grounding_by_label: dict[str, Grounding],
 ) -> tuple[list[str], list[ActionDecision]]:
     """The grounding gate: only anchored referral Actions reach the Answer.
 
     A proposal is kept when at least one of its citation references resolves
     to a kept Finding's Citation AND that Citation anchors a moderate or
-    strong Finding — weak Findings never anchor an Action alone (ADR-0004).
-    Unknown references are dropped from the grounding; proposals left with
-    none are rejected and recorded in the detailed trace, so nothing
-    proposed may vanish silently. At most ``MAX_ACTIONS`` validated Actions
-    are served, the rest recorded as rejected.
+    strong Finding — weak Findings never anchor an Action alone (ADR-0004) —
+    AND its declared referral kind matches its strongest anchor: strong
+    anchors verify-against-facts referrals, moderate anchors contingency
+    referrals. Unknown references are dropped from the grounding; proposals
+    left with none are rejected and recorded in the detailed trace, so
+    nothing proposed may vanish silently. At most ``MAX_ACTIONS`` validated
+    Actions are served, the rest recorded as rejected.
     """
     served: list[str] = []
     decisions: list[ActionDecision] = []
+
+    def reject(proposal: ActionProposal, reason: str, dropped: list[str]) -> ActionDecision:
+        return ActionDecision(
+            action=proposal.action, status="rejected", reason=reason, dropped_refs=dropped
+        )
+
     for proposal in proposals.proposals:
-        unknown = [ref for ref in proposal.citation_refs if ref not in citation_by_label]
-        resolved = [ref for ref in proposal.citation_refs if ref in citation_by_label]
+        unknown = [ref for ref in proposal.citation_refs if ref not in grounding_by_label]
+        resolved = [ref for ref in proposal.citation_refs if ref in grounding_by_label]
         if unknown:
             logger.warning(
                 "proposer cited labels matching no kept Finding's Citation (%s); dropped from the Action's grounding",
                 ", ".join(unknown),
             )
         if not resolved:
-            decisions.append(
-                ActionDecision(
-                    action=proposal.action,
-                    status="rejected",
-                    reason=_NO_RESOLVABLE_CITATION_REASON,
-                )
-            )
+            decisions.append(reject(proposal, _NO_RESOLVABLE_CITATION_REASON, unknown))
             continue
-        if not any(anchor_by_label[ref] in (Strength.moderate, Strength.strong) for ref in resolved):
+        anchors = [grounding_by_label[ref].anchor for ref in resolved]
+        if not any(anchor in (Strength.moderate, Strength.strong) for anchor in anchors):
+            decisions.append(reject(proposal, _WEAK_ANCHOR_REASON, unknown))
+            continue
+        strongest = Strength.strong if Strength.strong in anchors else Strength.moderate
+        expected_kind = "verify_against_facts" if strongest is Strength.strong else "contingency"
+        if proposal.kind != expected_kind:
             decisions.append(
-                ActionDecision(action=proposal.action, status="rejected", reason=_WEAK_ANCHOR_REASON)
+                reject(proposal, _KIND_ANCHOR_MISMATCH_REASON.format(kind=proposal.kind, anchor=strongest.value), unknown)
             )
             continue
         if len(served) >= MAX_ACTIONS:
-            decisions.append(
-                ActionDecision(action=proposal.action, status="rejected", reason=_TOO_MANY_ACTIONS_REASON)
-            )
+            decisions.append(reject(proposal, _TOO_MANY_ACTIONS_REASON, unknown))
             continue
         served.append(proposal.action)
-        decisions.append(ActionDecision(action=proposal.action, status="kept"))
+        decisions.append(
+            ActionDecision(action=proposal.action, status="kept", dropped_refs=unknown)
+        )
     return served, decisions
 
 
@@ -484,17 +483,20 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
 
         # Fair-share fill over the plan-derived pool: every target claims its
         # share of seats before any target's broad results backfill the
-        # remainder, so a greedy first query cannot starve the rest.
+        # remainder, so a greedy first target cannot starve the rest.
         evidence: list[LabeledEvidence] = []
 
         def take(chunk: Chunk) -> None:
             evidence.append(LabeledEvidence(label=f"E{len(evidence) + 1}", chunk=chunk))
 
         if per_target:
-            # The pool is SEATS_PER_TARGET × targets, so every target's fair
-            # share of round one is exactly SEATS_PER_TARGET seats.
-            fair_share = SEATS_PER_TARGET
-            pool_size = SEATS_PER_TARGET * len(per_target)
+            # The pool derives from the plan (ADR-0003): SEATS_PER_TARGET
+            # seats per Research target, and round one hands each target its
+            # fair share of that pool — the pool divided by the planned
+            # target count — before any target's broad results backfill the
+            # remainder.
+            pool_size = SEATS_PER_TARGET * len(state.plan)
+            fair_share = max(1, pool_size // len(state.plan))
             for fresh in per_target:
                 for chunk in fresh[:fair_share]:
                     take(chunk)
@@ -549,14 +551,17 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
         evidence_by_label = {item.label: item.chunk for item in state.evidence}
         findings, _, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label)
         if not findings:
-            # No kept Finding anchors anything: the hand-off alone is served,
-            # and no LLM call is made over nothing.
+            # No kept Finding anchors anything: the node itself emits the
+            # standing seek-counsel hand-off alone (ADR-0004), and no LLM
+            # call is made over nothing. The Insufficient-evidence path
+            # overrides this emission with its narrowing Actions.
             return {
                 "proposals": ActionProposals(),
                 "kept_findings": findings,
                 "claim_decisions": decisions,
+                "actions": [SEEK_COUNSEL_ACTION],
             }
-        block, citation_by_label, anchor_by_label = _labelled_findings(findings)
+        block, grounding_by_label = _labelled_findings(findings)
         user = (
             f"Regulatory question: {state.question}\n\n"
             f"Kept Findings with their supporting Citations:\n\n{block}"
@@ -573,8 +578,7 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
             "proposals": proposals,
             "kept_findings": findings,
             "claim_decisions": decisions,
-            "citation_by_label": citation_by_label,
-            "anchor_by_label": anchor_by_label,
+            "grounding_by_label": grounding_by_label,
         }
 
     builder = StateGraph(LiveState)
@@ -640,9 +644,13 @@ def run_live_analysis(
         # The Insufficient-evidence path is unchanged: narrowing suggestions,
         # and the Proposer made no LLM call over nothing.
         actions = list(NARROW_THE_QUESTION_ACTIONS)
+    elif state.actions:
+        # The Proposer itself emitted the standing hand-off alone over no
+        # kept Findings — the sheet is served verbatim, never empty.
+        actions = list(state.actions)
     else:
         actions, proposal_decisions = _validate_proposals(
-            state.proposals, state.citation_by_label, state.anchor_by_label
+            state.proposals, state.grounding_by_label
         )
         # Never empty (ADR-0004): the standing seek-counsel hand-off closes
         # the sheet, whether proposals survived the gate or none were made.
@@ -657,14 +665,32 @@ def run_live_analysis(
             "for this question."
         )
     else:
+        kept_proposals = sum(1 for d in proposal_decisions if d.status == "kept")
         rejected_proposals = sum(1 for d in proposal_decisions if d.status == "rejected")
         summary = (
             f"Planner identified research targets ({plan_summary}); Researcher retrieved "
             f"{len(retrieved_chunks)} Chunk(s) via the retrieval tool and drafted "
             f"{len(state.drafted.claims)} claim(s); Verifier kept {len(findings)} Finding(s) "
             f"and recorded {len(discarded)} Unsupported claim(s) as rejected; Proposer "
-            f"distilled {len(actions) - 1} referral Action(s) from the kept Findings "
+            f"distilled {kept_proposals} referral Action(s) from the kept Findings "
             f"and recorded {rejected_proposals} ungrounded proposal(s) as rejected."
+        )
+
+    if insufficient:
+        # The trace stays honest about the skipped pass: nothing was distilled.
+        proposer_step_action = (
+            "no Evidence was retrieved: the Insufficient-evidence path was served "
+            "and the Proposer made no LLM call"
+        )
+    elif state.actions:
+        proposer_step_action = (
+            "no kept Finding remained to anchor an Action: the standing "
+            "seek-counsel hand-off was served alone, and no LLM call was made"
+        )
+    else:
+        proposer_step_action = (
+            "distill the kept Findings into referral Actions, each grounded "
+            "in a kept Finding's Citations"
         )
 
     detailed_trace: list[dict[str, Any]] = [
@@ -682,7 +708,7 @@ def run_live_analysis(
         },
         {
             "step": "proposer",
-            "action": "distill the kept Findings into referral Actions, each grounded in a kept Finding's Citations",
+            "action": proposer_step_action,
             "action_decisions": [decision.model_dump() for decision in proposal_decisions],
         },
     ]
