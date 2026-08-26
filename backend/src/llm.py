@@ -19,10 +19,13 @@ PINNED_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# The locked single-pass budget (~8 Chunks, ~2K reasoning): the completion
-# cap bounds reasoning + answer tokens together, so one workflow pass can
-# never spend more than the budget on the model side.
-MAX_COMPLETION_TOKENS = 2048
+# The locked single-pass budget: the pinned nemotron is a hybrid reasoning
+# model whose hidden thinking tokens count against this cap — measured at
+# ~1.5K on the verifier call before a single visible JSON token, so the old
+# 2K cap truncated answers mid-object more often than it bounded them.
+# ADR-0003: depth outranks latency, and the cap only has to stop runaway
+# generations, not ration the answer.
+MAX_COMPLETION_TOKENS = 8192
 
 _TIMEOUT_SECONDS = 120
 
@@ -150,9 +153,16 @@ class OpenRouterClient:
         if isinstance(usage, dict):
             self.usage.append(usage)
         try:
-            content = body["choices"][0]["message"]["content"]
+            choice = body["choices"][0]
+            content = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
             raise LlmError(f"OpenRouter returned an unexpected response body: {body!r}") from error
+        if choice.get("finish_reason") == "length":
+            raise LlmError(
+                f"Model '{PINNED_MODEL}' hit the {MAX_COMPLETION_TOKENS}-token completion "
+                f"budget before finishing (finish_reason=length); hidden reasoning tokens "
+                f"count against the cap. Reply so far: {content[:200]!r}"
+            )
         try:
             data = _extract_json(content)
         except (ValueError, json.JSONDecodeError) as error:

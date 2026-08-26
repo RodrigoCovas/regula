@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 INGEST_COMMAND = "python -m backend.src.ingest"
 INGEST_COMMAND_IN_STACK = "docker compose exec backend python -m backend.src.ingest"
 
+# The one documented way to bring the stack's database up (README, docker-compose.yml).
+START_POSTGRES_COMMAND = "docker compose up -d postgres"
+
 # The standing escape hatch shared by every Not-available response.
 SWITCH_TO_DEMO_ACTION = (
     "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech "
@@ -151,7 +154,7 @@ def unreachable_store_response(error: Exception) -> AnalyzeResponse:
     return _not_available_response(
         actions=[
             f"The vector store is not reachable ({error}), so Live mode has nothing to retrieve from.",
-            "Start the stack's database with: docker compose up -d postgres",
+            f"Start the stack's database with: {START_POSTGRES_COMMAND}",
             "Once it is up, re-run your request; no restart is needed.",
             SWITCH_TO_DEMO_ACTION,
         ],

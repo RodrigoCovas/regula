@@ -365,6 +365,10 @@ class EvalScenario:
     scenario_id: str
     question: str
     expected: List[ExpectedFinding]
+    # The company context the request carries alongside the question. Demo
+    # pins routing by scenario id and ignores it; Live mode grounds the
+    # Planner on it (live_workflow reads description/title).
+    description: Optional[str] = None
     # None selects the verbatim default; Live ground-truth cases pass
     # semantic_matcher once #7's hand-authored expectations exist.
     matcher: Optional[Matcher] = None
@@ -394,37 +398,521 @@ CURATED_SCENARIOS: List[EvalScenario] = [
     EvalScenario(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
 ]
 
-# The Live-quality cases (#20): the canonical cases' hand-authored ground
-# truth, but only the cases whose expectations mean something against Live
-# mode, where the workflow answers every question. They run with the semantic
-# matcher and citation fidelity through the operator CLI
-# (backend/src/live_eval.py) — never in CI. The non-canonical tripwires stay
-# Demo-only: they pin canonical-id routing, which Live mode deliberately has
-# no notion of, so their empty expectations would score 0 by construction and
-# measure nothing.
+# The Live-quality cases (#20): the operator CLI's case list (backend/src/live_eval.py),
+# assembled from two sources and never part of CI.
+#
+# First, the canonical Demo cases whose expectations mean something against
+# Live mode, where the workflow answers every question. Their non-canonical
+# siblings stay Demo-only tripwires: they pin canonical-id routing, which Live
+# mode deliberately has no notion of, so their empty expectations would score
+# 0 by construction and measure nothing.
 _CANONICAL_CASE_IDS = {"canonical-what-applies", "canonical-loan-denial", "canonical-spanish-question"}
+
+# Second, operator-authored live-only cases, each describing its own Scenario
+# (the description grounds the Live Planner; Demo would refuse these ids as
+# unknown). Ground truth is hand-authored per regulation from the provisions
+# each question should surface: related articles cluster into one expectation,
+# ranges expand into their separate Article targets, and sub-references like
+# "point 5(b)" collapse to the Annex they refine — the structural targets
+# citation fidelity compares. Strengths follow CONTEXT.md: strong when a
+# provision names the situation outright, moderate where the claim is derived
+# or contingent on facts the Corpus cannot settle (entity status, designation).
+_HR_RECRUITMENT_EXPECTED = [
+    ExpectedFinding(
+        statement="Ranking job applicants by CVs and video interviews is high-risk under the AI Act, because recruitment and candidate evaluation are named high-risk uses, so the full high-risk obligations apply.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 4(a)"}],
+    ),
+    ExpectedFinding(
+        statement="The system's provider must meet the high-risk requirements before market placement: accountability for compliance, risk management, training-data governance, technical documentation, record-keeping, transparency to the deployer, designed human oversight, and accuracy, robustness and cybersecurity.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(8, 16)],
+    ),
+    ExpectedFinding(
+        statement="As deployer, the company must operate the system per the provider's instructions, assign competent human oversight, and keep automatically generated logs for at least six months.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
+    ),
+    ExpectedFinding(
+        statement="Depending on the company's status, a fundamental rights impact assessment may be required before first use, with its results notified to the market surveillance authority.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "ai-act", "provision": "Article 27"}],
+    ),
+    ExpectedFinding(
+        statement="Staff operating the system need sufficient AI literacy, an obligation the AI Act places on providers and deployers alike.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
+    ),
+    ExpectedFinding(
+        statement="Processing applicants' CVs and interview recordings needs a lawful basis under the GDPR, applied with the lawfulness, fairness, transparency, purpose-limitation and data-minimisation principles.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
+    ),
+    ExpectedFinding(
+        statement="To the extent application data reveals special categories such as biometric or belief-related information, GDPR restrictions on processing such data apply.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "gdpr", "provision": "Article 9"}],
+    ),
+    ExpectedFinding(
+        statement="Applicants must receive transparent information about how their application data is processed.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
+    ),
+    ExpectedFinding(
+        statement="Automated applicant ranking is decision-making based solely on automated processing with legal effects, so GDPR restrictions apply, and any authorised route still requires safeguards such as human intervention and contest rights.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+    ),
+    ExpectedFinding(
+        statement="The company must embed data protection by design and by default into the recruitment processing.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+    ),
+    ExpectedFinding(
+        statement="Applicant data held by the screening system requires appropriate technical and organisational security measures.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
+    ),
+    ExpectedFinding(
+        statement="Systematic and extensive automated evaluation of applicants triggers a data protection impact assessment before processing starts.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+    ),
+]
+
+_BANK_CLOUD_OUTAGE_EXPECTED = [
+    ExpectedFinding(
+        statement="As a financial entity, the bank must run an ICT incident-management process able to detect, manage and notify ICT-related incidents such as this outage.",
+        strength=Strength.strong,
+        citations=[{"source_id": "dora", "provision": "Article 17"}],
+    ),
+    ExpectedFinding(
+        statement="The outage must be classified against DORA's criteria for major ICT-related incidents and reported to the competent authority within the mandated deadlines, using the prescribed reporting content.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 18"},
+            {"source_id": "dora", "provision": "Article 19"},
+            {"source_id": "dora", "provision": "Article 20"},
+        ],
+    ),
+    ExpectedFinding(
+        statement="If designated for it, the bank also faces threat-led penetration testing of its ICT systems at least every three years.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "dora", "provision": "Article 24"}, {"source_id": "dora", "provision": "Article 25"}],
+    ),
+    ExpectedFinding(
+        statement="The cloud arrangement belongs in the bank's register of information on ICT third-party service providers, and a designated critical provider falls under EU-level oversight.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 28"},
+            {"source_id": "dora", "provision": "Article 29"},
+            {"source_id": "dora", "provision": "Article 30"},
+        ],
+    ),
+]
+
+_FINTECH_LOAN_DECISIONS_EXPECTED = [
+    ExpectedFinding(
+        statement="AI systems that evaluate the creditworthiness of natural persons or establish credit scores are high-risk under the AI Act, so the full high-risk obligations apply.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 5(b)"}],
+    ),
+    ExpectedFinding(
+        statement="The system's provider must meet the high-risk requirements: accountability for compliance, risk management, data governance, technical documentation, record-keeping, transparency, designed human oversight, and accuracy, robustness and cybersecurity.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(9, 16)],
+    ),
+    ExpectedFinding(
+        statement="As deployer, the company must use the system per instructions, assign human oversight, keep generated logs at least six months, and inform applicants that they are subject to a high-risk AI system.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
+    ),
+    ExpectedFinding(
+        statement="Staff operating the loan-decisioning system need sufficient AI literacy.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
+    ),
+    ExpectedFinding(
+        statement="Processing customers' income and financial history needs a lawful basis under the GDPR, applied with the lawfulness, fairness, transparency, purpose-limitation and data-minimisation principles.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
+    ),
+    ExpectedFinding(
+        statement="Applicants must receive transparent information about the automated processing of their financial data.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
+    ),
+    ExpectedFinding(
+        statement="Applicants keep access rights to their data and the right to object to processing grounded in legitimate interests.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 15"}, {"source_id": "gdpr", "provision": "Article 21"}],
+    ),
+    ExpectedFinding(
+        statement="Automated loan approval is a solely automated decision with legal effects, restricted by the GDPR, and even the contract-necessity route requires human intervention and contest rights.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+    ),
+    ExpectedFinding(
+        statement="Data protection by design and by default must be embedded in the credit-decisioning processing.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+    ),
+    ExpectedFinding(
+        statement="Credit scoring is a systematic, extensive automated evaluation on which decisions with legal effects rest, so a data protection impact assessment is required beforehand.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+    ),
+    ExpectedFinding(
+        statement="Only if the fintech is itself a DORA-covered financial entity do DORA's governance and ICT risk-management duties apply.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(5, 12)],
+    ),
+    ExpectedFinding(
+        statement="On that same condition, its ICT third-party arrangements belong in DORA's register of information, and designated critical providers face EU-level oversight.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 28"},
+            {"source_id": "dora", "provision": "Article 29"},
+            {"source_id": "dora", "provision": "Article 30"},
+        ],
+    ),
+]
+
+_EMPLOYEE_MONITORING_EXPECTED = [
+    ExpectedFinding(
+        statement="Monitoring employees' computer activity and scoring their performance is high-risk under the AI Act, since worker monitoring and evaluation are named high-risk uses.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 4(b)"}],
+    ),
+    ExpectedFinding(
+        statement="Should the software infer workers' emotions, that practice is prohibited in the workplace under the AI Act, save narrow safety and medical exceptions.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "ai-act", "provision": "Article 5(1)(f)"}],
+    ),
+    ExpectedFinding(
+        statement="The system's provider must satisfy the high-risk requirements: risk management, data governance, technical documentation, record-keeping, transparency, designed human oversight, and accuracy, robustness and cybersecurity.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(9, 16)],
+    ),
+    ExpectedFinding(
+        statement="As deployer, the company must follow provider instructions, ensure competent human oversight of the system's use, and keep automatically generated logs.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
+    ),
+    ExpectedFinding(
+        statement="Staff operating the monitoring software need sufficient AI literacy.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
+    ),
+    ExpectedFinding(
+        statement="Monitoring employee activity needs a lawful basis under the GDPR, exercised consistently with the core data-protection principles.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
+    ),
+    ExpectedFinding(
+        statement="Employees must be informed transparently about the monitoring of their work activity.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
+    ),
+    ExpectedFinding(
+        statement="Where monitored activity reveals special-category data, GDPR restrictions on processing it come into play.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "gdpr", "provision": "Article 9"}],
+    ),
+    ExpectedFinding(
+        statement="Productivity scores feeding decisions with significant effects on workers fall under GDPR restrictions on solely automated decision-making, with the accompanying safeguards.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+    ),
+    ExpectedFinding(
+        statement="Employee monitoring must incorporate data protection by design and by default.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+    ),
+    ExpectedFinding(
+        statement="Systematic monitoring and evaluation of employees calls for a data protection impact assessment.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+    ),
+]
+
+_DATA_BREACH_NOTIFICATION_EXPECTED = [
+    ExpectedFinding(
+        statement="Unauthorised access to customers' personal data is a personal data breach in the GDPR's sense, engaging the integrity and confidentiality principle.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "gdpr", "provision": "Article 4(12)"}, {"source_id": "gdpr", "provision": "Article 5(1)(f)"}],
+    ),
+    ExpectedFinding(
+        statement="The store must notify the competent supervisory authority of the breach within seventy-two hours unless it is unlikely to result in a risk, and document every breach.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 33"}],
+    ),
+    ExpectedFinding(
+        statement="Customers must be informed of the breach without undue delay where it is likely to result in a high risk to them, describing its nature and the steps taken.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 34"}],
+    ),
+    ExpectedFinding(
+        statement="Personal data must have been secured with appropriate technical and organisational security measures, and the incident will test whether they were adequate.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
+    ),
+    ExpectedFinding(
+        statement="As controller, the store is responsible for demonstrating GDPR compliance in how it handled and responded to the breach.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "gdpr", "provision": "Article 24"}],
+    ),
+]
+
+_INSURANCE_HEALTH_PRICING_EXPECTED = [
+    ExpectedFinding(
+        statement="AI-based risk assessment and pricing for life and health insurance is a named high-risk use under the AI Act, so the full high-risk obligations apply.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 5(c)"}],
+    ),
+    ExpectedFinding(
+        statement="Health information is special-category data whose analysis the GDPR restricts unless a specific exception applies.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 9"}],
+    ),
+    ExpectedFinding(
+        statement="Processing health data for pricing needs a lawful basis under the GDPR, applied with the core data-protection principles.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
+    ),
+    ExpectedFinding(
+        statement="Customers must receive transparent information about the processing of their health data.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
+    ),
+    ExpectedFinding(
+        statement="Automated life-insurance pricing is a solely automated decision affecting customers significantly, so GDPR restrictions and safeguards on such decisions apply.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+    ),
+    ExpectedFinding(
+        statement="Data protection by design and by default must shape the pricing system's processing.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+    ),
+    ExpectedFinding(
+        statement="Analysing health data at scale to price policies calls for a data protection impact assessment.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+    ),
+    ExpectedFinding(
+        statement="The system's provider must meet the high-risk requirements: risk management, data governance, technical documentation, record-keeping, transparency, designed human oversight, and accuracy, robustness and cybersecurity.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(9, 16)],
+    ),
+    ExpectedFinding(
+        statement="As deployer, the insurer must operate the system per the provider's instructions, with human oversight and retained logs.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
+    ),
+    ExpectedFinding(
+        statement="DORA's governance and ICT risk-management duties reach the insurer only insofar as it is a DORA-covered financial entity.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(5, 12)],
+    ),
+    ExpectedFinding(
+        statement="Under that same condition, DORA adds resilience testing up to threat-led penetration testing, plus the register of ICT third-party arrangements and EU-level oversight of critical providers.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(24, 31)],
+    ),
+]
+
+_TELECOM_CHATBOT_EXPECTED = [
+    ExpectedFinding(
+        statement="Users interacting with the chatbot must be clearly informed they are dealing with an AI system, per the AI Act's transparency rule for interactive AI.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 50(1)"}],
+    ),
+    ExpectedFinding(
+        statement="Generated content may additionally require machine-readable marking under the AI Act's synthetic-content rules, depending on what the chatbot produces.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "ai-act", "provision": "Article 50(2)"}],
+    ),
+    ExpectedFinding(
+        statement="Staff involved in operating the chatbot need sufficient AI literacy.",
+        strength=Strength.strong,
+        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
+    ),
+    ExpectedFinding(
+        statement="Processing customers' names, account numbers and addresses requires a lawful basis under the GDPR, applied with the core data-protection principles.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
+    ),
+    ExpectedFinding(
+        statement="Customers must receive clear, accessible information about how the chatbot processes their data.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 12"}, {"source_id": "gdpr", "provision": "Article 13"}],
+    ),
+    ExpectedFinding(
+        statement="Privacy protections must be built into the chatbot through data protection by design and by default.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+    ),
+    ExpectedFinding(
+        statement="Where the chatbot vendor processes customer data on the telecom's behalf, a GDPR processor contract with documented instructions is required.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 28"}],
+    ),
+    ExpectedFinding(
+        statement="Conversation data demands appropriate technical and organisational security measures.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
+    ),
+    ExpectedFinding(
+        statement="Where the chatbot systematically processes personal data at scale, a data protection impact assessment becomes necessary.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+    ),
+]
+
+_RANSOMWARE_INVESTMENT_FIRM_EXPECTED = [
+    ExpectedFinding(
+        statement="The firm's business continuity, response-and-recovery and crisis-management arrangements are engaged, as DORA obliges financial entities to maintain and exercise them for ICT disruption.",
+        strength=Strength.strong,
+        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(11, 15)],
+    ),
+    ExpectedFinding(
+        statement="The ransomware attack must be handled through the firm's ICT incident-management process.",
+        strength=Strength.strong,
+        citations=[{"source_id": "dora", "provision": "Article 17"}],
+    ),
+    ExpectedFinding(
+        statement="The attack must be classified against DORA's major-incident criteria and reported to the competent authority within strict deadlines.",
+        strength=Strength.strong,
+        citations=[{"source_id": "dora", "provision": "Article 18"}, {"source_id": "dora", "provision": "Article 19"}],
+    ),
+    ExpectedFinding(
+        statement="Designated entities face further resilience-testing duties, up to threat-led penetration testing every three years.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(24, 28)],
+    ),
+    ExpectedFinding(
+        statement="Affected ICT third-party arrangements belong in the firm's register of information, with designated critical providers subject to EU-level oversight.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 28"},
+            {"source_id": "dora", "provision": "Article 29"},
+            {"source_id": "dora", "provision": "Article 30"},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Client data hit by the ransomware constitutes a personal data breach, engaging the GDPR's integrity and confidentiality principle.",
+        strength=Strength.moderate,
+        citations=[{"source_id": "gdpr", "provision": "Article 5(1)(f)"}],
+    ),
+    ExpectedFinding(
+        statement="Client data and trading systems must be protected with appropriate technical and organisational security measures under the GDPR.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
+    ),
+    ExpectedFinding(
+        statement="Unless the attack is unlikely to result in a risk, the firm must notify the supervisory authority within seventy-two hours and document the breach.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 33"}],
+    ),
+    ExpectedFinding(
+        statement="Clients whose personal data is affected must be informed where the breach is likely to result in a high risk to them.",
+        strength=Strength.strong,
+        citations=[{"source_id": "gdpr", "provision": "Article 34"}],
+    ),
+]
+
+_LIVE_CASE_SCENARIOS: List[EvalScenario] = [
+    EvalScenario(
+        id="live-hr-recruitment",
+        scenario_id="hr-cv-screening",
+        description="A company uses an AI system to automatically rank job applicants based on their CVs and video interviews.",
+        question="What legal obligations should we consider before using this system?",
+        expected=_HR_RECRUITMENT_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+    EvalScenario(
+        id="live-bank-cloud-outage",
+        scenario_id="bank-cloud-outage",
+        description="A bank relies on a cloud provider for critical online banking systems. A major outage has prevented customers from accessing their accounts.",
+        question="What regulatory obligations should we consider?",
+        expected=_BANK_CLOUD_OUTAGE_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+    EvalScenario(
+        id="live-fintech-loan-decisions",
+        scenario_id="fintech-loan-decisions",
+        description="A fintech company uses an AI system to analyse customers' income and financial history to automatically decide whether to approve their loan applications.",
+        question="What regulations and obligations could apply?",
+        expected=_FINTECH_LOAN_DECISIONS_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+    EvalScenario(
+        id="live-employee-monitoring",
+        scenario_id="employee-productivity-monitoring",
+        description="A company uses AI software to monitor employees' computer activity and automatically generate productivity scores.",
+        question="Are there any legal requirements we need to consider?",
+        expected=_EMPLOYEE_MONITORING_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+    EvalScenario(
+        id="live-data-breach-notification",
+        scenario_id="online-store-breach",
+        description="An online store discovered that hackers accessed a database containing customers' names, email addresses and home addresses.",
+        question="What legal obligations does the company have following this incident?",
+        expected=_DATA_BREACH_NOTIFICATION_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+    EvalScenario(
+        id="live-insurance-health-pricing",
+        scenario_id="insurer-health-ai-pricing",
+        description="An insurance company uses AI to analyse customers' health information and automatically calculate life insurance prices.",
+        question="What regulations and compliance requirements should we consider?",
+        expected=_INSURANCE_HEALTH_PRICING_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+    EvalScenario(
+        id="live-telecom-chatbot",
+        scenario_id="telecom-genai-chatbot",
+        description="A telecommunications company uses a generative AI chatbot to answer customer questions. Customers may provide their names, account numbers and addresses during conversations.",
+        question="What legal requirements apply to this system?",
+        expected=_TELECOM_CHATBOT_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+    EvalScenario(
+        id="live-ransomware-investment-firm",
+        scenario_id="investment-firm-ransomware",
+        description="An investment firm has suffered a ransomware attack that disrupted its trading platform and affected systems containing client information.",
+        question="What regulatory obligations should we consider?",
+        expected=_RANSOMWARE_INVESTMENT_FIRM_EXPECTED,
+        matcher=semantic_matcher,
+    ),
+]
 
 LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
     replace(scenario, matcher=semantic_matcher)
     for scenario in CURATED_SCENARIOS
     if scenario.id in _CANONICAL_CASE_IDS
-]
+] + _LIVE_CASE_SCENARIOS
 
 
-def score_scenario_report(
+def evaluate_scenarios(
     scenarios: List[EvalScenario],
     respond: Callable[[AnalyzeRequest], AnalyzeResponse],
 ) -> EvalReport:
     """Run each Scenario through ``respond`` and score the produced Findings.
 
-    The one scoring loop both runners share: ``respond`` answers one request
-    (the Demo harness calls analyze directly, the Live runner crosses HTTP),
-    and everything after — Findings mapping, per-case scoring with the case's
-    matcher, mean F1 — happens identically for every mode.
+    The one evaluation loop both runners share: ``respond`` answers one
+    request (the Demo harness calls analyze directly, the Live runner crosses
+    HTTP), and everything after — Findings mapping, per-case scoring with the
+    case's matcher, mean F1 — happens identically for every mode.
     """
     scenario_results: List[EvalScenarioResult] = []
     for scenario in scenarios:
-        request = AnalyzeRequest(scenario=Scenario(id=scenario.scenario_id), question=scenario.question)
+        request = AnalyzeRequest(
+            scenario=Scenario(id=scenario.scenario_id, description=scenario.description),
+            question=scenario.question,
+        )
         response = respond(request)
         produced = [
             ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
@@ -457,7 +945,7 @@ def run_eval() -> EvalReport:
     app_settings = main.settings
     main.settings = Settings(regula_mode=Mode.demo)
     try:
-        return score_scenario_report(CURATED_SCENARIOS, respond)
+        return evaluate_scenarios(CURATED_SCENARIOS, respond)
     finally:
         main.settings = app_settings
 

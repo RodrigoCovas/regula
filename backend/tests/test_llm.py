@@ -104,6 +104,32 @@ def test_markdown_fences_and_prose_around_the_json_are_tolerated():
     assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["x"])
 
 
+def test_length_truncation_is_reported_as_budget_exhaustion_not_a_parse_failure():
+    """A reply cut off by the completion cap (finish_reason='length') has no
+    closing brace, so it masquerades as unparseable JSON — the error must
+    name the budget instead of sending you debugging the parser. Live nemotron
+    reasoning tokens consumed ~1.5K of the old 2048 cap before any visible
+    JSON (logs/queries.jsonl 2026-08-26T09:29:36)."""
+    body = chat_response('{"verdicts": [{"statement": "The EU AI')
+    body["choices"][0]["finish_reason"] = "length"
+    transport = FakeTransport(responses=[body])
+    client = make_client(transport)
+
+    with pytest.raises(LlmError) as excinfo:
+        client.complete(system="s", user="u", schema=Plan)
+    assert "completion budget" in str(excinfo.value)
+    assert "finish_reason=length" in str(excinfo.value)
+
+
+def test_stop_completions_are_not_flagged_as_truncated():
+    body = chat_response('{"targets": ["x"]}')
+    body["choices"][0]["finish_reason"] = "stop"
+    transport = FakeTransport(responses=[body])
+    client = make_client(transport)
+
+    assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["x"])
+
+
 def test_http_error_surfaces_status_and_body_snippet_as_llm_error():
     import requests
 

@@ -3,10 +3,12 @@ from src.eval_harness import (
     EvalScenario,
     run_eval,
     score_scenario,
+    evaluate_scenarios,
     ExpectedFinding,
     ProducedFinding,
     Strength,
 )
+from src.models import AnalyzeResponse, Answer, Trace
 
 
 def test_perfect_match_scores_one():
@@ -118,3 +120,32 @@ def test_eval_pins_demo_mode_even_when_app_boots_live(monkeypatch):
     report = run_eval()
     assert report.mean_f1 == 1.0
     assert main.settings.regula_mode == Mode.live
+
+
+def test_scenario_description_reaches_the_analysis_request():
+    """Live cases describe their own Scenario; the shared scoring loop must
+    pass the description through so Live mode can ground the Planner on it."""
+    captured = []
+
+    def respond(request):
+        captured.append(request)
+        return AnalyzeResponse(
+            answer=Answer(findings=[], actions=[], citations=[]),
+            trace=Trace(workflow="test", summary="nothing produced"),
+        )
+
+    evaluate_scenarios(
+        [
+            EvalScenario(
+                id="described",
+                scenario_id="some-scenario",
+                description="A bank reliant on a cloud provider.",
+                question="What applies?",
+                expected=[],
+            )
+        ],
+        respond,
+    )
+
+    assert captured[0].scenario.id == "some-scenario"
+    assert captured[0].scenario.description == "A bank reliant on a cloud provider."

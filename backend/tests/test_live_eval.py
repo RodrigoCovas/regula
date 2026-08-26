@@ -100,17 +100,40 @@ def test_scores_every_live_case_through_the_live_pipeline(ingested_store, query_
     report = run_live_eval(live_settings(query_log_path))
 
     assert [result.id for result in report.scenarios] == [case.id for case in LIVE_EVAL_SCENARIOS]
-    for result in report.scenarios:
-        assert isinstance(result, EvalScenarioResult)
-        # The paraphrase paired through the semantic matcher with on-target
-        # Citations: full precision, partial recall against nine expectations.
-        assert result.precision == 1.0
-        assert 0.0 < result.recall < 1.0
-        assert 0.0 < result.f1 < 1.0
+    first = report.scenarios[0]
+    assert isinstance(first, EvalScenarioResult)
+    # On the canonical case the paraphrase paired through the semantic matcher
+    # with on-target Citations: full precision, partial recall. The other cases'
+    # expectations describe different scenarios, so this one canned Finding
+    # simply goes unmatched there — per-case scoring is what matters.
+    assert first.precision == 1.0
+    assert 0.0 < first.recall < 1.0
+    assert 0.0 < first.f1 < 1.0
     assert report.mean_f1 == pytest.approx(sum(r.f1 for r in report.scenarios) / len(report.scenarios))
     # The retrieval tool really ran — Demo mode never touches the Retriever.
     assert retriever.queries
     assert llm.calls
+
+
+def test_every_live_case_expectation_targets_a_known_provision():
+    """Hand-authored labels are parsed at scoring time, so a typo would fail
+    mid-run; this makes the same authoring bug fail loudly here instead."""
+    from src.eval_harness import parse_provision
+
+    for case in LIVE_EVAL_SCENARIOS:
+        assert case.expected, f"live case {case.id} ships no expectations"
+        for finding in case.expected:
+            assert finding.citations, f"{case.id}: expectation without Citations"
+            for citation in finding.citations:
+                target = parse_provision(citation["source_id"], citation["provision"])
+                assert target.source_id in {"gdpr", "ai-act", "dora"}
+                assert target.number > 0
+
+
+def test_live_case_ids_are_unique_and_semantically_matched():
+    ids = [case.id for case in LIVE_EVAL_SCENARIOS]
+    assert len(ids) == len(set(ids))
+    assert all(case.matcher is not None for case in LIVE_EVAL_SCENARIOS)
 
 
 def test_semantic_matching_and_citation_fidelity_are_applied(ingested_store, query_log_path):
@@ -167,7 +190,7 @@ def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
     monkeypatch.setenv("REGULA_MODE", "demo")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    monkeypatch.setattr("src.live_eval._source_local_env", lambda: None)
+    monkeypatch.setattr("src.live_eval.source_local_env", lambda: None)
     install_fake_pipeline(_paraphrasing_llm(), _on_target_retriever())
 
     exit_code = main()
@@ -176,13 +199,13 @@ def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):
     out = capsys.readouterr().out
     for case in LIVE_EVAL_SCENARIOS:
         assert case.id in out
-    assert "F1" in out
-    assert "mean f1" in out.lower()
+    assert "weighted F1" in out
+    assert "mean weighted f1" in out.lower()
 
 
 def test_main_refusal_exits_nonzero_with_cause_on_stderr(monkeypatch, capsys):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr("src.live_eval._source_local_env", lambda: None)
+    monkeypatch.setattr("src.live_eval.source_local_env", lambda: None)
 
     exit_code = main()
 

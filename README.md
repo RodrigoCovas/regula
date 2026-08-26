@@ -246,9 +246,9 @@ python -m backend.src.live_eval
 It runs the hand-authored ground-truth cases through `/api/analyze` in Live
 mode, scores each Answer with semantic matching (paraphrased Findings pair
 with their expectations) and citation fidelity (missed, mistargeted, or extra
-Citations cost credit), and prints per-case precision/recall/F1 plus the
-aggregate mean F1. Without a key or an ingested Corpus it refuses with the
-fix instead of measuring garbage.
+Citations cost credit), and prints per-case precision/recall plus the
+strength-weighted F1 and the aggregate mean weighted F1. Without a key or an
+ingested Corpus it refuses with the fix instead of measuring garbage.
 
 ## Deployment
 

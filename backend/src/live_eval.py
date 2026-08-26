@@ -23,20 +23,19 @@ or inside the stack:
 """
 
 import sys
-from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 
 from .availability import (
     INGEST_COMMAND,
     INGEST_COMMAND_IN_STACK,
     NOT_AVAILABLE_WORKFLOW,
+    START_POSTGRES_COMMAND,
     UNREACHABLE_STORE_ERRORS,
     vector_store_is_empty,
 )
-from .config import ConfigurationError, Mode, Settings, load_settings
-from .eval_harness import LIVE_EVAL_SCENARIOS, EvalReport, score_scenario_report
+from .config import ConfigurationError, Mode, Settings, load_settings, source_local_env
+from .eval_harness import LIVE_EVAL_SCENARIOS, EvalReport, evaluate_scenarios
 from .models import AnalyzeRequest, AnalyzeResponse
 
 
@@ -62,7 +61,7 @@ def ensure_runnable(settings: Settings) -> None:
     except UNREACHABLE_STORE_ERRORS as error:
         raise LiveEvalRefused(
             f"Cannot reach the vector store at {settings.database_url} ({error}). "
-            "Start it with: docker compose up -d postgres"
+            f"Start it with: {START_POSTGRES_COMMAND}"
         ) from error
     if empty:
         raise LiveEvalRefused(
@@ -91,7 +90,10 @@ def run_live_eval(settings: Settings) -> EvalReport:
 
     client = TestClient(main.app)
     app_settings = main.settings
-    main.settings = settings.model_copy(update={"regula_mode": Mode.live})
+    # Rebuild through the constructor instead of model_copy: update= bypasses
+    # pydantic validation, and a pinned Settings must obey the same rules as
+    # one built from the environment.
+    main.settings = Settings(**{**settings.model_dump(), "regula_mode": Mode.live})
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
         response = client.post("/api/analyze", json=request.model_dump())
@@ -106,7 +108,7 @@ def run_live_eval(settings: Settings) -> EvalReport:
         return analyzed
 
     try:
-        return score_scenario_report(LIVE_EVAL_SCENARIOS, respond)
+        return evaluate_scenarios(LIVE_EVAL_SCENARIOS, respond)
     finally:
         main.settings = app_settings
 
@@ -117,27 +119,15 @@ def print_report(report: EvalReport) -> None:
     for result in report.scenarios:
         print(
             f"  {result.id}: precision={result.precision:.3f} "
-            f"recall={result.recall:.3f} F1={result.f1:.3f}"
+            f"recall={result.recall:.3f} weighted F1={result.f1:.3f}"
         )
-    print(f"Aggregate mean F1: {report.mean_f1:.3f}")
-
-
-def _source_local_env() -> None:
-    """Place backend/.env.local into the environment when present.
-
-    The key lives there by convention; values only ever enter the process
-    environment — they are never read back, echoed, or logged. The real
-    environment wins: nothing here overrides an exported variable.
-    """
-    env_local = Path(__file__).resolve().parents[1] / ".env.local"
-    if env_local.exists():
-        load_dotenv(env_local, override=False)
+    print(f"Aggregate mean weighted F1: {report.mean_f1:.3f}")
 
 
 def main() -> int:
     """The CLI entry point: refuse with exit 1 when prerequisites are missing,
     otherwise print the report and exit 0."""
-    _source_local_env()
+    source_local_env()
     try:
         report = run_live_eval(load_settings())
     except (LiveEvalRefused, ConfigurationError) as error:

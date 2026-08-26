@@ -7,8 +7,10 @@ guard at the pgvector store — the store is never required to boot.
 """
 
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
 
@@ -58,3 +60,15 @@ def load_settings() -> Settings:
             "Set the key or start with REGULA_MODE=demo (the default)."
         )
     return settings
+
+
+def source_local_env() -> None:
+    """Place backend/.env.local into the environment when present.
+
+    The LLM API key lives there by convention; values only ever enter the
+    process environment — they are never read back, echoed, or logged. The
+    real environment wins: nothing here overrides an exported variable.
+    """
+    env_local = Path(__file__).resolve().parents[1] / ".env.local"
+    if env_local.exists():
+        load_dotenv(env_local, override=False)
