@@ -16,8 +16,10 @@ This repo uses a single-context layout with one root `CONTEXT.md` and ADRs under
 
 Run after code changes, before committing:
 
-- Tests: `python -m pytest backend/tests/ -q`
-- Type checking: `mypy` (config in `pyproject.toml`, deps in `backend/requirements-dev.txt`)
+- Backend tests: `python -m pytest backend/tests/ -q`
+- Backend type checking: `mypy` (config in `pyproject.toml`, deps in `backend/requirements-dev.txt`)
+- Frontend tests: `npm test` (in `frontend/`; Node's built-in runner via `tsx`)
+- Frontend type checking: `npm run typecheck` (in `frontend/`)
 
 ### LLM API Key
 
