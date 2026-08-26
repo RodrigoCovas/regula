@@ -18,10 +18,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src import availability
-from src.live_workflow import LIVE_WORKFLOW_MARKER, DraftClaims
+from src.live_workflow import LIVE_WORKFLOW_MARKER, SEATS_PER_TARGET, DraftClaims
 from src.main import app
 from src.models import Strength
-from src.retrieval import MAX_RETRIEVED_CHUNKS, VectorRetriever
+from src.retrieval import PER_TARGET_DEPTH, VectorRetriever
 
 from conftest import install_fake_pipeline
 from fakes import (
@@ -207,33 +207,82 @@ def test_drafted_claim_without_a_verdict_is_still_recorded_as_rejected(monkeypat
     assert any(f["strength"] == "weak" for f in data["answer"]["findings"])
 
 
-# --- Fair-share fill: no research target may starve under the locked budget ---
+# --- Fair-share fill: no research target may starve under the plan-derived pool ---
 
 
-def test_fair_share_fill_keeps_every_target_represented_under_the_budget(live_client):
-    """A greedy first target cannot consume the whole single-pass pool: each
-    target claims its fair share before leftovers backfill the budget."""
-    broad = [make_chunk(source_id=f"broad-{i}", number=i + 1) for i in range(MAX_RETRIEVED_CHUNKS)]
+def served_evidence(data) -> list[dict]:
+    """The Evidence pool as served to the agents, from the researcher's trace."""
+    researcher_steps = [s for s in data["detailed_trace"] if s["step"] == "researcher"]
+    return researcher_steps[0]["retrieved"]
+
+
+def run_plan(live_client, queries, per_query):
+    """Serve a scenario under a plan with the given target queries."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query=query) for query in queries])
+    install_fake_pipeline(llm, FakeRetriever(per_query=per_query))
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def depth_results(query):
+    """One full-depth retrieval for a query: PER_TARGET_DEPTH unique Chunks."""
+    return [make_chunk(source_id=f"{query}-{i}", number=i + 1) for i in range(PER_TARGET_DEPTH)]
+
+
+def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(live_client):
+    """A greedy first target cannot consume the whole Evidence pool: each
+    target claims its fair share before leftovers backfill the rest — and
+    the pool itself derives from the plan (#23), so two targets seat more
+    Chunks than any single retrieval could return."""
+    queries = ["creditworthiness", "automated decisions"]
+    broad = depth_results("broad")
     narrow = [
         make_chunk(source_id="narrow-a", number=21),
         make_chunk(source_id="narrow-b", number=22),
     ]
-    retriever = FakeRetriever(per_query={
-        "creditworthiness": broad,
-        "automated decisions": narrow,
-    })
-    install_fake_pipeline(make_offline_llm(), retriever)
+    data = run_plan(
+        live_client,
+        queries,
+        {"creditworthiness": broad, "automated decisions": narrow},
+    )
 
-    resp = post_arbitrary_scenario(live_client)
-    assert resp.status_code == 200
-    data = resp.json()
-
-    researcher_steps = [s for s in data["detailed_trace"] if s["step"] == "researcher"]
-    retrieved = researcher_steps[0]["retrieved"]
+    retrieved = served_evidence(data)
     sources = {r["source_id"] for r in retrieved}
-    assert len(retrieved) <= MAX_RETRIEVED_CHUNKS, "the locked single-pass budget holds"
+    # Every fresh Chunk fits under the plan-derived cap (len(queries) targets ×
+    # SEATS_PER_TARGET seats); the thin second target simply leaves seats open.
+    assert len(retrieved) == len(broad) + len(narrow)
+    assert len(retrieved) > PER_TARGET_DEPTH, "the widened pool out-seats one retrieval's depth — #23's fix"
+    assert len(retrieved) <= SEATS_PER_TARGET * len(queries), "the plan-derived cap holds"
     assert any(s.startswith("narrow-") for s in sources), "the second target is represented"
     assert any(s.startswith("broad-") for s in sources), "the first target is still represented"
+
+
+def test_evidence_pool_scales_with_the_planned_target_count(live_client):
+    """Seat demand tracks the Planner's decomposition (ADR-0003): a third
+    research target widens the pool again, and every target keeps its share
+    of seats."""
+    queries = ["creditworthiness", "automated decisions", "deployer obligations"]
+    data = run_plan(live_client, queries, {query: depth_results(query) for query in queries})
+
+    retrieved = served_evidence(data)
+    sources = {r["source_id"] for r in retrieved}
+    assert len(retrieved) == SEATS_PER_TARGET * len(queries)
+    for query in queries:
+        assert any(s.startswith(f"{query}-") for s in sources), f"{query} keeps representation"
+
+
+def test_pool_derives_from_the_plan_not_from_retrieval_volume(live_client):
+    """A lone broad target retrieves ``PER_TARGET_DEPTH`` Chunks but seats
+    only ``SEATS_PER_TARGET`` of them: the pool is the plan's seat count —
+    extra retrieval volume alone never widens what the agents reason over."""
+    data = run_plan(live_client, ["creditworthiness"], {"creditworthiness": depth_results("broad")})
+
+    retrieved = served_evidence(data)
+    assert len(retrieved) == SEATS_PER_TARGET
 
 
 def test_duplicate_drafted_statements_each_get_their_own_decision(monkeypatch):

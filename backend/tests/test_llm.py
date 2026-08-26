@@ -71,7 +71,9 @@ def test_complete_posts_the_pinned_model_and_auth_header_to_openrouter():
     assert payload["max_tokens"] == MAX_COMPLETION_TOKENS
     assert [m["content"] for m in payload["messages"]] == [
         "s\n\nRespond with ONLY a single JSON object of exactly this shape — "
-        'no prose, no code fences: {"targets": [<string>]}',
+        'no prose, no code fences: {"targets": [<string>]}. Close every '
+        "string with its double quote on the same line you open it; never "
+        "put raw newlines inside JSON strings.",
         "u",
     ]
 
@@ -157,13 +159,54 @@ def test_connection_error_names_openrouter_and_the_fix():
 
 
 def test_unparseable_content_is_an_llm_error_not_a_crash():
-    transport = FakeTransport(responses=[chat_response("I cannot answer that.")])
+    """After one repair pass, an irreparably unparseable reply is an
+    LlmError naming the schema — not an exception from the JSON parser."""
+    transport = FakeTransport(
+        responses=[chat_response("I cannot answer that."), chat_response("Still not JSON.")]
+    )
     client = make_client(transport)
 
     with pytest.raises(LlmError) as excinfo:
         client.complete(system="s", user="u", schema=Plan)
     assert "parseable JSON" in str(excinfo.value)
     assert "Plan" in str(excinfo.value)
+    assert len(transport.calls) == 2
+
+
+def test_a_broken_first_reply_is_repaired_on_a_second_completion():
+    """Live solar-pro4 emits strings whose closing quote is dropped at the
+    line break: the client replays the broken reply as the assistant's turn
+    and accepts the corrected JSON."""
+    broken = (
+        '{\n  "targets": [\n'
+        '    "AI Act high-risk AI systems biometric health insurance classification,\n'
+        '    "AI Act fundamental rights impact assessment obligations high-risk deployers,\n'
+        '    "GDPR Article 22 automated individual decision-making including profiling safeguards"\n'
+        "  ]\n}"
+    )
+    transport = FakeTransport(
+        responses=[chat_response(broken), chat_response('{"targets": ["a", "b"]}')]
+    )
+    client = make_client(transport)
+
+    assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["a", "b"])
+
+    assert len(transport.calls) == 2
+    _, _, payload = transport.calls[1]
+    messages = payload["messages"]
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert messages[2]["content"] == broken
+    assert "corrected JSON" in messages[3]["content"]
+
+
+def test_control_characters_inside_strings_are_tolerated():
+    """A string value wrapping across lines is accepted as JSON rather than
+    triggering a repair pass for a mere control character."""
+    transport = FakeTransport(responses=[chat_response('{"targets": ["a\nb"]}')])
+    client = make_client(transport)
+
+    assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["a\nb"])
+    assert len(transport.calls) == 1
 
 
 def test_schema_violation_is_an_llm_error_with_the_offending_content():
@@ -203,15 +246,18 @@ def test_completed_completions_record_provider_token_usage():
 
 
 def test_usage_is_recorded_even_when_the_reply_cannot_be_parsed():
-    """A reply we fail to parse still spent tokens: usage lands before any
-    parsing so per-request cost stays observable."""
-    transport = FakeTransport(responses=[usage_response("I cannot answer that.")])
+    """Replies we fail to parse still spent tokens — including the repair
+    pass: usage lands before any parsing so per-request cost stays
+    observable."""
+    transport = FakeTransport(
+        responses=[usage_response("I cannot answer that."), usage_response("Still not JSON.")]
+    )
     client = make_client(transport)
 
     with pytest.raises(LlmError):
         client.complete(system="s", user="u", schema=Plan)
 
-    assert len(client.usage) == 1
+    assert len(client.usage) == 2
     assert client.usage[0]["total_tokens"] == 14
 
 

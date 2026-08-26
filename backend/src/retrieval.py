@@ -8,9 +8,12 @@ composition root.
 
 Locked behaviour:
 
-- The result set is capped at the single-pass budget (~8): the budget is
-  requested from the store, whose LIMIT clause enforces it; retrieval is one
-  bounded pass, never a crawl.
+- One retrieval reaches at most ``PER_TARGET_DEPTH`` (~8) Chunks deep: the
+  depth is requested from the store, whose LIMIT clause enforces it; each
+  query is a bounded pass, never a crawl. The Evidence pool served to the
+  agents is a separate concern derived from the plan (live_workflow's
+  ``SEATS_PER_TARGET``) — one constant playing both roles is how #23
+  happened.
 - A relevance threshold excludes junk-only search results: when nothing in
   the Corpus matches well enough, the caller gets no Chunks rather than
   irrelevant Evidence. That empty result is what the Insufficient-evidence
@@ -31,9 +34,12 @@ from typing import Protocol, runtime_checkable, Sequence
 from .embedder import Embedder
 from .models import Chunk, ScoredChunk
 
-# Locked single-pass budget (~8): the Researcher never sees more Evidence
-# than this from one retrieval pass.
-MAX_RETRIEVED_CHUNKS = 8
+# Locked per-target depth (~8): how deep one retrieval reaches — the store's
+# LIMIT for a single query, whatever the plan looks like. The total Evidence
+# pool served to the agents is derived separately from the plan
+# (live_workflow.SEATS_PER_TARGET): raising that pool must not silently
+# deepen crawling.
+PER_TARGET_DEPTH = 8
 
 # Cosine similarity floor for a Chunk to count as relevant, tuned against
 # the ingested Corpus with the locked embedding model: junk-only questions
@@ -68,12 +74,12 @@ class VectorRetriever:
         self,
         store: SearchStore,
         embedder: Embedder,
-        max_chunks: int = MAX_RETRIEVED_CHUNKS,
+        depth: int = PER_TARGET_DEPTH,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
     ):
         self._store = store
         self._embedder = embedder
-        self._max_chunks = max_chunks
+        self._depth = depth
         self._min_similarity = min_similarity
         # The relevance floor as cosine distance, derived once: the same bound
         # is pushed down into the store's search and enforced again at this
@@ -84,7 +90,7 @@ class VectorRetriever:
         [query_embedding] = self._embedder.embed([query])
         hits = self._store.search_chunks(
             query_embedding=query_embedding,
-            limit=self._max_chunks,
+            limit=self._depth,
             max_distance=self._max_distance,
         )
         # The floor is enforced here, not only in the store's SQL: whatever a

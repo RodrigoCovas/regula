@@ -2,10 +2,10 @@
 
 One pass answers an arbitrary Scenario: the Planner decomposes the
 Regulatory question into research targets; the Researcher gathers Evidence
-exclusively through the retrieval tool under the locked single-pass budget
-(~8 Chunks); the Verifier checks every produced Claim against the retrieved
-Evidence, tags its Strength, and discards Unsupported claims into the
-Execution trace.
+exclusively through the retrieval tool under an Evidence pool derived from
+its own decomposition (``SEATS_PER_TARGET`` seats per Research target); the
+Verifier checks every produced Claim against the retrieved Evidence, tags
+its Strength, and discards Unsupported claims into the Execution trace.
 
 Two rules are enforced by application code, never trusted to the LLM:
 
@@ -28,13 +28,13 @@ from collections import Counter
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .availability import ENGLISH_ONLY_LIMITATION
 from .llm import Llm
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, Strength, Trace, PROVISION_NUMBER_FIELDS, quote_snippet
 from .query_log import RequestObservation
-from .retrieval import MAX_RETRIEVED_CHUNKS, Retriever
+from .retrieval import Retriever
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,17 @@ logger = logging.getLogger(__name__)
 LIVE_WORKFLOW_MARKER = "planner -> researcher -> verifier"
 
 # Prompt-side bound: each retrieved Chunk contributes at most this many
-# characters of Evidence to a prompt, so eight Chunks stay within a modest,
-# predictable context regardless of how long the stored provisions run.
+# characters of Evidence to a prompt, so even a full pool stays within a
+# modest, predictable context regardless of how long stored provisions run.
 _MAX_CHUNK_CHARS = 1500
+
+# The Evidence pool derives from the plan (ADR-0003): every Research target
+# claims this many seats, so seat demand scales with the Planner's
+# decomposition — breadth arriving as more targets, depth as finer-grained
+# ones — and sharpening queries automatically widens the pool. Per-target
+# retrieval depth stays a separate concern (retrieval.PER_TARGET_DEPTH):
+# widening this pool never deepens crawling. Adjust only on scored evidence.
+SEATS_PER_TARGET = 6
 
 INSUFFICIENT_EVIDENCE_LIMITATION = (
     "Known limitation: the Corpus holds nothing relevant enough to answer this "
@@ -70,6 +78,11 @@ class Plan(BaseModel):
     """The Planner's decomposition of the Regulatory question."""
 
     targets: list[ResearchTarget] = Field(default_factory=list)
+
+    @field_validator("targets", mode="before")
+    @classmethod
+    def _coerce_strings(cls, v: list) -> list:
+        return [{"query": t} if isinstance(t, str) else t for t in v]
 
 
 class DraftClaim(BaseModel):
@@ -122,7 +135,12 @@ _PLANNER_SYSTEM = (
     "You are the Planner of a regulatory research assistant. Decompose the regulatory "
     "question into 1-3 short keyword retrieval queries that would locate the relevant "
     "provisions (articles, recitals, annexes) in a corpus of EU regulations: the AI Act, "
-    "GDPR, and DORA. Name concepts and likely provision subjects, not full sentences."
+    "GDPR, and DORA. Name concepts and likely provision subjects, not full sentences. "
+    "When the question asks what applies or what obligations exist, do not stop at "
+    "regime-level classification: give the operational duties each regulation imposes in "
+    "this scenario their own query — e.g. 'AI Act deployer obligations human oversight "
+    "logging' or 'automated decision information duties' — so duty-bearing provisions "
+    "surface alongside the classification ones."
 )
 
 _RESEARCHER_SYSTEM = (
@@ -278,26 +296,29 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
                 fresh.append(chunk)
             per_target.append(fresh)
 
-        # Fair-share fill under the locked single-pass budget: every target
-        # claims its share of the pool before any target's broad results can
-        # backfill it, so a greedy first query cannot starve the rest.
+        # Fair-share fill over the plan-derived pool: every target claims its
+        # share of seats before any target's broad results backfill the
+        # remainder, so a greedy first query cannot starve the rest.
         evidence: list[LabeledEvidence] = []
 
         def take(chunk: Chunk) -> None:
             evidence.append(LabeledEvidence(label=f"E{len(evidence) + 1}", chunk=chunk))
 
         if per_target:
-            fair_share = max(1, MAX_RETRIEVED_CHUNKS // len(per_target))
+            # The pool is SEATS_PER_TARGET × targets, so every target's fair
+            # share of round one is exactly SEATS_PER_TARGET seats.
+            fair_share = SEATS_PER_TARGET
+            pool_size = SEATS_PER_TARGET * len(per_target)
             for fresh in per_target:
                 for chunk in fresh[:fair_share]:
                     take(chunk)
-            if len(evidence) < MAX_RETRIEVED_CHUNKS:
+            if len(evidence) < pool_size:
                 for fresh in per_target:
                     for chunk in fresh[fair_share:]:
                         take(chunk)
-                        if len(evidence) >= MAX_RETRIEVED_CHUNKS:
+                        if len(evidence) >= pool_size:
                             break
-                    if len(evidence) >= MAX_RETRIEVED_CHUNKS:
+                    if len(evidence) >= pool_size:
                         break
 
         drafted = DraftClaims()

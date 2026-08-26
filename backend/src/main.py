@@ -374,7 +374,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
 
 
 def get_llm() -> Llm:
-    """The structured-completion client: pinned Nemotron free tier via OpenRouter."""
+    """The structured-completion client: pinned model via OpenRouter."""
     key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
     return OpenRouterClient(api_key=key)
 

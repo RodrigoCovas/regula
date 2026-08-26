@@ -2,9 +2,9 @@
 
 ``Llm`` is the second provider protocol at the composition root: tests
 inject deterministic fakes, production wires ``OpenRouterClient``. The
-model is pinned to the free Nemotron tier — no env override onto a paid
-model — and every completion asks for JSON that is validated against a
-Pydantic schema before it can cross a workflow boundary.
+model is pinned — no env override — and every completion asks for JSON
+that is validated against a Pydantic schema before it can cross a workflow
+boundary.
 """
 
 from typing import Protocol, runtime_checkable, TypeVar
@@ -14,20 +14,29 @@ import json
 import requests
 from pydantic import BaseModel, ValidationError
 
-# The locked model: free tier via OpenRouter only (spec #9).
-PINNED_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
+# The locked model: pinned via OpenRouter (spec #9).
+PINNED_MODEL = "upstage/solar-pro4"
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# The locked single-pass budget: the pinned nemotron is a hybrid reasoning
-# model whose hidden thinking tokens count against this cap — measured at
-# ~1.5K on the verifier call before a single visible JSON token, so the old
-# 2K cap truncated answers mid-object more often than it bounded them.
+# The locked single-pass budget: measured empirically — the old 2K cap
+# truncated answers mid-object more often than it bounded them.
 # ADR-0003: depth outranks latency, and the cap only has to stop runaway
 # generations, not ration the answer.
 MAX_COMPLETION_TOKENS = 8192
 
 _TIMEOUT_SECONDS = 120
+
+# The correction nudge appended as a user turn after a reply that failed
+# to parse: the model sees its own broken JSON in the conversation and is
+# asked to re-emit it as valid JSON. One repair pass, then the error is
+# surfaced verbatim.
+_REPAIR_USER_MESSAGE = (
+    "The JSON object in your previous reply is invalid and could not be parsed. "
+    "Return ONLY the corrected JSON object matching the requested shape — no "
+    "prose, no code fences. Close every string with its double quote on the "
+    "same line you open it; never put raw newlines inside JSON strings."
+)
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
@@ -55,15 +64,36 @@ def _extract_json(content: str) -> dict:
     """Parse the JSON object out of a chat completion's content.
 
     Models wrap answers in markdown fences or prose; the first '{' to the
-    last '}' is the payload regardless of decoration.
+    last '}' is the payload regardless of decoration. ``strict=False``
+    admits raw control characters inside strings — a model that wraps a
+    long value across lines should cost us a repair pass, not a failed
+    workflow.
     """
     start, end = content.find("{"), content.rfind("}")
     if start == -1 or end <= start:
         raise ValueError("no JSON object found in content")
-    parsed = json.loads(content[start : end + 1])
+    parsed = json.loads(content[start : end + 1], strict=False)
     if not isinstance(parsed, dict):
         raise ValueError("content JSON is not an object")
     return parsed
+
+
+def _parse_reply(schema: type[SchemaT], content: str) -> SchemaT:
+    """Extract and validate the JSON payload of one completion reply.
+
+    Parse failures propagate as ``ValueError``/``JSONDecodeError`` so the
+    client can attempt a repair pass; a well-formed but wrongly-shaped
+    reply is reported as ``LlmError`` immediately — no repair, since the
+    model already produced JSON and disagreed on shape instead.
+    """
+    data = _extract_json(content)
+    try:
+        return schema.model_validate(data)
+    except ValidationError as error:
+        raise LlmError(
+            f"Model '{PINNED_MODEL}' returned JSON that does not match schema "
+            f"{schema.__name__}: {content!r} ({error})"
+        ) from error
 
 
 def _schema_example(schema: type[BaseModel]) -> str:
@@ -125,15 +155,45 @@ class OpenRouterClient:
     def complete(self, system: str, user: str, schema: type[SchemaT]) -> SchemaT:
         instruction = (
             "Respond with ONLY a single JSON object of exactly this shape — "
-            f"no prose, no code fences: {_schema_example(schema)}"
+            "no prose, no code fences: "
+            f"{_schema_example(schema)}. Close every string with its double "
+            "quote on the same line you open it; never put raw newlines "
+            "inside JSON strings."
         )
+        messages = [
+            {"role": "system", "content": f"{system}\n\n{instruction}"},
+            {"role": "user", "content": user},
+        ]
+        content = self._chat(messages)
+        try:
+            return _parse_reply(schema, content)
+        except (ValueError, json.JSONDecodeError):
+            pass
+        # One repair pass: replay the broken reply as the assistant's turn
+        # and ask for the corrected JSON, so a transient formatting slip
+        # does not fail the workflow (live solar-pro4 emits unclosed
+        # strings wrapped across lines).
+        repaired = self._chat(
+            messages
+            + [
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": _REPAIR_USER_MESSAGE},
+            ]
+        )
+        try:
+            return _parse_reply(schema, repaired)
+        except (ValueError, json.JSONDecodeError) as error:
+            raise LlmError(
+                f"Model '{PINNED_MODEL}' did not return parseable JSON for schema "
+                f"{schema.__name__} ({error}): {repaired!r}"
+            ) from error
+
+    def _chat(self, messages: list[dict]) -> str:
+        """One completion over the given conversation, returning the reply text."""
         payload = {
             "model": PINNED_MODEL,
             "max_tokens": MAX_COMPLETION_TOKENS,
-            "messages": [
-                {"role": "system", "content": f"{system}\n\n{instruction}"},
-                {"role": "user", "content": user},
-            ],
+            "messages": messages,
         }
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
         try:
@@ -163,17 +223,4 @@ class OpenRouterClient:
                 f"budget before finishing (finish_reason=length); hidden reasoning tokens "
                 f"count against the cap. Reply so far: {content[:200]!r}"
             )
-        try:
-            data = _extract_json(content)
-        except (ValueError, json.JSONDecodeError) as error:
-            raise LlmError(
-                f"Model '{PINNED_MODEL}' did not return parseable JSON for schema "
-                f"{schema.__name__} ({error}): {content!r}"
-            ) from error
-        try:
-            return schema.model_validate(data)
-        except ValidationError as error:
-            raise LlmError(
-                f"Model '{PINNED_MODEL}' returned JSON that does not match schema "
-                f"{schema.__name__}: {content!r} ({error})"
-            ) from error
+        return content

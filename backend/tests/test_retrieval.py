@@ -17,7 +17,7 @@ re-checked at this seam, so junk-only search results can never reach drafting.
 import pytest
 
 from src.models import ProvisionKind
-from src.retrieval import MAX_RETRIEVED_CHUNKS, VectorRetriever
+from src.retrieval import PER_TARGET_DEPTH, VectorRetriever
 
 from fakes import FakeEmbedder, FakeSearchStore, chunk_hit
 
@@ -65,15 +65,19 @@ def test_retrieve_returns_each_hits_chunk_with_metadata_intact():
     assert chunk.text == "Recital 71 body"
 
 
-# --- Budget: the single-pass budget is what gets requested ---------------------
+# --- Depth: the per-target depth is what gets requested ------------------------
 
 
-def test_retrieve_requests_the_locked_single_pass_budget_from_the_store():
+def test_retrieve_requests_the_locked_per_target_depth_from_the_store():
+    """One retrieval reaches ``PER_TARGET_DEPTH`` deep — the store's LIMIT,
+    however many research targets the plan carries. The Evidence pool served
+    to the agents is sized separately from the plan (live_workflow's
+    SEATS_PER_TARGET), so widening that pool never deepens crawling (#23)."""
     retriever, _, store = make_retriever(hits=[])
 
     retriever.retrieve("oversight duties")
 
-    assert store.calls[0]["limit"] == MAX_RETRIEVED_CHUNKS == 8
+    assert store.calls[0]["limit"] == PER_TARGET_DEPTH == 8
 
 
 # --- Threshold: junk-only search results come back empty -----------------------
