@@ -2,8 +2,10 @@
 
 ``Llm`` is the second provider protocol at the composition root: tests
 inject deterministic fakes, production wires ``OpenRouterClient``. The
-model is pinned — no env override — and every completion asks for JSON
-that is validated against a Pydantic schema before it can cross a workflow
+model is pinned to OpenRouter's ``upstage/solar-pro4`` (paid tier — a
+deliberate repin from the free nemotron tier, recorded as an amendment on
+spec #9) — no env override — and every completion asks for JSON that is
+validated against a Pydantic schema before it can cross a workflow
 boundary.
 """
 
@@ -14,7 +16,9 @@ import json
 import requests
 from pydantic import BaseModel, ValidationError
 
-# The locked model: pinned via OpenRouter (spec #9).
+# The locked model: pinned via OpenRouter (spec #9, amended 2026-08-26 —
+# nemotron's hybrid-reasoning style truncated answers against the token
+# budget; the repin to a paid tier is recorded on the issue).
 PINNED_MODEL = "upstage/solar-pro4"
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -138,7 +142,7 @@ class OpenRouterClient:
     """Posts chat completions to OpenRouter and validates the JSON reply.
 
     The model and the completion budget are module-level locks, not
-    parameters — nothing can point the client at a paid model or widen
+    parameters — nothing can point the client at another model or widen
     the single-pass budget by construction.
 
     Every completed call that carries provider usage leaves its dictionary

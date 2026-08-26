@@ -171,9 +171,10 @@ def _matched_finding_credit(expected: ExpectedFinding, produced: ProducedFinding
 # Calibrated against #7's hand-authored ground truths on the real Live
 # pipeline (#23's acceptance run): paraphrase pairs of the same provision
 # score 0.44–0.49 against the Live LLM's verbose style, junk pairs stay
-# ≤ 0.31, and the synthetic known cases sit ≥ 0.61 — 0.45 admits the real
+# ≤ 0.31, and the synthetic known cases sit ≥ 0.61 — 0.43 sits between the
+# junk ceiling and the lowest measured paraphrase, admitting the real
 # paraphrases with margin on every side.
-SEMANTIC_MATCH_THRESHOLD = 0.45
+SEMANTIC_MATCH_THRESHOLD = 0.43
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 

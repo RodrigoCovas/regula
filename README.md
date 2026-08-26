@@ -58,7 +58,7 @@ ever silently degrades between paths:
   Planner → Researcher → Verifier retrieve Chunks from the ingested pgvector
   Corpus and produce evidence-backed Findings with Strength badges and
   metadata-derived Citations. The LLM is pinned to
-  `nvidia/nemotron-3-ultra-550b-a55b:free` via OpenRouter. An un-ingested
+  `upstage/solar-pro4` via OpenRouter. An un-ingested
   or unreachable store still yields a Not-available response naming the fix.
 
 ### Request observability
@@ -214,7 +214,7 @@ regula/
 ## Key Technologies
 
 - **LLM policy:** the deterministic MVP demo makes no LLM call and requires no keys or env vars. The stack below is for development beyond the demo only:
-  - **LLM:** nvidia/nemotron-3-ultra-550b-a55b:free (via OpenRouter)
+  - **LLM:** upstage/solar-pro4 (via OpenRouter)
 - **Embeddings:** Ollama + nomic-embed-text
 - **Orchestration:** LangGraph
 - **Database:** PostgreSQL + pgvector
