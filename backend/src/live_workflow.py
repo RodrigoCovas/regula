@@ -36,7 +36,7 @@ from collections import Counter
 from typing import Any, Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
 from .corpus import source_short_names
@@ -92,9 +92,21 @@ MAX_ACTIONS = 5
 class ResearchTarget(BaseModel):
     """One regulation-scoped line of inquiry the Planner derived from the
     Regulatory question; ``query`` carries the keyword search string used
-    for retrieval."""
+    for retrieval.
+
+    A bare string is tolerated as shorthand for ``{"query": <string>}`` —
+    live solar-pro4 emits the keywords without the wrapper object despite
+    the structural shape instruction.
+    """
 
     query: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_bare_string(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"query": data}
+        return data
 
 
 class Plan(BaseModel):

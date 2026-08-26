@@ -656,6 +656,19 @@ def test_no_kept_findings_serves_the_hand_off_alone_without_a_proposer_call(monk
 # --- Citation rider: source_short_name from corpus metadata (#24) ------------
 
 
+def test_research_target_tolerates_a_bare_string_as_shorthand_for_query():
+    """Live solar-pro4 emits the Planner's targets as bare keyword strings
+    despite the structural shape instruction; the schema wraps each string
+    into {'query': ...} instead of failing the whole workflow on shape."""
+    from src.live_workflow import Plan
+
+    plan = Plan.model_validate(
+        {"targets": ["bare keywords", {"query": "explicit object"}]}
+    )
+
+    assert [target.query for target in plan.targets] == ["bare keywords", "explicit object"]
+
+
 def test_live_citations_carry_the_source_short_name_from_corpus_metadata(live_client):
     """The Live Citation rider (#24): every Citation names its source the way
     the demo's do, populated from corpus metadata via the source id."""
