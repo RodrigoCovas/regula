@@ -3,11 +3,6 @@ export type ProvisionKind = "article" | "recital" | "annex";
 export type Strength = "strong" | "moderate" | "weak";
 
 export const NOT_AVAILABLE_WORKFLOW = "not-available";
-export const NOOP_WORKFLOW = "noop";
-
-export function isNotAvailableWorkflow(workflow: string): boolean {
-  return workflow === NOT_AVAILABLE_WORKFLOW || workflow === NOOP_WORKFLOW;
-}
 
 export interface Citation {
   source_id: string;
@@ -38,30 +33,28 @@ export interface Trace {
   unsupported_claims_discarded: string[];
 }
 
-export interface ClaimDecision {
-  claim: string;
+export interface Decision {
   status: "kept" | "rejected";
   reason: string | null;
 }
 
-export interface ActionDecision {
+export interface ClaimDecision extends Decision {
+  claim: string;
+}
+
+export interface ActionDecision extends Decision {
   action: string;
-  status: "kept" | "rejected";
-  reason: string | null;
   dropped_refs: string[];
 }
 
-export interface ProvisionTarget {
+export interface RetrievedPassage {
   source_id: string;
   kind: ProvisionKind;
-  number: number;
-}
-
-export interface RetrievedPassage extends ProvisionTarget {
-  label?: string;
+  number: number | null;
   section: string | null;
   provision: string | null;
   text: string | null;
+  label?: string;
 }
 
 export interface ToolCall {

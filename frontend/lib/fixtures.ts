@@ -624,24 +624,3 @@ export const notAvailableResponse: AnalyzeResponse = {
     "Known limitation: the corpus is English-only; questions in other languages are answered in English."
   ]
 };
-
-export const noopDemoMissResponse: AnalyzeResponse = {
-  "answer": {
-    "findings": [],
-    "actions": [
-      "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech' with a Spanish fintech lending question.",
-      "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope)."
-    ],
-    "citations": []
-  },
-  "trace": {
-    "workflow": "noop",
-    "summary": "No demo match; no retrieval performed. Provide scenario.id 'spanish-fintech' to invoke the demo.",
-    "unsupported_claims_discarded": []
-  },
-  "detailed_trace": [],
-  "known_limitations": [
-    "Known limitation: the corpus is English-only; questions in other languages are answered in English.",
-    "Known limitation: Regula is a research prototype, not legal advice; answers require verification by a qualified professional."
-  ]
-};

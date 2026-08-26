@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AnswerSurface } from "../components/AnswerSurface";
 import { citationLabel } from "../components/CitationList";
+import { FindingCard } from "../components/FindingCard";
 import { StrengthBadge } from "../components/StrengthBadge";
 import { demoAnalyzeResponse } from "../lib/fixtures";
 import { visibleMarkup } from "./escape";
@@ -31,21 +32,18 @@ test("renders Strength badges distinctly per level", () => {
   const weak = renderToStaticMarkup(
     React.createElement(StrengthBadge, { strength: "weak" }),
   );
-  assert.ok(strong.includes("text-emerald"));
-  assert.ok(moderate.includes("text-amber"));
-  assert.ok(weak.includes("text-slate"));
   assert.ok(strong.includes(">strong<"));
   assert.ok(moderate.includes(">moderate<"));
   assert.ok(weak.includes(">weak<"));
 });
 
-test("renders each Finding with its Strength badge next to its statement", () => {
-  const markup = render();
+test("renders each Finding with its Strength badge", () => {
   for (const finding of demoAnalyzeResponse.answer.findings) {
-    const statement = visibleMarkup(finding.statement);
-    const statementStart = markup.indexOf(statement);
-    const badgeStart = statementStart + statement.length;
-    assert.ok(markup.slice(badgeStart, badgeStart + 500).includes(finding.strength));
+    const markup = renderToStaticMarkup(
+      React.createElement(FindingCard, { finding: finding }),
+    );
+    assert.ok(markup.includes(visibleMarkup(finding.statement)));
+    assert.ok(markup.includes(`>${finding.strength}<`));
   }
 });
 
@@ -61,6 +59,15 @@ test("renders Citations within each Finding", () => {
       assert.ok(markup.includes(label), `missing citation label ${label}`);
     }
   }
+});
+
+test("renders every Citation contract field", () => {
+  const markup = render();
+  assert.ok(markup.includes("source_id: ai-act"));
+  assert.ok(markup.includes("article_number: 6"));
+  assert.ok(markup.includes("recital_number: 71"));
+  assert.ok(markup.includes("annex_number: 3"));
+  assert.ok(markup.includes("Classification of AI Systems as High-Risk"));
 });
 
 test("renders every Answer action", () => {

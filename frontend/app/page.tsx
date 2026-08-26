@@ -2,7 +2,6 @@ import { AnswerSurface } from "../components/AnswerSurface";
 import {
   demoAnalyzeResponse,
   insufficientEvidenceResponse,
-  noopDemoMissResponse,
   notAvailableResponse,
 } from "../lib/fixtures";
 
@@ -35,13 +34,6 @@ export default function Page() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-slate-800">Not available</h2>
         <AnswerSurface response={notAvailableResponse} />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-800">
-          Unknown scenario in Demo mode — Not available
-        </h2>
-        <AnswerSurface response={noopDemoMissResponse} />
       </section>
     </main>
   );

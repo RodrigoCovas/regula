@@ -3,7 +3,7 @@ import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AnswerSurface } from "../components/AnswerSurface";
-import { noopDemoMissResponse, notAvailableResponse } from "../lib/fixtures";
+import { notAvailableResponse } from "../lib/fixtures";
 import { visibleMarkup } from "./escape";
 
 function render(response = notAvailableResponse): string {
@@ -48,14 +48,4 @@ test("renders no Findings and no Insufficient-evidence panel", () => {
 test("renders no empty detailed-trace expander", () => {
   const markup = render();
   assert.ok(!markup.includes("<details"));
-});
-
-test("an unknown Scenario in Demo mode (noop workflow) renders as Not available", () => {
-  const markup = render(noopDemoMissResponse);
-  assert.ok(markup.includes("Not available"));
-  assert.ok(markup.includes(visibleMarkup(noopDemoMissResponse.trace.summary)));
-  for (const action of noopDemoMissResponse.answer.actions) {
-    assert.ok(markup.includes(visibleMarkup(action)));
-  }
-  assert.ok(!markup.includes("Insufficient evidence"));
 });

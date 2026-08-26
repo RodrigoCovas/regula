@@ -1,5 +1,5 @@
 import type { AnalyzeResponse } from "../lib/contract";
-import { isNotAvailableWorkflow } from "../lib/contract";
+import { NOT_AVAILABLE_WORKFLOW } from "../lib/contract";
 import { CitationsSection } from "./CitationsSection";
 import { DetailedTrace } from "./DetailedTrace";
 import { FindingCard } from "./FindingCard";
@@ -9,7 +9,7 @@ import { OutcomePanel } from "./OutcomePanel";
 import { TraceSummary } from "./TraceSummary";
 
 export function AnswerSurface({ response }: { response: AnalyzeResponse }) {
-  if (isNotAvailableWorkflow(response.trace.workflow)) {
+  if (response.trace.workflow === NOT_AVAILABLE_WORKFLOW) {
     return <OutcomePanel response={response} kind="not-available" />;
   }
   if (response.answer.findings.length === 0) {

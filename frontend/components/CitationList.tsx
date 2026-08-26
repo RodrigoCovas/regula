@@ -1,9 +1,23 @@
 import type { Citation } from "../lib/contract";
+import { joinLabel } from "../lib/format";
 
 export function citationLabel(citation: Citation): string {
-  return [citation.source_short_name, citation.provision]
-    .filter(Boolean)
-    .join(" — ");
+  return joinLabel(citation.source_short_name, citation.provision);
+}
+
+export function citationMeta(citation: Citation): string {
+  return joinLabel(
+    `source_id: ${citation.source_id}`,
+    citation.article_number !== null
+      ? `article_number: ${citation.article_number}`
+      : null,
+    citation.recital_number !== null
+      ? `recital_number: ${citation.recital_number}`
+      : null,
+    citation.annex_number !== null
+      ? `annex_number: ${citation.annex_number}`
+      : null,
+  );
 }
 
 export function CitationList({ citations }: { citations: Citation[] }) {
@@ -15,6 +29,9 @@ export function CitationList({ citations }: { citations: Citation[] }) {
       {citations.map((citation, index) => (
         <li key={index} className="text-sm">
           <p className="font-medium text-slate-700">{citationLabel(citation)}</p>
+          <p className="font-mono text-xs text-slate-400">
+            {citationMeta(citation)}
+          </p>
           {citation.section ? (
             <p className="text-xs text-slate-500">{citation.section}</p>
           ) : null}
