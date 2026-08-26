@@ -26,7 +26,7 @@ A governing legal instrument such as the EU AI Act, GDPR, or DORA.
 Relevant source text that supports or contradicts a finding.
 
 **Evidence pool**:
-The bounded set of Chunks chosen from retrieval to support drafting — the only Evidence the Researcher and Verifier reason over. Its size grows with the number of Research targets so no target is starved, and it surfaces in the Execution trace as the retrieved passages.  
+The bounded set of Chunks chosen from retrieval to support drafting — the only Evidence the Researcher and Verifier reason over. Its size derives from the plan: every Research target claims `SEATS_PER_TARGET` **seats**, so the pool grows with the number of targets and no target is starved. It surfaces in the Execution trace as the retrieved passages.  
 _Avoid_: Chunk budget, result set, context window
 
 **Citation**:
