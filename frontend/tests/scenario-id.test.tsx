@@ -4,6 +4,7 @@ import {
   buildScenarioInput,
   demoScenarioInput,
   deriveScenarioId,
+  deriveScenarioTitle,
 } from "../lib/scenario-id";
 
 function slugOf(id: string): string {
@@ -72,22 +73,50 @@ test("a description of only stopwords yields just the hash suffix", () => {
   assert.match(id, /^[0-9a-f]{8}$/);
 });
 
-test("the derived payload carries the description as title and the derived id", () => {
+test("the title is the first four content words title-cased", () => {
+  assert.equal(
+    deriveScenarioTitle("spanish fintech lending company"),
+    "Spanish Fintech Lending Company",
+  );
+});
+
+test("the title drops stopwords", () => {
+  assert.equal(
+    deriveScenarioTitle("the spanish fintech lending company"),
+    "Spanish Fintech Lending Company",
+  );
+});
+
+test("the title keeps at most four words", () => {
+  assert.equal(
+    deriveScenarioTitle(
+      "spanish fintech lending company that automates credit decisions",
+    ),
+    "Spanish Fintech Lending Company",
+  );
+});
+
+test("the title is empty for a description of only stopwords", () => {
+  assert.equal(deriveScenarioTitle("the and of"), "");
+});
+
+test("the derived payload carries the derived title and the derived id", () => {
   const description = "Spanish fintech lending";
   const input = buildScenarioInput(description, "What regulations apply?");
-  assert.equal(input.scenario.title, description);
+  assert.equal(input.scenario.title, "Spanish Fintech Lending");
   assert.equal(input.scenario.description, description);
   assert.equal(input.scenario.id, deriveScenarioId(description));
   assert.equal(input.question, "What regulations apply?");
 });
 
 test("the demo payload is the exact canonical scenario with enriched content", () => {
+  const demoDescription =
+    "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.";
   assert.deepEqual(demoScenarioInput, {
     scenario: {
       id: "spanish-fintech",
-      title: "Spanish Fintech Startup Uses",
-      description:
-        "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
+      title: deriveScenarioTitle(demoDescription),
+      description: demoDescription,
     },
     question: "What regulations apply to our AI-based credit scoring platform?",
   });

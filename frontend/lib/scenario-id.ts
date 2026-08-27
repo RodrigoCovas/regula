@@ -90,6 +90,17 @@ function normalizedDescription(description: string): string {
   return description.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function titleCase(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+export function deriveScenarioTitle(description: string): string {
+  return contentWords(description)
+    .slice(0, MAX_CONTENT_WORDS)
+    .map(titleCase)
+    .join(" ");
+}
+
 export function deriveScenarioId(description: string): string {
   const slug = contentWords(description)
     .slice(0, MAX_CONTENT_WORDS)
@@ -108,7 +119,7 @@ export function buildScenarioInput(
   return {
     scenario: {
       id: deriveScenarioId(description),
-      title: description,
+      title: deriveScenarioTitle(description),
       description,
     },
     question,
@@ -118,7 +129,9 @@ export function buildScenarioInput(
 export const demoScenarioInput: ScenarioInput = {
   scenario: {
     id: "spanish-fintech",
-    title: "Spanish Fintech Startup Uses",
+    title: deriveScenarioTitle(
+      "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
+    ),
     description:
       "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
   },
