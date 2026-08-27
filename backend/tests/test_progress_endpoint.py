@@ -22,7 +22,7 @@ from src.progress import ProgressRegistry
 
 from conftest import boot_live_with_fakes
 from fakes import FakeClock, FakeRetriever, make_offline_llm
-from test_analyze import assert_not_available_shape
+from progress_assertions import assert_phases_in_agent_order, assert_unknown_request_reply
 
 
 @pytest.fixture(autouse=True)
@@ -64,12 +64,7 @@ def test_live_run_reports_each_phase_in_order_through_the_endpoint(monkeypatch):
         data = progress.json()
     assert data["request_id"] == "run-1"
     assert data["phase"] == "proposer"
-    assert [t["phase"] for t in data["transitions"]] == ["planner", "researcher", "verifier", "proposer"]
-    messages = [t["message"].lower() for t in data["transitions"]]
-    assert any("target" in message for message in messages), messages
-    assert any("evidence" in message for message in messages), messages
-    assert any("claim" in message for message in messages), messages
-    assert any("action" in message for message in messages), messages
+    assert_phases_in_agent_order([(t["phase"], t["message"]) for t in data["transitions"]])
     assert all(t["elapsed_ms"] >= 0 for t in data["transitions"])
 
 
@@ -113,10 +108,10 @@ def test_phases_are_visible_through_the_endpoint_while_the_run_reports_them(monk
     live_client = boot_live_with_fakes(monkeypatch, gated, FakeRetriever())
     # The client stays un-entered so each request runs in its own portal:
     # an entered client funnels every request through one portal, and the
-    # blocked POST would wedge the polling GET. Live mode therefore comes
-    # from reloading the module-global settings directly instead of the
-    # lifespan (which the entered context manager runs).
-    main.settings = load_settings()
+    # blocked POST would wedge the polling GET. The un-entered client never
+    # runs the lifespan, so Live mode comes from replacing the module-global
+    # settings directly — monkeypatched, so nothing leaks between tests.
+    monkeypatch.setattr(main, "settings", load_settings())
     result = {}
 
     def submit():
@@ -143,12 +138,7 @@ def test_unknown_request_id_gets_the_not_available_shaped_reply(monkeypatch):
     with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
         resp = get_progress(live_client, "never-submitted")
     assert resp.status_code == 200
-    data = resp.json()
-    assert_not_available_shape(data)
-    actions = " ".join(data["answer"]["actions"]).lower()
-    assert "never-submitted" in actions, actions
-    assert "expired" in actions, actions
-    assert any("english-only" in line.lower() for line in data["known_limitations"])
+    assert_unknown_request_reply(resp.json(), "never-submitted")
 
 
 def test_expired_progress_reads_back_as_unknown_through_the_endpoint(monkeypatch):

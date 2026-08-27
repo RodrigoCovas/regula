@@ -29,7 +29,7 @@ from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
 from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
-from .progress import ProgressSink, ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
+from .progress import ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
 from .query_log import (
     STATUS_FAILURE,
     STATUS_SUCCESS,
@@ -426,7 +426,7 @@ def _log_request(
 
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
-async def analyze(
+def analyze(
     request: AnalyzeRequest,
     request_id: Optional[str] = Header(default=None, alias=REQUEST_ID_HEADER),
     llm: Llm = Depends(get_llm),
@@ -447,26 +447,27 @@ async def analyze(
     tokens spent before dying.
 
     A client may track a long Live-mode run: sending the X-Request-Id
-    header registers the run in the progress registry, and the Live
-    workflow reports each phase transition (Planner → Researcher →
-    Verifier → Proposer) into it. GET /api/progress/{request_id} reads
-    the current phase and transition history back. The body contract is
-    unchanged — the header is the only progress channel.
+    header registers the run in the progress registry once it reaches the
+    Live workflow, and each phase transition (Planner → Researcher →
+    Verifier → Proposer) is reported into it. GET /api/progress/{request_id}
+    reads the current phase and transition history back. The body contract
+    is unchanged — the header is the only progress channel.
+
+    This handler is deliberately synchronous: Live-mode analysis blocks on
+    LLM and retrieval calls, and FastAPI serves sync endpoints on a worker
+    thread, leaving the event loop free to serve the polling progress
+    endpoint mid-run.
     """
     started = time.perf_counter()
     observation = RequestObservation()
     status, workflow, error = STATUS_SUCCESS, None, None
-    progress: Optional[ProgressSink] = None
-    if request_id:
-        progress_registry.register(request_id)
-        progress = progress_sink(request_id, registry=progress_registry)
     try:
         response = _dispatch_analyze(
             request,
             llm=llm,
             retriever=retriever,
             observation=observation,
-            progress=progress,
+            request_id=request_id,
         )
         workflow = response.trace.workflow
         return response
@@ -491,7 +492,7 @@ def _dispatch_analyze(
     llm: Llm,
     retriever: Retriever,
     observation: RequestObservation,
-    progress: Optional[ProgressSink] = None,
+    request_id: Optional[str] = None,
 ) -> AnalyzeResponse:
     """Mode dispatch: the served answer for one request, Demo or Live."""
     if settings.regula_mode == Mode.live:
@@ -506,6 +507,12 @@ def _dispatch_analyze(
             raise
         if empty:
             return un_ingested_corpus_response()
+        # Only a run that reaches the Live workflow reports progress: a
+        # request served by a gate above (un-ingested Corpus, unreachable
+        # store or LLM) never leaves a progress record behind.
+        if request_id:
+            progress_registry.register(request_id)
+        progress = progress_sink(request_id, registry=progress_registry) if request_id else None
         try:
             return run_live_analysis(
                 request,

@@ -16,14 +16,14 @@ sys.path.insert(0, str(ROOT / "backend"))
 import logging
 
 from src.progress import (
-    PROGRESS_TTL_SECONDS,
+    PhaseReport,
     ProgressRegistry,
     progress_sink,
     unknown_request_response,
 )
 
 from fakes import FakeClock
-from test_analyze import assert_not_available_shape
+from progress_assertions import assert_phases_in_agent_order, assert_unknown_request_reply
 
 
 def test_register_then_get_reports_pending_with_empty_history():
@@ -40,8 +40,8 @@ def test_register_then_get_reports_pending_with_empty_history():
 def test_transitions_accumulate_in_order_and_get_reports_the_current_phase():
     registry = ProgressRegistry()
     registry.register("run-1")
-    registry.transition("run-1", "planner", "decomposing the question")
-    registry.transition("run-1", "researcher", "retrieving Evidence")
+    registry.transition("run-1", PhaseReport(phase="planner", message="decomposing the question"))
+    registry.transition("run-1", PhaseReport(phase="researcher", message="retrieving Evidence"))
     snapshot = registry.get("run-1")
     assert snapshot is not None
     assert snapshot.phase == "researcher"
@@ -57,7 +57,7 @@ def test_transition_elapsed_is_since_registration():
     registry = ProgressRegistry(now=clock)
     registry.register("run-1")
     clock.advance(1.25)
-    registry.transition("run-1", "planner", "decomposing")
+    registry.transition("run-1", PhaseReport(phase="planner", message="decomposing"))
     snapshot = registry.get("run-1")
     assert snapshot is not None
     assert snapshot.transitions[0].elapsed_ms == 1250
@@ -66,14 +66,17 @@ def test_transition_elapsed_is_since_registration():
 def test_unknown_id_reads_back_as_none_and_transitions_are_rejected():
     registry = ProgressRegistry()
     assert registry.get("never-registered") is None
-    assert registry.transition("never-registered", "planner", "x") is False
+    assert (
+        registry.transition("never-registered", PhaseReport(phase="planner", message="x"))
+        is False
+    )
 
 
 def test_expired_entries_read_back_as_unknown_and_are_purged():
     clock = FakeClock()
     registry = ProgressRegistry(ttl_seconds=10, now=clock)
     registry.register("run-1")
-    registry.transition("run-1", "planner", "decomposing")
+    registry.transition("run-1", PhaseReport(phase="planner", message="decomposing"))
     clock.advance(10)
     # Expired: reads back as unknown, never as a stale phase.
     assert registry.get("run-1") is None
@@ -89,14 +92,14 @@ def test_a_transition_for_an_expired_entry_is_dropped():
     registry = ProgressRegistry(ttl_seconds=10, now=clock)
     registry.register("run-1")
     clock.advance(10)
-    assert registry.transition("run-1", "researcher", "late") is False
+    assert registry.transition("run-1", PhaseReport(phase="researcher", message="late")) is False
 
 
 def test_sink_reports_into_the_bound_registry():
     registry = ProgressRegistry()
     registry.register("run-1")
     sink = progress_sink("run-1", registry=registry)
-    sink("planner", "decomposing")
+    sink(PhaseReport(phase="planner", message="decomposing"))
     snapshot = registry.get("run-1")
     assert snapshot is not None
     assert snapshot.phase == "planner"
@@ -107,7 +110,7 @@ def test_sink_drop_for_an_unknown_id_warns_instead_of_raising(caplog):
     registry = ProgressRegistry()
     sink = progress_sink("unknown", registry=registry)
     with caplog.at_level(logging.WARNING, logger="src.progress"):
-        sink("planner", "decomposing")
+        sink(PhaseReport(phase="planner", message="decomposing"))
     assert "unknown" in caplog.text
     assert registry.get("unknown") is None
 
@@ -118,7 +121,9 @@ def test_concurrent_transitions_all_land():
 
     def worker(thread_no: int) -> None:
         for index in range(100):
-            assert registry.transition("run-1", "planner", f"t{thread_no}-{index}")
+            assert registry.transition(
+                "run-1", PhaseReport(phase="planner", message=f"t{thread_no}-{index}")
+            )
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(worker, range(8)))
@@ -131,17 +136,19 @@ def test_concurrent_transitions_all_land():
 
 def test_unknown_request_response_is_not_available_shaped():
     reply = unknown_request_response("nope")
-    data = reply.model_dump()
-    assert_not_available_shape(data)
-    actions = " ".join(data["answer"]["actions"]).lower()
-    assert "nope" in actions, "the reply names the unknown id"
-    assert "expired" in actions, "the reply names the TTL expiry as a cause"
-    assert "re-submit" in actions, "the reply says how to proceed"
-    assert any("english-only" in line.lower() for line in data["known_limitations"])
+    assert_unknown_request_reply(reply.model_dump(), "nope")
 
 
-def test_default_ttl_is_long_enough_for_a_slow_live_run():
-    assert PROGRESS_TTL_SECONDS >= 10 * 60
+def test_default_ttl_keeps_a_record_readable_through_a_slow_live_run():
+    """The default TTL is behavioural: a record still reads back — never as
+    expired — after the slowest plausible Live run."""
+    clock = FakeClock()
+    registry = ProgressRegistry(now=clock)
+    registry.register("run-1")
+    clock.advance(10 * 60)
+    snapshot = registry.get("run-1")
+    assert snapshot is not None
+    assert snapshot.request_id == "run-1"
 
 
 def test_live_workflow_reports_each_phase_in_order_through_the_sink():
@@ -152,10 +159,10 @@ def test_live_workflow_reports_each_phase_in_order_through_the_sink():
 
     from fakes import FakeRetriever, make_offline_llm
 
-    reported: list[tuple[str, str]] = []
+    reported: list[PhaseReport] = []
 
-    def sink(phase: str, message: str) -> None:
-        reported.append((phase, message))
+    def sink(report: PhaseReport) -> None:
+        reported.append(report)
 
     run_live_analysis(
         AnalyzeRequest(
@@ -166,11 +173,4 @@ def test_live_workflow_reports_each_phase_in_order_through_the_sink():
         retriever=FakeRetriever(),
         progress=sink,
     )
-    assert [phase for phase, _ in reported] == ["planner", "researcher", "verifier", "proposer"]
-    for _, message in reported:
-        assert message, "every phase carries an informative message"
-    messages = " ".join(message for _, message in reported).lower()
-    assert "target" in messages, "the Planner's message names research targets"
-    assert "evidence" in messages, "the Researcher's message names Evidence"
-    assert "claim" in messages, "the Verifier's message names Claims"
-    assert "action" in messages, "the Proposer's message names Actions"
+    assert_phases_in_agent_order([(report.phase, report.message) for report in reported])

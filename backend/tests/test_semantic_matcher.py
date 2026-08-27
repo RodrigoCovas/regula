@@ -254,7 +254,7 @@ def test_per_case_matcher_selection_inside_the_harness(monkeypatch, use_semantic
     """Each scenario scores through its own matcher: a live-style case opts
     into semantic matching and credits the paraphrase; a verbatim case does
     not move off exact equality."""
-    async def fake_analyze(_request, request_id=None):
+    def fake_analyze(_request, request_id=None):
         return _canned_response(Finding(statement=HIGH_RISK_PARAPHRASE, strength=Strength.strong))
 
     monkeypatch.setattr(main, "analyze", fake_analyze)

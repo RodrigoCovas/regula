@@ -45,23 +45,35 @@ PROGRESS_TTL_SECONDS = 15 * 60
 # stage display share.
 WorkflowPhase = Literal["planner", "researcher", "verifier", "proposer"]
 
-# The one seam the workflow reports through: a callback naming the entered
-# phase and an informative message.
-ProgressSink = Callable[[WorkflowPhase, str], None]
 
-
-class ProgressTransition(BaseModel):
-    """One reported phase entry: which workflow agent was entered, what it
-    is doing, and how long after registration it was reached."""
+class PhaseReport(BaseModel):
+    """One reported phase entry: which workflow agent was entered and what
+    it is doing — the pair the sink, the registry, and the endpoint all
+    carry together."""
 
     phase: WorkflowPhase
     message: str
+
+
+# The one seam the workflow reports through: a callback receiving each
+# entered phase and its informative message.
+ProgressSink = Callable[[PhaseReport], None]
+
+
+class ProgressTransition(PhaseReport):
+    """One recorded phase entry plus how long after registration it was
+    reached."""
+
     elapsed_ms: int
 
 
 class ProgressSnapshot(BaseModel):
     """The registry's read shape for one request id: the current phase and
-    the ordered transition history."""
+    the ordered transition history.
+
+    ``phase`` and ``message`` are the latest transition's — never a copy
+    stored alongside the history.
+    """
 
     request_id: str
     phase: Optional[WorkflowPhase] = None
@@ -75,8 +87,6 @@ class _Entry:
     def __init__(self, request_id: str, started_at: float) -> None:
         self.request_id = request_id
         self.started_at = started_at
-        self.phase: Optional[WorkflowPhase] = None
-        self.message: Optional[str] = None
         self.transitions: list[ProgressTransition] = []
 
 
@@ -106,7 +116,7 @@ class ProgressRegistry:
             self._purge_expired_locked()
             self._entries[request_id] = _Entry(request_id, self._now())
 
-    def transition(self, request_id: str, phase: WorkflowPhase, message: str) -> bool:
+    def transition(self, request_id: str, report: PhaseReport) -> bool:
         """Record one phase transition; False when the id is unknown or
         expired — the record must never silently resurrect."""
         with self._lock:
@@ -114,12 +124,10 @@ class ProgressRegistry:
             entry = self._entries.get(request_id)
             if entry is None:
                 return False
-            entry.phase = phase
-            entry.message = message
             entry.transitions.append(
                 ProgressTransition(
-                    phase=phase,
-                    message=message,
+                    phase=report.phase,
+                    message=report.message,
                     elapsed_ms=int((self._now() - entry.started_at) * 1000),
                 )
             )
@@ -132,10 +140,11 @@ class ProgressRegistry:
             entry = self._entries.get(request_id)
             if entry is None:
                 return None
+            current = entry.transitions[-1] if entry.transitions else None
             return ProgressSnapshot(
                 request_id=entry.request_id,
-                phase=entry.phase,
-                message=entry.message,
+                phase=current.phase if current else None,
+                message=current.message if current else None,
                 transitions=list(entry.transitions),
             )
 
@@ -165,12 +174,12 @@ def progress_sink(request_id: str, *, registry: Optional[ProgressRegistry] = Non
     """
     target = registry if registry is not None else progress_registry
 
-    def report(phase: WorkflowPhase, message: str) -> None:
-        if not target.transition(request_id, phase, message):
+    def report(phase_report: PhaseReport) -> None:
+        if not target.transition(request_id, phase_report):
             logger.warning(
                 "progress transition for unknown or expired request id %r dropped (phase %r)",
                 request_id,
-                phase,
+                phase_report.phase,
             )
 
     return report

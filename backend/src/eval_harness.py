@@ -932,21 +932,21 @@ def evaluate_scenarios(
 def run_eval() -> EvalReport:
     """Run every curated scenario against the analyze workflow and score the produced Findings.
 
-    Drives the app's analyze entry point directly — offline, no HTTP.
+    Drives the app's analyze entry point directly — no HTTP.
     Per ADR-0001 the curated cases are Demo-mode tripwires, so the harness
     pins Demo mode regardless of how the app is configured and restores the
     app's settings afterwards.
     """
-    import asyncio
 
     from . import main
     from .config import Mode, Settings
     from .main import analyze
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
-        # Offline, no HTTP: the harness carries no progress request id, so
-        # nothing is registered in the progress registry.
-        return asyncio.run(analyze(request, request_id=None))
+        # No HTTP: the harness drives the analyze entry point directly and
+        # carries no progress request id, so nothing is registered in the
+        # progress registry.
+        return analyze(request, request_id=None)
 
     app_settings = main.settings
     main.settings = Settings(regula_mode=Mode.demo)
