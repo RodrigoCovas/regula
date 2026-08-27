@@ -86,7 +86,7 @@ destination degrades to a warning; serving is never affected.
 
 ### Running the tests locally (no Docker)
 
-Requires Python 3.13+:
+**Backend** (requires Python 3.13+):
 ```bash
 pip install -r backend/requirements.txt
 python -m pytest backend/tests/ -q
@@ -98,6 +98,16 @@ pip install -r backend/requirements-dev.txt
 mypy
 ```
 Configuration lives in `pyproject.toml` (`[tool.mypy]`).
+
+**Frontend** (requires Node.js 20+):
+```bash
+cd frontend
+npm install
+npm test
+npm run typecheck
+```
+
+All checks run automatically on every push and pull request via GitHub Actions (`.github/workflows/ci.yml`).
 
 ### Developer setup (full stack)
 
