@@ -1,4 +1,5 @@
 import { AnswerSurface } from "../components/AnswerSurface";
+import { ScenarioForm } from "../components/ScenarioForm";
 import {
   demoAnalyzeResponse,
   insufficientEvidenceResponse,
@@ -11,11 +12,18 @@ export default function Page() {
       <header className="space-y-2">
         <h1 className="text-3xl font-bold">Regula</h1>
         <p className="text-slate-600">
-          Regulatory research and compliance assistant — the full answer
-          surface, rendered from typed fixtures that mirror the backend
-          contract.
+          Regulatory research and compliance assistant — describe a Scenario and
+          ask a Regulatory question; the id derives from the description and the
+          answer surface below mirrors the backend contract.
         </p>
       </header>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold text-slate-800">
+          Analyze a scenario
+        </h2>
+        <ScenarioForm />
+      </section>
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-slate-800">

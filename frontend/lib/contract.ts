@@ -4,6 +4,17 @@ export type Strength = "strong" | "moderate" | "weak";
 
 export const NOT_AVAILABLE_WORKFLOW = "not-available";
 
+export interface Scenario {
+  id: string;
+  title?: string;
+  description: string;
+}
+
+export interface ScenarioInput {
+  scenario: Scenario;
+  question: string;
+}
+
 export interface Citation {
   source_id: string;
   source_short_name: string | null;
