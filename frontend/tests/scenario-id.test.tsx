@@ -20,9 +20,21 @@ test("derivation is deterministic: the same description always yields the same i
   assert.equal(deriveScenarioId(description), deriveScenarioId(description));
 });
 
+test("a known description yields its exact pinned id", () => {
+  assert.equal(
+    deriveScenarioId("Spanish fintech lending"),
+    "spanish-fintech-lending-bcae705f",
+  );
+});
+
 test("stopwords are dropped from the slug", () => {
   const id = deriveScenarioId("the Spanish fintech lending company");
   assert.ok(id.startsWith("spanish-fintech-lending-company-"));
+});
+
+test("pronouns, auxiliaries, and negation are stopwords too", () => {
+  const id = deriveScenarioId("we do not offer lending for our clients");
+  assert.ok(id.startsWith("offer-lending-clients-"));
 });
 
 test("the slug keeps at most four content words in document order", () => {
