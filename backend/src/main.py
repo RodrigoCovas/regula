@@ -4,11 +4,11 @@ Backend entry point
 """
 
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Iterator, List, Optional, TypedDict
+from typing import Any, Dict, Iterator, List, Optional, TypedDict, Union
 import logging
 import time
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 from .availability import (
@@ -29,6 +29,7 @@ from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
 from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
+from .progress import ProgressSink, ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
 from .query_log import (
     STATUS_FAILURE,
     STATUS_SUCCESS,
@@ -45,6 +46,11 @@ logger = logging.getLogger(__name__)
 # Fail fast before any request is served: a misconfigured environment aborts
 # startup (uvicorn fails at import) instead of surfacing as a server error.
 settings = load_settings()
+
+# The one header through which a client tags a request with the progress id
+# it will poll: POST /api/analyze with this header registers the run in the
+# progress registry, and GET /api/progress/{request_id} reads it back.
+REQUEST_ID_HEADER = "x-request-id"
 
 
 @asynccontextmanager
@@ -422,6 +428,7 @@ def _log_request(
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(
     request: AnalyzeRequest,
+    request_id: Optional[str] = Header(default=None, alias=REQUEST_ID_HEADER),
     llm: Llm = Depends(get_llm),
     retriever: Retriever = Depends(get_retriever),
 ):
@@ -438,12 +445,29 @@ async def analyze(
     Every request appends one observability record to the query log —
     including failures, which carry an explicit failure status and the
     tokens spent before dying.
+
+    A client may track a long Live-mode run: sending the X-Request-Id
+    header registers the run in the progress registry, and the Live
+    workflow reports each phase transition (Planner → Researcher →
+    Verifier → Proposer) into it. GET /api/progress/{request_id} reads
+    the current phase and transition history back. The body contract is
+    unchanged — the header is the only progress channel.
     """
     started = time.perf_counter()
     observation = RequestObservation()
     status, workflow, error = STATUS_SUCCESS, None, None
+    progress: Optional[ProgressSink] = None
+    if request_id:
+        progress_registry.register(request_id)
+        progress = progress_sink(request_id, registry=progress_registry)
     try:
-        response = _dispatch_analyze(request, llm=llm, retriever=retriever, observation=observation)
+        response = _dispatch_analyze(
+            request,
+            llm=llm,
+            retriever=retriever,
+            observation=observation,
+            progress=progress,
+        )
         workflow = response.trace.workflow
         return response
     except Exception as caught:
@@ -467,6 +491,7 @@ def _dispatch_analyze(
     llm: Llm,
     retriever: Retriever,
     observation: RequestObservation,
+    progress: Optional[ProgressSink] = None,
 ) -> AnalyzeResponse:
     """Mode dispatch: the served answer for one request, Demo or Live."""
     if settings.regula_mode == Mode.live:
@@ -482,7 +507,13 @@ def _dispatch_analyze(
         if empty:
             return un_ingested_corpus_response()
         try:
-            return run_live_analysis(request, llm=llm, retriever=retriever, observation=observation)
+            return run_live_analysis(
+                request,
+                llm=llm,
+                retriever=retriever,
+                observation=observation,
+                progress=progress,
+            )
         except LlmUnreachableError as error:
             # A genuine LLM outage is not a server error: it gets its own
             # Not-available reply, mirroring the unreachable-store case.
@@ -554,6 +585,21 @@ def _dispatch_analyze(
         detailed_trace=detailed_trace,
         known_limitations=[ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION],
     )
+
+
+@app.get("/api/progress/{request_id}", response_model=Union[ProgressSnapshot, AnalyzeResponse])
+async def progress(request_id: str):
+    """Read one run's progress: the current workflow phase and the ordered
+    transition history, as the Live workflow reports it into the progress
+    registry.
+
+    An unknown request id — never submitted, or expired by the registry's
+    TTL — gets the Not-available-shaped reply naming what happened.
+    """
+    snapshot = progress_registry.get(request_id)
+    if snapshot is None:
+        return unknown_request_response(request_id)
+    return snapshot
 
 
 if __name__ == "__main__":

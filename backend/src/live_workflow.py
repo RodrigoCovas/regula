@@ -42,6 +42,7 @@ from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
 from .corpus import source_short_names
 from .llm import Llm
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, Strength, Trace, PROVISION_NUMBER_FIELDS, quote_snippet
+from .progress import ProgressSink
 from .query_log import RequestObservation
 from .retrieval import Retriever
 
@@ -457,8 +458,15 @@ def _validate_proposals(
 # --- The graph: START → planner → researcher → verifier → proposer → END ---
 
 
-def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation | None):
+def _build_graph(
+    llm: Llm,
+    retriever: Retriever,
+    observation: RequestObservation | None,
+    progress: ProgressSink | None,
+):
     def planner(state: LiveState) -> dict:
+        if progress:
+            progress("planner", "decomposing the Regulatory question into research targets")
         started = time.perf_counter()
         user = f"Company/product scenario: {state.scenario_description or '(not described)'}\nRegulatory question: {state.question}"
         plan = llm.complete(system=_PLANNER_SYSTEM, user=user, schema=Plan)
@@ -467,6 +475,8 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
 
     def researcher(state: LiveState) -> dict:
         """Gather Evidence exclusively through the retrieval tool, then draft Claims."""
+        if progress:
+            progress("researcher", "retrieving Evidence from the Corpus and drafting candidate Claims")
         retrievals: list[dict] = []
         per_target: list[list[Chunk]] = []
         seen: set[tuple] = set()
@@ -538,6 +548,8 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
         return {"drafted": drafted, "evidence": evidence, "retrievals": retrievals}
 
     def verifier(state: LiveState) -> dict:
+        if progress:
+            progress("verifier", "checking each drafted Claim against the retrieved Evidence and tagging its Strength")
         if not state.evidence:
             # Nothing retrieved cleared the relevance threshold: drafting and
             # verifying claims against no Evidence would be theatre.
@@ -561,6 +573,8 @@ def _build_graph(llm: Llm, retriever: Retriever, observation: RequestObservation
         state so the grounding gate validates exactly the labels the LLM saw.
         """
         evidence_by_label = {item.label: item.chunk for item in state.evidence}
+        if progress:
+            progress("proposer", "distilling the kept Findings into referral Actions grounded in their Citations")
         findings, _, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label)
         if not findings:
             # No kept Finding anchors anything: the node itself emits the
@@ -612,16 +626,20 @@ def run_live_analysis(
     llm: Llm,
     retriever: Retriever,
     observation: RequestObservation | None = None,
+    progress: ProgressSink | None = None,
 ) -> AnalyzeResponse:
     """Answer an arbitrary Scenario through the Live workflow.
 
     The composition root injects the provider protocols; this function
     stays the one seam the API layer calls. ``observation`` receives the
     per-request observability counts — the size of the Evidence pool this
-    pass actually reasoned over.
+    pass actually reasoned over. ``progress``, when given, receives each
+    phase transition the moment its workflow agent starts: the four
+    agent names in order (Planner → Researcher → Verifier → Proposer)
+    with an informative message each.
     """
     scenario_description = request.scenario.description or request.scenario.title or ""
-    result = _build_graph(llm, retriever, observation).invoke(
+    result = _build_graph(llm, retriever, observation, progress).invoke(
         LiveState(scenario_description=scenario_description, question=request.question)
     )
     state = result if isinstance(result, LiveState) else LiveState.model_validate(result)

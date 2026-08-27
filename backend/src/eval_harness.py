@@ -944,7 +944,9 @@ def run_eval() -> EvalReport:
     from .main import analyze
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
-        return asyncio.run(analyze(request))
+        # Offline, no HTTP: the harness carries no progress request id, so
+        # nothing is registered in the progress registry.
+        return asyncio.run(analyze(request, request_id=None))
 
     app_settings = main.settings
     main.settings = Settings(regula_mode=Mode.demo)

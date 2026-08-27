@@ -21,6 +21,24 @@ from src.models import Chunk, ProvisionKind, ScoredChunk, Strength
 from src.retrieval import Retriever
 
 
+class FakeClock:
+    """A deterministic monotonic clock for time-dependent modules under test.
+
+    Start at an arbitrary value and advance it by hand: anything that reads
+    ``time.monotonic``-style time through an injected ``now`` callable sees
+    exactly what the test dictates.
+    """
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.value = start
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
+
+
 class FakeEmbedder:
     """Deterministic vectors keyed by text length; records every batch."""
 

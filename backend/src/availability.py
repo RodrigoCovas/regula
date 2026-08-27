@@ -117,7 +117,7 @@ def log_startup_store_warning(settings: Settings) -> None:
         )
 
 
-def _not_available_response(actions: list[str], summary: str) -> AnalyzeResponse:
+def not_available_response(actions: list[str], summary: str) -> AnalyzeResponse:
     """The sibling shape every Not-available response shares.
 
     Never serves demo content: empty Findings and Citations, the
@@ -137,7 +137,7 @@ def un_ingested_corpus_response() -> AnalyzeResponse:
     Names the exact ingest command and how to retry so recovery needs no
     documentation.
     """
-    return _not_available_response(
+    return not_available_response(
         actions=[
             "The Corpus is not ingested yet, so Live mode has nothing to retrieve from.",
             f"Ingest it once with: {INGEST_COMMAND}",
@@ -158,7 +158,7 @@ def unreachable_store_response(error: Exception) -> AnalyzeResponse:
     permanently local (ADR-0002), so the operator reading the answer can act
     on it.
     """
-    return _not_available_response(
+    return not_available_response(
         actions=[
             f"The vector store is not reachable ({error}), so Live mode has nothing to retrieve from.",
             f"Start the stack's database with: {START_POSTGRES_COMMAND}",
@@ -178,7 +178,7 @@ def unreachable_llm_response(error: Exception) -> AnalyzeResponse:
     provider that rejected or malformed the answer never lands here; that
     stays a server error.
     """
-    return _not_available_response(
+    return not_available_response(
         actions=[
             f"The LLM provider is not reachable ({error}), so Live mode cannot run the workflow.",
             "Check the network connection and OPENROUTER_API_KEY, then re-run your request; no restart is needed.",
