@@ -1,10 +1,4 @@
-import { AnswerSurface } from "../components/AnswerSurface";
-import { ScenarioForm } from "../components/ScenarioForm";
-import {
-  demoAnalyzeResponse,
-  insufficientEvidenceResponse,
-  notAvailableResponse,
-} from "../lib/fixtures";
+import { AnalysisSection } from "../components/AnalysisSection";
 
 export default function Page() {
   return (
@@ -13,36 +7,13 @@ export default function Page() {
         <h1 className="text-3xl font-bold">Regula</h1>
         <p className="text-slate-600">
           Regulatory research and compliance assistant — describe a Scenario and
-          ask a Regulatory question; the id derives from the description and the
-          answer surface below mirrors the backend contract.
+          ask a Regulatory question. The id derives from the description, the
+          frontend polls the backend for progress, and the answer renders through
+          the full contract surface.
         </p>
       </header>
 
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-800">
-          Analyze a scenario
-        </h2>
-        <ScenarioForm />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-800">
-          Canonical demo scenario — full answer surface
-        </h2>
-        <AnswerSurface response={demoAnalyzeResponse} />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-800">
-          Insufficient evidence
-        </h2>
-        <AnswerSurface response={insufficientEvidenceResponse} />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-800">Not available</h2>
-        <AnswerSurface response={notAvailableResponse} />
-      </section>
+      <AnalysisSection />
     </main>
   );
 }

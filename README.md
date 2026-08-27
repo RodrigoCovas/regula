@@ -13,15 +13,20 @@ git clone https://github.com/RodrigoCovas/regula.git
 cd regula
 ```
 
-2. **Start the backend:**
+2. **Start the stack:**
 ```bash
-docker compose up -d --build backend
+docker compose up -d --build backend frontend
 ```
-This builds the FastAPI image and starts it on port 8000 (PostgreSQL starts as
-a compose dependency but is not used by the demo). Ollama and pgvector are not
-required by the demo.
+This builds both images and starts the backend on port 8000 and the frontend on
+port 3000 (PostgreSQL starts as a compose dependency but is not used by the demo).
+Ollama and pgvector are not required by the demo.
 
-3. **Send the canonical demo scenario:**
+3. **Open the demo in your browser:**
+Navigate to http://localhost:3000 to use the web interface. The form accepts a
+scenario description and question; the Scenario id is derived automatically.
+Click "Try the demo scenario" to run the canonical Spanish fintech example.
+
+4. **Or send the canonical demo scenario via API:**
 ```bash
 curl -s http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
@@ -35,12 +40,12 @@ as siblings.
 Only `scenario.id == "spanish-fintech"` triggers the demo; any other id gets a
 helpful not-available response.
 
-4. **Check the service is healthy:**
+5. **Check the service is healthy:**
 ```bash
 curl http://localhost:8000/health
 ```
 
-5. **Stop when done:**
+6. **Stop when done:**
 ```bash
 docker compose down
 ```
@@ -84,9 +89,18 @@ Failures are recorded like any other request — never silently absent — so
 cost stays observable precisely when things go wrong. A broken log
 destination degrades to a warning; serving is never affected.
 
+### Progress endpoint
+
+Live-mode requests can take time as the workflow progresses through Planner,
+Researcher, Verifier, and Proposer phases. The frontend polls
+`GET /api/progress/{request_id}` to display which phase is currently running.
+The backend records the active workflow step in an in-memory registry with
+TTL cleanup; unknown request ids return a Not-available-shaped response.
+Single-worker uvicorn makes in-memory state safe for this use case.
+
 ### Running the tests locally (no Docker)
 
-Requires Python 3.13+:
+**Backend** (requires Python 3.13+):
 ```bash
 pip install -r backend/requirements.txt
 python -m pytest backend/tests/ -q
@@ -99,17 +113,29 @@ mypy
 ```
 Configuration lives in `pyproject.toml` (`[tool.mypy]`).
 
+**Frontend** (requires Node.js 20+):
+```bash
+cd frontend
+npm install
+npm test
+npm run typecheck
+```
+
+All checks run automatically on every push and pull request via GitHub Actions (`.github/workflows/ci.yml`).
+
 ### Developer setup (full stack)
 
 The steps below are for development beyond the deterministic demo.
 
 - No API keys are required for the deterministic demo; the backend makes no
   LLM calls. The full stack below is only needed for development beyond the demo.
-- Start everything (PostgreSQL + pgvector, Ollama, backend):
+- Start everything (PostgreSQL + pgvector, Ollama, backend, frontend):
 ```bash
 docker compose up -d
 docker compose exec ollama ollama pull hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16
 ```
+- Frontend runs on http://localhost:3000 (development mode: `cd frontend && npm install && npm run dev`)
+- Backend runs on http://localhost:8000
 
 ### Live mode setup (ingest the Corpus)
 
@@ -146,18 +172,15 @@ together with its provision metadata (Article XOR Recital XOR Annex). The
 backend never ingests on startup; serving Live mode afterwards additionally
 requires `REGULA_MODE=live` plus `OPENROUTER_API_KEY`.
 
-Frontend runs on http://localhost:3000 (`cd frontend && npm install && npm run dev`)
-Backend runs on http://localhost:8000
-
 ## Architecture
 
 ```
-Frontend (Next.js + TypeScript + Tailwind)
+Frontend (Next.js + TypeScript + Tailwind) :3000
     ↓
-FastAPI Backend (/api/analyze)
+FastAPI Backend (/api/analyze) :8000
     ↓
 LangGraph Workflow:
-  Planner → Researcher (with Retrieval Tool) → Verifier → Answer
+  Planner → Researcher (with Retrieval) → Verifier → Proposer
     ↓
 Retrieval Service Layer
     ↓
@@ -172,32 +195,44 @@ Ollama Embeddings (nomic-embed-text)
 regula/
 ├── backend/
 │   ├── src/
-│   │   ├── main.py                 # FastAPI app
-│   │   ├── config.py               # Configuration
-│   │   ├── db.py                   # Database setup
+│   │   ├── main.py                 # FastAPI app and API routes
+│   │   ├── config.py               # Configuration and mode selection
 │   │   ├── models.py               # Pydantic schemas
-│   │   ├── retriever.py            # Retrieval service
-│   │   ├── agents/
-│   │   │   ├── planner.py
-│   │   │   ├── researcher.py
-│   │   │   └── verifier.py
-│   │   ├── workflow.py             # LangGraph orchestration
-│   │   └── ingest.py               # Document ingestion
-│   ├── tests/
+│   │   ├── db.py                   # Database setup and connection
+│   │   ├── retrieval.py            # Retrieval service layer
+│   │   ├── embedder.py             # Embedding service (Ollama)
+│   │   ├── chunking.py             # Document chunking logic
+│   │   ├── corpus.py               # Corpus management
+│   │   ├── ingest.py               # Document ingestion CLI
+│   │   ├── llm.py                  # LLM client (OpenRouter)
+│   │   ├── live_workflow.py        # Live-mode workflow (Planner → Researcher → Verifier → Proposer)
+│   │   ├── availability.py         # Availability checks and Not-available responses
+│   │   ├── progress.py             # In-memory progress registry for workflow phases
+│   │   ├── query_log.py            # Query logging to queries.jsonl
+│   │   ├── eval_harness.py         # Demo-mode evaluation harness
+│   │   └── live_eval.py            # Live-mode evaluation CLI
+│   ├── tests/                      # pytest test suite
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
-│   ├── src/
-│   │   ├── app/
-│   │   ├── components/
-│   │   └── styles/
+│   ├── app/                        # Next.js App Router (layout.tsx, page.tsx)
+│   ├── components/                 # React components (ScenarioForm, AnswerSurface, etc.)
+│   ├── lib/                        # Client logic (analyze-client, progress, scenario-id)
+│   ├── tests/                      # Node test runner test suite
 │   ├── package.json
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   └── Dockerfile
 ├── data/
-│   └── regulations/                # Ingested documents
+│   └── regulations/                # Ingested documents (ai-act.json, gdpr.json, dora.json)
+├── docs/
+│   ├── adr/                        # Architecture Decision Records
+│   └── agents/                     # Agent workflow documentation
+├── research/                       # Research notes and decision trees
 ├── logs/
-│   └── queries.jsonl               # Query logs
+│   └── queries.jsonl               # Query logs (gitignored)
 ├── docker-compose.yml
+├── CONTEXT.md                      # Domain model and glossary
+├── AGENTS.md                       # Agent skills and checks
 └── README.md
 ```
 
