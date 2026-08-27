@@ -41,6 +41,19 @@ services:
       - ./data:/app/data:ro
       - ./logs:/app/logs
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
   ollama_data:
