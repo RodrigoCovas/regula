@@ -42,7 +42,7 @@ def post_canonical(client, request_id=None):
         "/api/analyze",
         headers=headers,
         json={
-            "scenario": {"id": "spanish-fintech", "description": "Spanish fintech lending"},
+            "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
             "question": "What regulations apply?",
         },
     )
@@ -53,19 +53,20 @@ def get_progress(client, request_id):
 
 
 def test_live_run_reports_each_phase_in_order_through_the_endpoint(monkeypatch):
-    """A completed Live run leaves its ordered phase history readable: the
-    endpoint serves the phases the workflow reported, in agent order, with
-    informative messages."""
+    """A completed Live run returns the AnalyzeResponse through the progress
+    endpoint, allowing the frontend to stop polling and display results."""
     with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
         resp = post_canonical(live_client, request_id="run-1")
         assert resp.status_code == 200
         progress = get_progress(live_client, "run-1")
         assert progress.status_code == 200
         data = progress.json()
-    assert data["request_id"] == "run-1"
-    assert data["phase"] == "proposer"
-    assert_phases_in_agent_order([(t["phase"], t["message"]) for t in data["transitions"]])
-    assert all(t["elapsed_ms"] >= 0 for t in data["transitions"])
+    # After completion, the endpoint returns the AnalyzeResponse, not the snapshot
+    assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
+    assert "answer" in data
+    assert "findings" in data["answer"]
+    assert "actions" in data["answer"]
+    assert "citations" in data["answer"]
 
 
 class GatedLlm:
@@ -98,8 +99,8 @@ def _wait_for_phase(client, request_id, phase, deadline=5.0):
 def test_phases_are_visible_through_the_endpoint_while_the_run_reports_them(monkeypatch):
     """Progress is visible mid-run, not after the fact: while the workflow
     is paused inside the Planner's LLM call, the endpoint already serves the
-    reported Planner phase; once the run completes, the full history is in
-    order."""
+    reported Planner phase; once the run completes, the AnalyzeResponse is
+    returned instead of the progress snapshot."""
     from src.config import load_settings
 
     import src.main as main
@@ -127,8 +128,9 @@ def test_phases_are_visible_through_the_endpoint_while_the_run_reports_them(monk
         gated.release()
         thread.join(timeout=10)
     assert result["resp"].status_code == 200
-    history = get_progress(live_client, "inflight").json()["transitions"]
-    assert [t["phase"] for t in history] == ["planner", "researcher", "verifier", "proposer"]
+    # After completion, the endpoint returns the AnalyzeResponse
+    final = get_progress(live_client, "inflight").json()
+    assert final["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
 
 
 def test_unknown_request_id_gets_the_not_available_shaped_reply(monkeypatch):

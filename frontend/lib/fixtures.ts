@@ -610,7 +610,7 @@ export const notAvailableResponse: AnalyzeResponse = {
       "Ingest it once with: python -m backend.src.ingest",
       "Inside the Docker stack, run: docker compose exec backend python -m backend.src.ingest",
       "Ingestion takes effect immediately \u2014 re-run your request afterwards; no restart is needed.",
-      "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech scenario via scenario.id 'spanish-fintech'."
+      "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech scenario via scenario.id 'spanish-fintech-startup-uses-9e165169'."
     ],
     "citations": []
   },

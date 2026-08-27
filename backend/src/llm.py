@@ -29,7 +29,7 @@ OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 # generations, not ration the answer.
 MAX_COMPLETION_TOKENS = 8192
 
-_TIMEOUT_SECONDS = 120
+_TIMEOUT_SECONDS = 300
 
 # The correction nudge appended as a user turn after a reply that failed
 # to parse: the model sees its own broken JSON in the conversation and is

@@ -50,7 +50,7 @@ class IngestReport:
     sources: list[str] = field(default_factory=list)
 
 
-def load_corpus_documents(data_dir: Path) -> list[tuple[str, dict]]:
+def load_corpus_documents(data_dir: Path, log=print) -> list[tuple[str, dict]]:
     """Every lexplorer JSON document in ``data_dir``, ordered by file name."""
     if not data_dir.is_dir():
         raise IngestError(
@@ -63,9 +63,12 @@ def load_corpus_documents(data_dir: Path) -> list[tuple[str, dict]]:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise IngestError(f"Could not read corpus file {path}: {error}") from error
-        documents.append((str(document["metadata"]["id"]), document))
+        source_id = str(document["metadata"]["id"])
+        documents.append((source_id, document))
     if not documents:
         raise IngestError(f"No corpus JSON documents found in {data_dir}.")
+    source_ids = [s for s, _ in documents]
+    log(f"Loaded {len(documents)} corpus documents: {', '.join(source_ids)}")
     return documents
 
 
@@ -73,6 +76,7 @@ def run_ingestion(
     store: Store,
     embedder: Embedder,
     documents: Sequence[tuple[str, dict]],
+    log=print,
 ) -> IngestReport:
     """Transform, embed, and upsert every Chunk of every document.
 
@@ -82,12 +86,15 @@ def run_ingestion(
     store.ensure_schema()
     sources = [source_id for source_id, _ in documents]
     ingested = 0
-    for _, document in documents:
+    for source_id, document in documents:
         chunks = chunk_regulation(document)
+        log(f"Chunking {source_id}: {len(chunks)} chunks")
+        log(f"Embedding {len(chunks)} chunks...")
         vectors = embedder.embed([chunk.text for chunk in chunks])
         records = [
             ChunkRecord.from_chunk(chunk, vector) for chunk, vector in zip(chunks, vectors)
         ]
+        log(f"Storing {len(records)} chunks...")
         store.upsert_chunks(records)
         ingested += len(records)
     return IngestReport(chunks_ingested=ingested, sources=sources)
@@ -126,11 +133,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        print(f"Connecting to database...")
+        store = PgVectorStore(connect(args.database_url))
         documents = load_corpus_documents(args.data_dir)
         embedder: Embedder = OllamaEmbedder(
             base_url=args.ollama_url, model=args.model, batch_size=args.batch_size
         )
-        store = PgVectorStore(connect(args.database_url))
         report = run_ingestion(store, embedder, documents)
     except (IngestError, EmbeddingError) as error:
         print(f"Ingestion failed: {error}", file=sys.stderr)

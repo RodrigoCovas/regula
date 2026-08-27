@@ -393,9 +393,9 @@ class EvalReport:
 
 
 CURATED_SCENARIOS: List[EvalScenario] = [
-    EvalScenario(id="canonical-what-applies", scenario_id="spanish-fintech", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
-    EvalScenario(id="canonical-loan-denial", scenario_id="spanish-fintech", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
-    EvalScenario(id="canonical-spanish-question", scenario_id="spanish-fintech", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
+    EvalScenario(id="canonical-what-applies", scenario_id="spanish-fintech-startup-uses-9e165169", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
+    EvalScenario(id="canonical-loan-denial", scenario_id="spanish-fintech-startup-uses-9e165169", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
+    EvalScenario(id="canonical-spanish-question", scenario_id="spanish-fintech-startup-uses-9e165169", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
     EvalScenario(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this loan scoring violate GDPR?", expected=_NO_FINDINGS),
     EvalScenario(id="non-canonical-near-miss-id", scenario_id="spanish-fintech-demo", question="What regulations apply?", expected=_NO_FINDINGS),
     EvalScenario(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),

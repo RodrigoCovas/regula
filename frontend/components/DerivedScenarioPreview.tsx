@@ -1,4 +1,4 @@
-import { deriveScenarioId } from "../lib/scenario-id";
+import { deriveScenarioId, deriveScenarioTitle } from "../lib/scenario-id";
 
 export function DerivedScenarioPreview({
   description,
@@ -12,7 +12,7 @@ export function DerivedScenarioPreview({
         <dl className="mt-2 space-y-1">
           <div className="flex gap-2">
             <dt className="text-slate-500">Title</dt>
-            <dd className="break-words">{description}</dd>
+            <dd className="break-words">{deriveScenarioTitle(description)}</dd>
           </div>
           <div className="flex gap-2">
             <dt className="text-slate-500">Id</dt>

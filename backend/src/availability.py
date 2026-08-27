@@ -33,7 +33,7 @@ START_POSTGRES_COMMAND = "docker compose up -d postgres"
 # The standing escape hatch shared by every Not-available response.
 SWITCH_TO_DEMO_ACTION = (
     "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech "
-    "scenario via scenario.id 'spanish-fintech'."
+    "scenario via scenario.id 'spanish-fintech-startup-uses-9e165169'."
 )
 
 ENGLISH_ONLY_LIMITATION = (

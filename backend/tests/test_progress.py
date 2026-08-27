@@ -166,7 +166,7 @@ def test_live_workflow_reports_each_phase_in_order_through_the_sink():
 
     run_live_analysis(
         AnalyzeRequest(
-            scenario=Scenario(id="my-app", description="Spanish fintech lending"),
+            scenario=Scenario(id="my-app", description="A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."),
             question="What regulations apply?",
         ),
         llm=make_offline_llm(),

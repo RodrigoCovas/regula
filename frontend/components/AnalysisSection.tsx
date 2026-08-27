@@ -22,11 +22,17 @@ export function AnalysisSection() {
     try {
       const response = await runAnalysis(input, {
         onProgress: (snapshot) => {
-          setStatus((current) =>
-            current.kind === "running"
-              ? { kind: "running", snapshots: [...current.snapshots, snapshot], input }
-              : current,
-          );
+          setStatus((current) => {
+            if (current.kind !== "running") {
+              return current;
+            }
+            const lastSnapshot = current.snapshots[current.snapshots.length - 1];
+            const lastPhase = lastSnapshot?.phase;
+            if (lastPhase === snapshot.phase) {
+              return current;
+            }
+            return { kind: "running", snapshots: [...current.snapshots, snapshot], input };
+          });
         },
       });
       setStatus({ kind: "done", response, input });

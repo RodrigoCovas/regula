@@ -30,13 +30,13 @@ Click "Try the demo scenario" to run the canonical Spanish fintech example.
 curl -s http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
   -d '{
-    "scenario": {"id": "spanish-fintech", "description": "Spanish fintech lending"},
-    "question": "What regulations apply?"
+    "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
+    "question": "What regulations apply to our AI-based credit scoring platform?"
   }'
 ```
 The response contains `answer`, `trace`, `detailed_trace`, and `known_limitations`
 as siblings.
-Only `scenario.id == "spanish-fintech"` triggers the demo; any other id gets a
+Only `scenario.id == "spanish-fintech-startup-uses-9e165169"` triggers the demo; any other id gets a
 helpful not-available response.
 
 5. **Check the service is healthy:**
@@ -55,7 +55,7 @@ One environment variable selects the mode before any request is served; nothing
 ever silently degrades between paths:
 
 - `REGULA_MODE=demo` (default) — keyless deterministic demo. Answers only
-  `scenario.id == "spanish-fintech"` from fixed content.
+  `scenario.id == "spanish-fintech-startup-uses-9e165169"` from fixed content.
 - `REGULA_MODE=live` — requires `OPENROUTER_API_KEY`. Starting Live mode
   without the key refuses to boot with an error naming the missing variable.
   Live mode answers **arbitrary** scenarios through the real workflow:
@@ -168,6 +168,34 @@ default; override with `--model`), and upserts it into PostgreSQL/pgvector
 together with its provision metadata (Article XOR Recital XOR Annex). The
 backend never ingests on startup; serving Live mode afterwards additionally
 requires `REGULA_MODE=live` plus `OPENROUTER_API_KEY`.
+
+### Running Live mode
+
+After ingesting the Corpus, start the backend in Live mode:
+
+1. **Configure the API key** in `backend/.env.local`:
+```bash
+echo "OPENROUTER_API_KEY=your-key-here" >> backend/.env.local
+```
+
+2. **Start the backend** with `REGULA_MODE=live`:
+```bash
+REGULA_MODE=live python -m uvicorn backend.src.main:app --reload
+```
+
+3. **Start the frontend** (in another terminal):
+```bash
+cd frontend && npm run dev
+```
+
+4. **Open** http://localhost:3000 and submit any scenario — the Live workflow
+   (Planner → Researcher → Verifier → Proposer) will answer using the ingested
+   Corpus and the configured LLM. Live mode requests typically take 60-90 seconds;
+   the frontend polls the progress endpoint and displays phase transitions as they
+   occur.
+
+The API key is read from `backend/.env.local` automatically at startup. The LLM
+model is pinned to `upstage/solar-pro4` via OpenRouter and cannot be changed.
 
 ## Architecture
 

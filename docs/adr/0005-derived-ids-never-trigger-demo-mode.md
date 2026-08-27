@@ -5,7 +5,7 @@ The frontend derives a Scenario's id from its description (content-word slug plu
 ## Considered and rejected
 
 - Semantic similarity trigger (embed the description, compare against the canonical Scenario): an embeddings-based trigger would make the keyless, LLM-free demo path depend on Ollama being up, and it re-introduces the silent-degradation the exact-match routing was chosen to forbid (main.py:495-497) — a near-demo description would silently get a canned demo answer.
-- Derived-id whitelisting (special-case slugs that resemble "spanish-fintech"): heuristic routing by another name; the explicit button makes the same convenience available without ambiguity about which path answered.
+- Derived-id whitelisting (special-case slugs that resemble "spanish-fintech-startup-uses-9e165169"): heuristic routing by another name; the explicit button makes the same convenience available without ambiguity about which path answered.
 
 ## Consequences
 

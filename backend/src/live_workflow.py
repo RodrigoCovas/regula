@@ -649,7 +649,8 @@ def run_live_analysis(
     # The Verifier's output was decided once, by the Proposer: kept Findings,
     # per-claim decisions, and the citation labels the grounding gate reads
     # all travel through the state from that single computation.
-    findings = state.kept_findings
+    _STRENGTH_SORT = {Strength.strong: 0, Strength.moderate: 1, Strength.weak: 2}
+    findings = sorted(state.kept_findings, key=lambda f: _STRENGTH_SORT.get(f.strength, 1))
     decisions = state.claim_decisions
     discarded = [decision.claim for decision in decisions if decision.status == "rejected"]
     all_citations = [citation for finding in findings for citation in finding.citations]

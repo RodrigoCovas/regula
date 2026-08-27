@@ -114,7 +114,7 @@ test("the demo payload is the exact canonical scenario with enriched content", (
     "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.";
   assert.deepEqual(demoScenarioInput, {
     scenario: {
-      id: "spanish-fintech",
+      id: "spanish-fintech-startup-uses-9e165169",
       title: deriveScenarioTitle(demoDescription),
       description: demoDescription,
     },

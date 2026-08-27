@@ -37,7 +37,7 @@ test("never surfaces the canonical demo id anywhere in the UI", () => {
 
 test("the preview shows the derived title and id for a description", () => {
   const markup = renderPreview("the Spanish fintech lending company");
-  assert.ok(markup.includes("the Spanish fintech lending company"));
+  assert.ok(markup.includes("Spanish Fintech Lending Company"));
   assert.ok(markup.includes("spanish-fintech-lending-company-"));
 });
 

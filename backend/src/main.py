@@ -514,13 +514,16 @@ def _dispatch_analyze(
             progress_registry.register(request_id)
         progress = progress_sink(request_id, registry=progress_registry) if request_id else None
         try:
-            return run_live_analysis(
+            response = run_live_analysis(
                 request,
                 llm=llm,
                 retriever=retriever,
                 observation=observation,
                 progress=progress,
             )
+            if request_id:
+                progress_registry.complete(request_id, response)
+            return response
         except LlmUnreachableError as error:
             # A genuine LLM outage is not a server error: it gets its own
             # Not-available reply, mirroring the unreachable-store case.
@@ -530,9 +533,9 @@ def _dispatch_analyze(
 
     scenario = request.scenario
 
-    # Trigger the deterministic demo ONLY on exact scenario.id == "spanish-fintech"
+    # Trigger the deterministic demo ONLY on exact scenario.id == "spanish-fintech-startup-uses-9e165169"
     # No keyword-heuristic routing — it silently degrades which is forbidden
-    is_spanish_fintech = bool(scenario and scenario.id == "spanish-fintech")
+    is_spanish_fintech = bool(scenario and scenario.id == "spanish-fintech-startup-uses-9e165169")
 
     if is_spanish_fintech:
         result = _run_demo_workflow()
@@ -571,12 +574,12 @@ def _dispatch_analyze(
         findings = []
         citations = []
         actions = [
-            "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech' with a Spanish fintech lending question.",
+            "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech-startup-uses-9e165169' with the canonical AI credit scoring question.",
             "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope).",
         ]
         trace = Trace(
             workflow="noop",
-            summary="No demo match; no retrieval performed. Provide scenario.id 'spanish-fintech' to invoke the demo.",
+            summary="No demo match; no retrieval performed. Provide scenario.id 'spanish-fintech-startup-uses-9e165169' to invoke the demo.",
         )
         detailed_trace = []
 
@@ -600,9 +603,16 @@ async def progress(request_id: str):
     transition history, as the Live workflow reports it into the progress
     registry.
 
+    Once the run completes, the endpoint returns the final AnalyzeResponse
+    instead of the progress snapshot — the frontend polls until it receives
+    this response shape.
+
     An unknown request id — never submitted, or expired by the registry's
     TTL — gets the Not-available-shaped reply naming what happened.
     """
+    completed = progress_registry.get_completed_response(request_id)
+    if completed is not None:
+        return completed
     snapshot = progress_registry.get(request_id)
     if snapshot is None:
         return unknown_request_response(request_id)
