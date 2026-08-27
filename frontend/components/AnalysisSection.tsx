@@ -10,26 +10,26 @@ import { ScenarioForm } from "./ScenarioForm";
 
 export type AnalysisStatus =
   | { kind: "idle" }
-  | { kind: "running"; snapshots: ProgressSnapshot[] }
-  | { kind: "done"; response: AnalyzeResponse }
+  | { kind: "running"; snapshots: ProgressSnapshot[]; input: ScenarioInput }
+  | { kind: "done"; response: AnalyzeResponse; input: ScenarioInput }
   | { kind: "error"; message: string };
 
 export function AnalysisSection() {
   const [status, setStatus] = useState<AnalysisStatus>({ kind: "idle" });
 
   async function handleSubmit(input: ScenarioInput) {
-    setStatus({ kind: "running", snapshots: [] });
+    setStatus({ kind: "running", snapshots: [], input });
     try {
       const response = await runAnalysis(input, {
         onProgress: (snapshot) => {
           setStatus((current) =>
             current.kind === "running"
-              ? { kind: "running", snapshots: [...current.snapshots, snapshot] }
+              ? { kind: "running", snapshots: [...current.snapshots, snapshot], input }
               : current,
           );
         },
       });
-      setStatus({ kind: "done", response });
+      setStatus({ kind: "done", response, input });
     } catch (error) {
       const message =
         error instanceof AnalyzeFailure
@@ -66,6 +66,11 @@ export function AnalysisSection() {
       {status.kind === "done" ? (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-slate-800">Answer</h2>
+          {status.input.scenario.title ? (
+            <p className="text-sm text-slate-600">
+              {status.input.scenario.title}
+            </p>
+          ) : null}
           <AnswerSurface response={status.response} />
         </section>
       ) : null}

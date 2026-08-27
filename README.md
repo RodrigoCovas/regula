@@ -15,11 +15,10 @@ cd regula
 
 2. **Start the stack:**
 ```bash
-docker compose up -d --build backend frontend
+docker compose up -d --build
 ```
-This builds both images and starts the backend on port 8000 and the frontend on
-port 3000 (PostgreSQL starts as a compose dependency but is not used by the demo).
-Ollama and pgvector are not required by the demo.
+This builds both images and starts the backend on port 8000, the frontend on
+port 3000, PostgreSQL with pgvector, and Ollama.
 
 3. **Open the demo in your browser:**
 Navigate to http://localhost:3000 to use the web interface. The form accepts a
@@ -131,7 +130,10 @@ The steps below are for development beyond the deterministic demo.
   LLM calls. The full stack below is only needed for development beyond the demo.
 - Start everything (PostgreSQL + pgvector, Ollama, backend, frontend):
 ```bash
-docker compose up -d
+docker compose up -d --build
+```
+- Pull the embedding model (required for Live mode):
+```bash
 docker compose exec ollama ollama pull hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16
 ```
 - Frontend runs on http://localhost:3000 (development mode: `cd frontend && npm install && npm run dev`)
@@ -143,9 +145,9 @@ Live mode answers arbitrary Scenarios over the ingested Corpus. Setup is a
 single documented command, run in this order — each step depends on the one
 before it:
 
-1. **Stack up** (PostgreSQL + pgvector and Ollama):
+1. **Stack up** (PostgreSQL + pgvector, Ollama, backend, frontend):
 ```bash
-docker compose up -d postgres ollama
+docker compose up -d --build
 ```
 
 2. **Pull the embedding model** (nomic-embed-text v1.5 via Hugging Face — the
@@ -156,11 +158,6 @@ docker compose exec ollama ollama pull hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF
 
 3. **Run ingestion** (idempotent — re-running updates existing rows and
    inserts no duplicates):
-```bash
-python -m backend.src.ingest
-```
-Run it from the repository root with the Python dependencies installed
-(`pip install -r backend/requirements.txt`), or inside the stack:
 ```bash
 docker compose exec backend python -m backend.src.ingest
 ```

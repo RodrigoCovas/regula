@@ -5,7 +5,7 @@ Regula is a regulatory research and compliance assistant for answering questions
 ## Language
 
 **Scenario**:
-The user’s described company, product, jurisdiction, and question.  
+The user's described company, product, and jurisdiction — the context for a regulatory question. The same scenario can have multiple questions.
 _Avoid_: Case, request, prompt
 
 **Regulatory question**:

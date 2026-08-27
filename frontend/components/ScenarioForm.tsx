@@ -25,7 +25,8 @@ export function ScenarioForm({
   }
 
   function handleDemoSubmit() {
-    onSubmit?.(demoScenarioInput);
+    setDescription(demoScenarioInput.scenario.description);
+    setQuestion(demoScenarioInput.question);
   }
 
   return (
@@ -45,6 +46,10 @@ export function ScenarioForm({
           placeholder="Describe your company, product, and jurisdiction"
           className="w-full rounded-md border border-slate-300 p-3 text-sm"
         />
+        <p className="text-xs text-slate-500">
+          The demo scenario is deterministic and requires no API key. Editing
+          this or writing your own scenario requires an LLM API key.
+        </p>
       </div>
 
       <div className="space-y-1">

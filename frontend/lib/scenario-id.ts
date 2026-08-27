@@ -118,7 +118,9 @@ export function buildScenarioInput(
 export const demoScenarioInput: ScenarioInput = {
   scenario: {
     id: "spanish-fintech",
-    description: "Spanish fintech lending",
+    title: "Spanish Fintech Startup Uses",
+    description:
+      "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
   },
-  question: "What regulations apply?",
+  question: "What regulations apply to our AI-based credit scoring platform?",
 };

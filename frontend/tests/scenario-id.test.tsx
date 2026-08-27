@@ -81,9 +81,14 @@ test("the derived payload carries the description as title and the derived id", 
   assert.equal(input.question, "What regulations apply?");
 });
 
-test("the demo payload is the exact canonical scenario, with no user-set title", () => {
+test("the demo payload is the exact canonical scenario with enriched content", () => {
   assert.deepEqual(demoScenarioInput, {
-    scenario: { id: "spanish-fintech", description: "Spanish fintech lending" },
-    question: "What regulations apply?",
+    scenario: {
+      id: "spanish-fintech",
+      title: "Spanish Fintech Startup Uses",
+      description:
+        "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
+    },
+    question: "What regulations apply to our AI-based credit scoring platform?",
   });
 });
