@@ -8,7 +8,19 @@ Regula is a regulatory research and compliance assistant for answering questions
 
 **Next.js**: 16.3.3 — pinned in `frontend/package.json`
 
-**React**: 18.x — compatible with Next.js 16
+**React**: 18.3.1 — pinned in `frontend/package.json`
+
+## Frontend Dependency Security
+
+**Audit status**: 0 vulnerabilities (verified `npm audit` clean)
+
+**Install script policy**: Two packages have approved install scripts in `frontend/package.json`:
+- `esbuild@0.28.2` — native binary installer for platform-specific build tool; required for TypeScript transpilation
+- `unrs-resolver@1.12.2` — native resolver for Next.js module resolution; required for build
+
+Both are build-time dependencies with well-maintained postinstall scripts that download platform-specific binaries. No runtime code execution risk.
+
+**ESLint deprecation**: `eslint@9.39.5` carries an npm deprecation notice, but this is a dev-only tool. The deprecation does not produce application-actionable warnings — it does not affect the running server, production build, or end users. ESLint 10.x requires breaking changes to plugin APIs that `eslint-config-next` does not yet support.
 
 ## Language
 
