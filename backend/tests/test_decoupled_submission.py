@@ -40,6 +40,19 @@ def _fresh_progress_registry(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _clean_background_threads():
+    import src.main as main
+
+    yield
+    with main._background_threads_lock:
+        threads = list(main._background_threads)
+    for thread in threads:
+        thread.join(timeout=5)
+    with main._background_threads_lock:
+        main._background_threads.clear()
+
+
 def post_canonical(client, request_id=None):
     headers = {REQUEST_ID_HEADER: request_id} if request_id else {}
     return client.post(
@@ -189,29 +202,28 @@ def test_post_without_request_id_retains_synchronous_contract(monkeypatch):
 def test_availability_gate_failure_registers_progress_for_polling(monkeypatch):
     """When an availability gate fails (e.g., un-ingested corpus), the
     result is registered in the progress registry so polling can retrieve it."""
-    import src.availability as availability
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 0)
+    with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever(), chunk_count=0) as live_client:
+        resp = post_canonical(live_client, request_id="gate-failed")
+        assert resp.status_code == 200
+        post_data = resp.json()
+        assert post_data["request_id"] == "gate-failed"
 
-    from src.config import load_settings
-    import src.main as main
-    monkeypatch.setattr(main, "settings", load_settings())
-
-    from fastapi.testclient import TestClient
-    client = TestClient(main.app)
-
-    resp = post_canonical(client, request_id="gate-failed")
-    assert resp.status_code == 200
-
-    progress_resp = get_progress(client, "gate-failed")
-    data = progress_resp.json()
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end:
+            progress_resp = get_progress(live_client, "gate-failed")
+            data = progress_resp.json()
+            if "answer" in data:
+                break
+            time.sleep(0.05)
     assert "answer" in data
     assert data["trace"]["workflow"] == "not-available"
 
 
 def test_submission_survives_client_disconnect_simulation(monkeypatch):
-    """End-to-end: the analysis completes even when the POST connection
-    is 'dropped' (we simulate this by not waiting for the POST response
-    and polling the progress endpoint instead)."""
+    """End-to-end: the analysis completes even after the submitting client
+    disconnects. The POST returns promptly with a ProgressSnapshot; a
+    separate polling client (simulating a different connection) retrieves
+    the eventual Answer after the submitting client is gone."""
     gated = GatedLlm(make_offline_llm())
     live_client = boot_live_with_fakes(monkeypatch, gated, FakeRetriever())
 
@@ -219,45 +231,25 @@ def test_submission_survives_client_disconnect_simulation(monkeypatch):
     import src.main as main
     monkeypatch.setattr(main, "settings", load_settings())
 
-    post_started = threading.Event()
-    post_returned = threading.Event()
-    post_result = {}
+    with live_client:
+        resp = post_canonical(live_client, request_id="disconnect-run")
+        assert resp.status_code == 200
+        post_data = resp.json()
+        assert post_data["request_id"] == "disconnect-run"
+        assert "answer" not in post_data, "POST should return ProgressSnapshot, not AnalyzeResponse"
 
-    def submit_and_abandon():
-        post_started.set()
-        try:
-            resp = post_canonical(live_client, request_id="disconnect-run")
-            post_result["resp"] = resp
-        except Exception as e:
-            post_result["error"] = e
-        finally:
-            post_returned.set()
+        from fastapi.testclient import TestClient
+        poll_client = TestClient(main.app)
+        with poll_client:
+            gated.release()
 
-    submit_thread = threading.Thread(target=submit_and_abandon, daemon=True)
-    submit_thread.start()
+            end = time.monotonic() + 10.0
+            while time.monotonic() < end:
+                progress_resp = poll_client.get("/api/progress/disconnect-run")
+                data = progress_resp.json()
+                if "answer" in data:
+                    break
+                time.sleep(0.05)
 
-    post_started.wait(timeout=5.0)
-
-    end = time.monotonic() + 5.0
-    while time.monotonic() < end:
-        progress_resp = get_progress(live_client, "disconnect-run")
-        data = progress_resp.json()
-        if data.get("phase") == "planner":
-            break
-        time.sleep(0.01)
-
-    assert data.get("phase") == "planner", "progress should be visible before POST returns"
-
-    gated.release()
-    submit_thread.join(timeout=10)
-
-    end = time.monotonic() + 10.0
-    while time.monotonic() < end:
-        progress_resp = get_progress(live_client, "disconnect-run")
-        data = progress_resp.json()
-        if "answer" in data:
-            break
-        time.sleep(0.05)
-
-    assert "answer" in data, "analysis did not complete after simulated disconnect"
-    assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
+        assert "answer" in data, "analysis did not complete after submitting client disconnected"
+        assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"

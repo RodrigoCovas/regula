@@ -35,6 +35,21 @@ def _fresh_progress_registry(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _clean_background_threads():
+    """Join and clear background threads between tests so daemon-less threads
+    from one test don't leak into the next."""
+    import src.main as main
+
+    yield
+    with main._background_threads_lock:
+        threads = list(main._background_threads)
+    for thread in threads:
+        thread.join(timeout=5)
+    with main._background_threads_lock:
+        main._background_threads.clear()
+
+
 def post_canonical(client, request_id=None):
     """POST the canonical Scenario, optionally tagged with a request id."""
     headers = {REQUEST_ID_HEADER: request_id} if request_id else {}

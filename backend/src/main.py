@@ -53,6 +53,9 @@ settings = load_settings()
 # progress registry, and GET /api/progress/{request_id} reads it back.
 REQUEST_ID_HEADER = "x-request-id"
 
+_background_threads: set[threading.Thread] = set()
+_background_threads_lock = threading.Lock()
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -61,11 +64,19 @@ async def lifespan(_: FastAPI):
     Uvicorn normally fails earlier, at module import; this second validation
     is the behavioural seam that lets tests boot the app with an environment
     and observe misconfiguration as a startup failure.
+
+    On shutdown, joins every in-flight background analysis thread so the
+    backend records its completed or failed terminal state before the
+    process exits (spec #25, issue #41).
     """
     global settings
     settings = load_settings()
     log_startup_store_warning(settings)
     yield
+    with _background_threads_lock:
+        threads = list(_background_threads)
+    for thread in threads:
+        thread.join(timeout=30)
 
 
 app = FastAPI(
@@ -473,7 +484,6 @@ def analyze(
             llm=llm,
             retriever=retriever,
             observation=observation,
-            request_id=request_id,
         )
         workflow = response.trace.workflow
         return response
@@ -492,63 +502,63 @@ def analyze(
         )
 
 
+def _check_live_availability() -> Optional[AnalyzeResponse]:
+    """Run the Live-mode availability gates (un-ingested corpus, unreachable
+    store). Returns None when the gates pass, or a Not-available
+    AnalyzeResponse when they fail.
+
+    Shared between the synchronous non-UI path and the background UI path
+    so the gate logic lives in one place.
+    """
+    try:
+        empty = vector_store_is_empty(settings.database_url)
+    except UNREACHABLE_STORE_ERRORS as error:
+        if store_unreachable(error):
+            return unreachable_store_response(error)
+        raise
+    if empty:
+        return un_ingested_corpus_response()
+    return None
+
+
 def _handle_live_ui_submission(
     request: AnalyzeRequest,
     request_id: str,
     *,
     llm: Llm,
     retriever: Retriever,
-) -> Union[AnalyzeResponse, ProgressSnapshot]:
+) -> ProgressSnapshot:
     """UI-facing Live submission: runs the analysis in a background thread
-    so the POST returns promptly. The analysis continues independently of
-    the original connection; progress polling reaches the eventual Answer
-    or terminal failure.
+    so the POST returns promptly with a ProgressSnapshot. The analysis
+    continues independently of the original connection; progress polling
+    reaches the eventual Answer or terminal failure.
 
-    Availability gates run synchronously first: a gate failure is registered
-    in the progress registry so polling retrieves it, then returned directly.
+    Availability gates and the full workflow run in the background thread:
+    gate failures are recorded in the progress registry so polling
+    retrieves them as a Not-available AnalyzeResponse.
 
     The resolved ``llm`` and ``retriever`` from the request context are
     passed to the background thread — this keeps dependency overrides (used
     by tests) working and avoids creating duplicate connections for fakes.
+
+    The thread is non-daemon and tracked in ``_background_threads``: the
+    lifespan joins every in-flight thread on shutdown so the backend
+    records its terminal state before the process exits.
     """
     started = time.perf_counter()
-    try:
-        empty = vector_store_is_empty(settings.database_url)
-    except UNREACHABLE_STORE_ERRORS as error:
-        if store_unreachable(error):
-            response = unreachable_store_response(error)
-            progress_registry.register(request_id)
-            progress_registry.complete(request_id, response)
-            _log_request(
-                request,
-                llm,
-                RequestObservation(),
-                status=STATUS_SUCCESS,
-                workflow=response.trace.workflow,
-                latency_ms=(time.perf_counter() - started) * 1000,
-            )
-            return response
-        raise
-    if empty:
-        response = un_ingested_corpus_response()
-        progress_registry.register(request_id)
-        progress_registry.complete(request_id, response)
-        _log_request(
-            request,
-            llm,
-            RequestObservation(),
-            status=STATUS_SUCCESS,
-            workflow=response.trace.workflow,
-            latency_ms=(time.perf_counter() - started) * 1000,
-        )
-        return response
-
     progress_registry.register(request_id)
 
     def run_in_background() -> None:
+        with _background_threads_lock:
+            _background_threads.add(threading.current_thread())
         bg_observation = RequestObservation()
         bg_status, bg_workflow, bg_error = STATUS_SUCCESS, None, None
         try:
+            gate_response = _check_live_availability()
+            if gate_response is not None:
+                progress_registry.complete(request_id, gate_response)
+                bg_workflow = gate_response.trace.workflow
+                return
             progress = progress_sink(request_id, registry=progress_registry)
             response = run_live_analysis(
                 request,
@@ -577,8 +587,10 @@ def _handle_live_ui_submission(
                 latency_ms=(time.perf_counter() - started) * 1000,
                 error=bg_error,
             )
+            with _background_threads_lock:
+                _background_threads.discard(threading.current_thread())
 
-    thread = threading.Thread(target=run_in_background, daemon=True)
+    thread = threading.Thread(target=run_in_background)
     thread.start()
 
     snapshot = progress_registry.get(request_id)
@@ -591,7 +603,6 @@ def _dispatch_analyze(
     llm: Llm,
     retriever: Retriever,
     observation: RequestObservation,
-    request_id: Optional[str] = None,
 ) -> AnalyzeResponse:
     """Mode dispatch: the served answer for one request, Demo or Live.
 
@@ -600,17 +611,9 @@ def _dispatch_analyze(
     callers (synchronous, no progress) and Demo mode.
     """
     if settings.regula_mode == Mode.live:
-        try:
-            empty = vector_store_is_empty(settings.database_url)
-        except UNREACHABLE_STORE_ERRORS as error:
-            # An outage is not the un-ingested case: it gets its own reply.
-            # But only a genuine outage — a reachable store that raised
-            # (timeout, canceled statement) still surfaces as a server error.
-            if store_unreachable(error):
-                return unreachable_store_response(error)
-            raise
-        if empty:
-            return un_ingested_corpus_response()
+        gate_response = _check_live_availability()
+        if gate_response is not None:
+            return gate_response
         try:
             response = run_live_analysis(
                 request,
