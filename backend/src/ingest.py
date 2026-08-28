@@ -133,9 +133,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        documents = load_corpus_documents(args.data_dir)
         print(f"Connecting to database...")
         store = PgVectorStore(connect(args.database_url))
-        documents = load_corpus_documents(args.data_dir)
         embedder: Embedder = OllamaEmbedder(
             base_url=args.ollama_url, model=args.model, batch_size=args.batch_size
         )
