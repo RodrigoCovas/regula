@@ -30,6 +30,12 @@ test("renders the Analyze and demo buttons", () => {
   assert.ok(markup.includes("Try the demo scenario"));
 });
 
+test("prevents Firefox from restoring the submit button state across reloads", () => {
+  const markup = renderForm();
+  const submitButton = markup.match(/<button[^>]*type="submit"[^>]*>/)?.[0];
+  assert.match(submitButton ?? "", /autocomplete="off"/i);
+});
+
 test("never surfaces the canonical demo id anywhere in the UI", () => {
   const markup = renderForm();
   assert.ok(!markup.includes(demoScenarioInput.scenario.id));

@@ -13,6 +13,8 @@ export function ScenarioForm({
 }) {
   const [description, setDescription] = useState("");
   const [question, setQuestion] = useState("");
+  // Firefox can restore a button's dynamic disabled state across reloads.
+  const submitButtonAttributes = { autoComplete: "off" };
 
   const canAnalyze = Boolean(description.trim() && question.trim());
 
@@ -73,6 +75,7 @@ export function ScenarioForm({
 
       <div className="flex gap-3">
         <button
+          {...submitButtonAttributes}
           type="submit"
           disabled={!canAnalyze}
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
