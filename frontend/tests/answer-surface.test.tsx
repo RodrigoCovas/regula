@@ -121,9 +121,17 @@ test("renders detailed trace steps, retrieved passages, tool calls, and claim de
   assert.ok(markup.includes(">rejected<"));
 });
 
-test("renders action decisions in the detailed trace with kept and rejected statuses", () => {
+test("renders surviving Actions and the standing hand-off on the main answer surface, and action decisions in the detailed trace", () => {
+  const survivingAction =
+    "Have a professional verify the high-risk classification.";
+  const handOff =
+    "Have a qualified legal professional verify these findings against the company's actual situation before acting on them.";
   const responseWithActionDecisions: AnalyzeResponse = {
     ...demoAnalyzeResponse,
+    answer: {
+      ...demoAnalyzeResponse.answer,
+      actions: [survivingAction, handOff],
+    },
     detailed_trace: [
       ...(demoAnalyzeResponse.detailed_trace ?? []),
       {
@@ -132,7 +140,7 @@ test("renders action decisions in the detailed trace with kept and rejected stat
           "distill the kept Findings into referral Actions, each grounded in a kept Finding's Citations",
         action_decisions: [
           {
-            action: "Have a professional verify the high-risk classification.",
+            action: survivingAction,
             status: "kept",
             reason: null,
             dropped_refs: [],
@@ -151,13 +159,16 @@ test("renders action decisions in the detailed trace with kept and rejected stat
   const markup = renderToStaticMarkup(
     React.createElement(AnswerSurface, { response: responseWithActionDecisions }),
   );
+  assert.ok(
+    markup.includes(visibleMarkup(survivingAction)),
+    "surviving grounded Action renders on the main answer surface",
+  );
+  assert.ok(
+    markup.includes(visibleMarkup(handOff)),
+    "standing professional hand-off renders on the main answer surface",
+  );
   assert.ok(markup.includes(">proposer<"));
   assert.ok(markup.includes("Action proposals (2)"));
-  assert.ok(
-    markup.includes(
-      visibleMarkup("Have a professional verify the high-risk classification."),
-    ),
-  );
   assert.ok(markup.includes(">kept<"));
   assert.ok(
     markup.includes(
