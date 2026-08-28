@@ -180,7 +180,7 @@ echo "OPENROUTER_API_KEY=your-key-here" >> backend/.env.local
 
 2. **Start the backend** with `REGULA_MODE=live`:
 ```bash
-REGULA_MODE=live python -m uvicorn backend.src.main:app --reload
+REGULA_MODE=live python -m uvicorn backend.src.main:app --reload --reload-dir backend/src
 ```
 
 3. **Start the frontend** (in another terminal):

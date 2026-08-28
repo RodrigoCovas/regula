@@ -9,4 +9,4 @@ COPY backend/src ./backend/src
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "backend.src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "backend.src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "backend/src"]
