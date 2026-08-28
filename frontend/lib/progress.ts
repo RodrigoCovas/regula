@@ -13,6 +13,7 @@ export interface ProgressSnapshot {
   phase: WorkflowPhase | null;
   message: string | null;
   transitions: ProgressTransition[];
+  error?: string;
 }
 
 const PHASE_LABELS: Record<WorkflowPhase, string> = {

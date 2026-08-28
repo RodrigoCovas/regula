@@ -41,9 +41,9 @@ The deterministic demo prototype is brought in line with the locked decisions so
 - When an Unsupported claim is discarded, the **Execution trace records the rejection** (no explicit note in the answer).
 
 ### Lookup selection (Q9)
-- Trigger the deterministic demo **only** on exact `scenario.id == "spanish-fintech"`.
+- Trigger the deterministic demo **only** on exact `scenario.id == "spanish-fintech-startup-uses-9e165169"`.
 - Remove the keyword-heuristic routing in `backend/src/main.py` (description/question keyword matching) — it silently routes non-canonical Scenarios to the demo, which the "never silently degrade" rule forbids.
-- Non-canonical requests return a **helpful "not available" response**: a clear message stating the demo currently supports only the canonical scenario and how to invoke it (`scenario.id == "spanish-fintech"`), rather than a bare failure or a guessed demo Answer.
+- Non-canonical requests return a **helpful "not available" response**: a clear message stating the demo currently supports only the canonical scenario and how to invoke it (`scenario.id == "spanish-fintech-startup-uses-9e165169"`), rather than a bare failure or a guessed demo Answer.
 - The deterministic `corpus_lookup` resolves Article/Recital/Annex targets (already applied); recitals are cited by number even when their text is absent from the corpus.
 
 ### Evaluation harness (Q6, Q6c)

@@ -68,7 +68,7 @@ Companion files: `DECISION_TREE.md` (original locked decisions), `DEMO_SCENARIO_
 ### Q9 — Lookup selection
 - Rule: **canonical demo scenario id → deterministic `corpus_lookup`; everything else → vector retrieval; never silently degrade.**
 - The current keyword-heuristic routing in `main.py` (description containing "spanish"+"fintech", or question containing "spanish" + loan/credit/…) is **removed** — it silently routes non-canonical scenarios to the demo, which the rule forbids.
-- Non-canonical requests get a **helpful "not available" response** (option 3): a clear message listing the one scenario the demo supports and how to invoke it (`scenario.id == "spanish-fintech"`), rather than a bare failure — so a local stakeholder run doesn't dead-end into confusion.
+- Non-canonical requests get a **helpful "not available" response** (option 3): a clear message listing the one scenario the demo supports and how to invoke it (`scenario.id == "spanish-fintech-startup-uses-9e165169"`), rather than a bare failure — so a local stakeholder run doesn't dead-end into confusion.
 - The demo is only the start: later the system will support other questions; this session only ensures the deterministic prototype works as intended.
 
 ---
@@ -90,7 +90,7 @@ Empty — every branch of the design tree has been visited and locked.
 ## Pending code changes (from locked decisions, not yet applied)
 - Q2: `Answer` must stop nesting `trace`/`detailed_trace` — API returns `answer`/`trace`/`detailed_trace` as siblings.
 - Q5/Q5b: the demo's `DEMO_FINDING_DEFS` carries no `weak` finding today; "weak findings stay in the answer" means reinstating a weak framing finding (e.g. the definitions finding from `DEMO_SCENARIO_FINDINGS.md` #8) and recording rejected Unsupported claims in the Execution trace.
-- Q9: remove keyword-heuristic routing from `main.py`; trigger only on exact `scenario.id == "spanish-fintech"`; non-canonical requests get the helpful "not available" message.
+- Q9: remove keyword-heuristic routing from `main.py`; trigger only on exact `scenario.id == "spanish-fintech-startup-uses-9e165169"`; non-canonical requests get the helpful "not available" message.
 - Q6: build the eval harness (6–8 curated cases, strength-weighted F1 with distance-scaled mis-tag penalty) — greenfield, nothing exists yet.
 - Q8: create `PROVENANCE.md` beside `data/regulations/`.
 - Q7b: step-by-step local setup instructions (docker-compose) for stakeholders.

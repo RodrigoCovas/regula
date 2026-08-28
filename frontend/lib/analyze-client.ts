@@ -4,6 +4,7 @@ import { isAnalyzeResponse, isProgressSnapshot } from "./progress";
 
 const REQUEST_ID_HEADER = "x-request-id";
 const DEFAULT_POLL_INTERVAL_MS = 1000;
+const DEFAULT_TIMEOUT_MS = 900000;
 
 export class AnalyzeFailure extends Error {}
 
@@ -16,6 +17,7 @@ export interface AnalyzeClientDeps {
   clearTimeoutFn?: (handle: TimerHandle) => void;
   pollIntervalMs?: number;
   onProgress?: (snapshot: ProgressSnapshot) => void;
+  timeoutMs?: number;
 }
 
 function defaultRequestId(): string {
@@ -33,62 +35,43 @@ export async function runAnalysis(
     deps.clearTimeoutFn ??
     ((handle: TimerHandle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const requestId = generateRequestId();
 
-  const analyzePromise = fetchImpl("/api/analyze", {
+  fetchImpl("/api/analyze", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       [REQUEST_ID_HEADER]: requestId,
     },
     body: JSON.stringify(input),
-  });
+  }).catch(() => {});
 
-  let settled = false;
-  let pollTimer: TimerHandle = null;
+  const startedAt = Date.now();
 
-  const schedulePoll = (): void => {
-    pollTimer = setTimeoutFn(poll, pollIntervalMs);
-  };
-
-  const poll = async (): Promise<void> => {
+  while (true) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new AnalyzeFailure("the analysis timed out");
+    }
+    await new Promise<void>((resolve) => setTimeoutFn(resolve, pollIntervalMs));
     try {
       const response = await fetchImpl(`/api/progress/${requestId}`);
       if (response.ok) {
         const json: unknown = await response.json();
+        if (isAnalyzeResponse(json)) {
+          return json;
+        }
         if (isProgressSnapshot(json)) {
+          if (json.error) {
+            throw new AnalyzeFailure(json.error);
+          }
           deps.onProgress?.(json);
         }
       }
-    } catch {
-      // A lost poll tick must never fail the analysis: the POST carries the
-      // answer; progress reads are best-effort.
-    }
-    if (!settled) {
-      schedulePoll();
-    }
-  };
-
-  schedulePoll();
-
-  try {
-    const response = await analyzePromise;
-    if (!response.ok) {
-      throw new AnalyzeFailure(
-        `the backend answered the analysis with HTTP ${response.status}`,
-      );
-    }
-    const json: unknown = await response.json();
-    if (!isAnalyzeResponse(json)) {
-      throw new AnalyzeFailure(
-        "the backend answered the analysis with an unrecognized shape",
-      );
-    }
-    return json;
-  } finally {
-    settled = true;
-    if (pollTimer !== null) {
-      clearTimeoutFn(pollTimer);
+    } catch (error) {
+      if (error instanceof AnalyzeFailure) {
+        throw error;
+      }
     }
   }
 }

@@ -16,13 +16,19 @@ services:
       retries: 5
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     ports:
-      - "11434:11434"
-    environment:
-      OLLAMA_HOST: "0.0.0.0:11434"
+      - "11435:11435"
     volumes:
       - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -35,6 +41,8 @@ services:
       OLLAMA_API_URL: http://ollama:11434
     depends_on:
       postgres:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     volumes:
       - ./backend:/app/backend

@@ -21,9 +21,14 @@ export function AnswerSurface({ response }: { response: AnalyzeResponse }) {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Findings ({response.answer.findings.length})
         </h2>
-        {response.answer.findings.map((finding, index) => (
-          <FindingCard key={index} finding={finding} />
-        ))}
+        {[...response.answer.findings]
+          .sort((a, b) => {
+            const order = { strong: 0, moderate: 1, weak: 2 } as const;
+            return order[a.strength] - order[b.strength];
+          })
+          .map((finding, index) => (
+            <FindingCard key={index} finding={finding} />
+          ))}
       </section>
       <NumberedList
         ariaLabel="Actions"

@@ -31,12 +31,13 @@ question.
 
 import json
 import logging
+import re
 import time
 from collections import Counter
 from typing import Any, Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
 from .corpus import source_short_names
@@ -86,6 +87,11 @@ SEEK_COUNSEL_ACTION = (
 # (ADR-0004): the sheet is capped, never empty.
 MAX_ACTIONS = 5
 
+# The Planner's declared budget: 1-3 Research targets. A provider response
+# over this limit is corrected once by truncation — the Evidence pool derives
+# from the accepted plan, never from an over-limit provider response.
+MAX_RESEARCH_TARGETS = 3
+
 
 # --- Workflow boundaries: every agent input/output crosses as a validated schema ---
 
@@ -134,6 +140,14 @@ class Verdict(BaseModel):
     supported: bool
     strength: Strength = Strength.moderate
     evidence_refs: list[str] = Field(default_factory=list)
+
+    @field_validator("strength", mode="before")
+    @classmethod
+    def accept_strength_object(cls, value: Any) -> Any:
+        """Keep the level when the live model wraps it with a rationale."""
+        if isinstance(value, dict) and "level" in value:
+            return value["level"]
+        return value
 
 
 class Verdicts(BaseModel):
@@ -197,6 +211,7 @@ class LiveState(BaseModel):
     scenario_description: str = ""
     question: str = ""
     plan: list[ResearchTarget] = Field(default_factory=list)
+    plan_correction: Optional[str] = None
     evidence: list[LabeledEvidence] = Field(default_factory=list)
     retrievals: list[dict] = Field(default_factory=list)  # one record per retrieval-tool call
     drafted: DraftClaims = Field(default_factory=DraftClaims)
@@ -242,21 +257,24 @@ _RESEARCHER_SYSTEM = (
 _VERIFIER_SYSTEM = (
     "You are the Verifier of a regulatory research assistant. You are given numbered evidence "
     "excerpts and drafted claims. Decide for each claim: supported — true only if some listed "
-    "provision bears on the statement, false when none does either way; strength — 'strong' "
-    "when the provisions directly and explicitly establish the claim, 'moderate' when derived "
-    "from provisions read together or contingent on facts the corpus cannot settle, 'weak' "
-    "when the provisions supply framing only (definitions, vocabulary); evidence_refs — the "
-    "labels of the supporting provisions, empty for unsupported claims."
+    "provision bears on the statement, false when none does either way; strength — a bare "
+    "string, exactly one of 'strong', 'moderate', or 'weak', never an object or rationale; "
+    "use 'strong' when the provisions directly and explicitly establish the claim, 'moderate' "
+    "when derived from provisions read together or contingent on facts the corpus cannot settle, "
+    "'weak' when the provisions supply framing only (definitions, vocabulary); evidence_refs — "
+    "the labels of the supporting provisions, empty for unsupported claims."
 )
 
 _PROPOSER_SYSTEM = (
     "You are the Proposer of a regulatory research assistant. You are given the Findings kept "
     "for an Answer, each badged with its Strength and carrying the Citations of the provisions "
-    "that support it. "
+    "that support it. Each Finding has a label like [F1]; under it, each Citation has its own "
+    "label like [C1]. "
     f"Propose at most {MAX_ACTIONS} referral Actions for legal professionals: each names "
     "something only a professional can settle — a contingency the Findings cannot determine, "
     "or verification of a cited provision against the company's actual situation. Ground each "
-    "Action in the citation labels of the Findings it leans on: moderate Findings anchor "
+    "Action using only the Citation labels (C1, C2, ...) — never the Finding labels (F1, F2, ...); "
+    "the gate rejects a Finding label as invalid grounding. Moderate Findings anchor "
     "contingency referrals, strong Findings anchor verify-against-facts referrals, so set "
     "kind='contingency' when the strongest anchor is moderate and "
     "kind='verify_against_facts' when it is strong — the gate rejects a mismatch. Weak "
@@ -390,6 +408,10 @@ def _labelled_findings(
 
 
 _NO_RESOLVABLE_CITATION_REASON = "its citations resolve to no kept Finding"
+_INVALID_GROUNDING_REASON = (
+    "invalid grounding: {finding_refs} name Findings, not their Citations — "
+    "use the C-labels shown under each Finding"
+)
 _WEAK_ANCHOR_REASON = (
     "its citations resolve only to weak Findings; an Action needs a moderate or strong anchor"
 )
@@ -397,6 +419,8 @@ _KIND_ANCHOR_MISMATCH_REASON = (
     "its referral kind ({kind}) does not match its strongest anchor ({anchor})"
 )
 _TOO_MANY_ACTIONS_REASON = f"the Answer serves at most {MAX_ACTIONS} Actions"
+
+_FINDING_LABEL_PATTERN = re.compile(r"^F\d+$")
 
 
 def _validate_proposals(
@@ -412,8 +436,12 @@ def _validate_proposals(
     anchors verify-against-facts referrals, moderate anchors contingency
     referrals. Unknown references are dropped from the grounding; proposals
     left with none are rejected and recorded in the detailed trace, so
-    nothing proposed may vanish silently. At most ``MAX_ACTIONS`` validated
-    Actions are served, the rest recorded as rejected.
+    nothing proposed may vanish silently. A proposal whose unknown references
+    are Finding labels (F1, F2) — not Citation labels (C1, C2) — is rejected
+    with a reason that identifies the invalid grounding, so the LLM's
+    confusion is visible in the trace rather than silently producing an empty
+    Action set. At most ``MAX_ACTIONS`` validated Actions are served, the rest
+    recorded as rejected.
     """
     served: list[str] = []
     decisions: list[ActionDecision] = []
@@ -426,13 +454,18 @@ def _validate_proposals(
     for proposal in proposals.proposals:
         unknown = [ref for ref in proposal.citation_refs if ref not in grounding_by_label]
         resolved = [ref for ref in proposal.citation_refs if ref in grounding_by_label]
+        finding_refs = [ref for ref in unknown if _FINDING_LABEL_PATTERN.match(ref)]
         if unknown:
             logger.warning(
                 "proposer cited labels matching no kept Finding's Citation (%s); dropped from the Action's grounding",
                 ", ".join(unknown),
             )
         if not resolved:
-            decisions.append(reject(proposal, _NO_RESOLVABLE_CITATION_REASON, unknown))
+            if finding_refs:
+                reason = _INVALID_GROUNDING_REASON.format(finding_refs=", ".join(finding_refs))
+            else:
+                reason = _NO_RESOLVABLE_CITATION_REASON
+            decisions.append(reject(proposal, reason, unknown))
             continue
         anchors = [grounding_by_label[ref].anchor for ref in resolved]
         if not any(anchor in (Strength.moderate, Strength.strong) for anchor in anchors):
@@ -470,8 +503,14 @@ def _build_graph(
         started = time.perf_counter()
         user = f"Company/product scenario: {state.scenario_description or '(not described)'}\nRegulatory question: {state.question}"
         plan = llm.complete(system=_PLANNER_SYSTEM, user=user, schema=Plan)
-        logger.info("planner: %d target(s) in %.2fs", len(plan.targets), time.perf_counter() - started)
-        return {"plan": plan.targets}
+        targets = plan.targets
+        correction = None
+        if len(targets) > MAX_RESEARCH_TARGETS:
+            correction = f"Planner response truncated from {len(targets)} to {MAX_RESEARCH_TARGETS} Research targets"
+            logger.warning("planner: %d targets exceeds budget of %d; truncating", len(targets), MAX_RESEARCH_TARGETS)
+            targets = targets[:MAX_RESEARCH_TARGETS]
+        logger.info("planner: %d target(s) in %.2fs", len(targets), time.perf_counter() - started)
+        return {"plan": targets, "plan_correction": correction}
 
     def researcher(state: LiveState) -> dict:
         """Gather Evidence exclusively through the retrieval tool, then draft Claims."""
@@ -649,7 +688,8 @@ def run_live_analysis(
     # The Verifier's output was decided once, by the Proposer: kept Findings,
     # per-claim decisions, and the citation labels the grounding gate reads
     # all travel through the state from that single computation.
-    findings = state.kept_findings
+    _STRENGTH_SORT = {Strength.strong: 0, Strength.moderate: 1, Strength.weak: 2}
+    findings = sorted(state.kept_findings, key=lambda f: _STRENGTH_SORT.get(f.strength, 1))
     decisions = state.claim_decisions
     discarded = [decision.claim for decision in decisions if decision.status == "rejected"]
     all_citations = [citation for finding in findings for citation in finding.citations]
@@ -725,8 +765,16 @@ def run_live_analysis(
             "in a kept Finding's Citations"
         )
 
+    planner_step: dict[str, Any] = {
+        "step": "planner",
+        "action": "decompose the Regulatory question into research targets",
+        "research_targets": queries,
+    }
+    if state.plan_correction:
+        planner_step["correction"] = state.plan_correction
+
     detailed_trace: list[dict[str, Any]] = [
-        {"step": "planner", "action": "decompose the Regulatory question into research targets", "research_targets": queries},
+        planner_step,
         {
             "step": "researcher",
             "action": "retrieve Evidence exclusively via the retrieve_chunks tool, then draft Claims grounded in it",

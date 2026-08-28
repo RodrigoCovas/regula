@@ -73,12 +73,16 @@ class ProgressSnapshot(BaseModel):
 
     ``phase`` and ``message`` are the latest transition's — never a copy
     stored alongside the history.
+
+    ``error`` is set when the run terminated with a failure — the frontend
+    reads it as a terminal outcome and stops polling.
     """
 
     request_id: str
     phase: Optional[WorkflowPhase] = None
     message: Optional[str] = None
     transitions: list[ProgressTransition] = Field(default_factory=list)
+    error: Optional[str] = None
 
 
 class _Entry:
@@ -88,6 +92,8 @@ class _Entry:
         self.request_id = request_id
         self.started_at = started_at
         self.transitions: list[ProgressTransition] = []
+        self.completed_response: Optional[AnalyzeResponse] = None
+        self.error: Optional[str] = None
 
 
 class ProgressRegistry:
@@ -146,7 +152,46 @@ class ProgressRegistry:
                 phase=current.phase if current else None,
                 message=current.message if current else None,
                 transitions=list(entry.transitions),
+                error=entry.error,
             )
+
+    def complete(self, request_id: str, response: AnalyzeResponse) -> bool:
+        """Mark the run as complete with the final response; False when the id
+        is unknown, expired, or already failed — a terminal failure never
+        yields to a later completion."""
+        with self._lock:
+            self._purge_expired_locked()
+            entry = self._entries.get(request_id)
+            if entry is None:
+                return False
+            if entry.error is not None:
+                return False
+            entry.completed_response = response
+            return True
+
+    def fail(self, request_id: str, error_message: str) -> bool:
+        """Mark the run as terminally failed; False when the id is unknown,
+        expired, or already completed — a terminal outcome never yields to a
+        later failure. The error is visible through ``get`` — the frontend
+        reads it as a terminal outcome and stops polling."""
+        with self._lock:
+            self._purge_expired_locked()
+            entry = self._entries.get(request_id)
+            if entry is None:
+                return False
+            if entry.completed_response is not None:
+                return False
+            entry.error = error_message
+            return True
+
+    def get_completed_response(self, request_id: str) -> Optional[AnalyzeResponse]:
+        """The completed response if the run finished, None otherwise."""
+        with self._lock:
+            self._purge_expired_locked()
+            entry = self._entries.get(request_id)
+            if entry is None:
+                return None
+            return entry.completed_response
 
     def _purge_expired_locked(self) -> None:
         """Drop entries whose TTL has passed (the caller holds the lock)."""

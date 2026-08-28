@@ -142,6 +142,11 @@ def test_main_exits_nonzero_when_corpus_cannot_be_loaded(monkeypatch, capsys):
         "load_corpus_documents",
         lambda data_dir: (_ for _ in ()).throw(IngestError("no corpus here")),
     )
+    monkeypatch.setattr(
+        ingest_module,
+        "connect",
+        lambda database_url: pytest.fail("database should not be connected"),
+    )
 
     assert ingest_module.main([]) == 1
     assert "no corpus here" in capsys.readouterr().err

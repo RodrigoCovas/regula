@@ -7,6 +7,7 @@ import { citationLabel } from "../components/CitationList";
 import { FindingCard } from "../components/FindingCard";
 import { StrengthBadge } from "../components/StrengthBadge";
 import { demoAnalyzeResponse } from "../lib/fixtures";
+import type { AnalyzeResponse } from "../lib/contract";
 import { visibleMarkup } from "./escape";
 
 function render(response = demoAnalyzeResponse): string {
@@ -118,6 +119,66 @@ test("renders detailed trace steps, retrieved passages, tool calls, and claim de
     ),
   );
   assert.ok(markup.includes(">rejected<"));
+});
+
+test("renders surviving Actions and the standing hand-off on the main answer surface, and action decisions in the detailed trace", () => {
+  const survivingAction =
+    "Have a professional verify the high-risk classification.";
+  const handOff =
+    "Have a qualified legal professional verify these findings against the company's actual situation before acting on them.";
+  const responseWithActionDecisions: AnalyzeResponse = {
+    ...demoAnalyzeResponse,
+    answer: {
+      ...demoAnalyzeResponse.answer,
+      actions: [survivingAction, handOff],
+    },
+    detailed_trace: [
+      ...(demoAnalyzeResponse.detailed_trace ?? []),
+      {
+        step: "proposer",
+        action:
+          "distill the kept Findings into referral Actions, each grounded in a kept Finding's Citations",
+        action_decisions: [
+          {
+            action: survivingAction,
+            status: "kept",
+            reason: null,
+            dropped_refs: [],
+          },
+          {
+            action: "An action grounded on a Finding label.",
+            status: "rejected",
+            reason:
+              "invalid grounding: F1 name Findings, not their Citations — use the C-labels shown under each Finding",
+            dropped_refs: ["F1"],
+          },
+        ],
+      },
+    ],
+  };
+  const markup = renderToStaticMarkup(
+    React.createElement(AnswerSurface, { response: responseWithActionDecisions }),
+  );
+  assert.ok(
+    markup.includes(visibleMarkup(survivingAction)),
+    "surviving grounded Action renders on the main answer surface",
+  );
+  assert.ok(
+    markup.includes(visibleMarkup(handOff)),
+    "standing professional hand-off renders on the main answer surface",
+  );
+  assert.ok(markup.includes(">proposer<"));
+  assert.ok(markup.includes("Action proposals (2)"));
+  assert.ok(markup.includes(">kept<"));
+  assert.ok(
+    markup.includes(
+      visibleMarkup("An action grounded on a Finding label."),
+    ),
+  );
+  assert.ok(markup.includes(">rejected<"));
+  assert.ok(markup.includes("invalid grounding"));
+  assert.ok(markup.includes("F1"));
+  assert.ok(markup.includes("dropped refs: F1"));
 });
 
 test("does not render the dedicated panels for a full answer", () => {

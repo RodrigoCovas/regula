@@ -1,19 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runAnalysis } from "../lib/analyze-client";
-import { demoAnalyzeResponse, notAvailableResponse } from "../lib/fixtures";
+import { runAnalysis, AnalyzeFailure } from "../lib/analyze-client";
+import { demoAnalyzeResponse } from "../lib/fixtures";
 import type { ProgressSnapshot } from "../lib/progress";
 import { demoScenarioInput } from "../lib/scenario-id";
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -100,12 +90,29 @@ function analyzeCallOf(calls: FetchCall[]): FetchCall {
 }
 
 test("submits the Scenario to /api/analyze with the generated request id header", async () => {
-  const { calls, impl } = recordingFetch(() => jsonResponse(demoAnalyzeResponse));
-  const response = await runAnalysis(demoScenarioInput, {
+  let pollCount = 0;
+  const { calls, impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return jsonResponse(demoAnalyzeResponse);
+    }
+    return jsonResponse(snapshotOf("run-1", "planner", "decomposing"));
+  });
+
+  const responsePromise = runAnalysis(demoScenarioInput, {
     fetchImpl: impl,
     generateRequestId: () => "run-1",
+    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    pollIntervalMs: 10,
   });
+
+  const response = await responsePromise;
   assert.deepEqual(response, demoAnalyzeResponse);
+
   const analyzeCall = analyzeCallOf(calls);
   assert.equal(analyzeCall.init?.method, "POST");
   const headers = analyzeCall.init?.headers as Record<string, string>;
@@ -117,201 +124,141 @@ test("submits the Scenario to /api/analyze with the generated request id header"
   );
 });
 
-test("polls /api/progress/{id} at the configured cadence while the analysis is pending and stops once it settles", async () => {
-  const pending = deferred<Response>();
+test("polls /api/progress/{id} until it returns an AnalyzeResponse", async () => {
   let pollCount = 0;
-  const { calls, impl } = recordingFetch((call) => {
-    if (call.url === "/api/analyze") {
-      return pending.promise;
-    }
-    pollCount += 1;
-    return jsonResponse(
-      snapshotOf("run-1", "planner", "decomposing the question"),
-    );
-  });
-  const scheduler = manualScheduler();
-
-  const run = runAnalysis(demoScenarioInput, {
-    fetchImpl: impl,
-    generateRequestId: () => "run-1",
-    setTimeoutFn: scheduler.setTimeoutFn,
-    clearTimeoutFn: scheduler.clearTimeoutFn,
-  });
-  await flush();
-
-  await firePolls(scheduler, 3);
-  assert.equal(pollCount, 3, "polls fire while the analysis is pending");
-  assert.deepEqual(
-    scheduler.scheduled.map((timer) => timer.ms),
-    [1000],
-    "the poll cadence is one second",
-  );
-
-  pending.resolve(jsonResponse(demoAnalyzeResponse));
-  await run;
-  await flush();
-  assert.equal(scheduler.scheduled.length, 0, "the poll loop is stopped once the run settles");
-  const progressUrls = calls
-    .filter((call) => call.url.startsWith("/api/progress/"))
-    .map((call) => call.url);
-  assert.deepEqual(progressUrls, [
-    "/api/progress/run-1",
-    "/api/progress/run-1",
-    "/api/progress/run-1",
-  ]);
-});
-
-test("the poll cadence is configurable", async () => {
-  const pending = deferred<Response>();
-  const { impl } = recordingFetch((call) =>
-    call.url === "/api/analyze"
-      ? pending.promise
-      : jsonResponse(snapshotOf("run-1", null, "")),
-  );
-  const scheduler = manualScheduler();
-
-  const run = runAnalysis(demoScenarioInput, {
-    fetchImpl: impl,
-    generateRequestId: () => "run-1",
-    setTimeoutFn: scheduler.setTimeoutFn,
-    clearTimeoutFn: scheduler.clearTimeoutFn,
-    pollIntervalMs: 250,
-  });
-  await flush();
-  assert.deepEqual(
-    scheduler.scheduled.map((timer) => timer.ms),
-    [250],
-    "the configured cadence drives the timer",
-  );
-
-  pending.resolve(jsonResponse(demoAnalyzeResponse));
-  await run;
-});
-
-test("reports each snapshot to onProgress in poll order", async () => {
-  const pending = deferred<Response>();
-  const phases: (string | null)[] = [];
-  let tick = 0;
   const { impl } = recordingFetch((call) => {
     if (call.url === "/api/analyze") {
-      return pending.promise;
+      return jsonResponse({});
     }
-    tick += 1;
-    const phase = ["planner", "researcher", "verifier", "proposer"][tick - 1];
-    return jsonResponse(
-      snapshotOf("run-1", phase as ProgressSnapshot["phase"], `${phase} message`),
-    );
+    pollCount += 1;
+    if (pollCount < 3) {
+      return jsonResponse(snapshotOf("run-1", "researcher", "retrieving"));
+    }
+    return jsonResponse(demoAnalyzeResponse);
   });
-  const scheduler = manualScheduler();
 
-  const run = runAnalysis(demoScenarioInput, {
+  const response = await runAnalysis(demoScenarioInput, {
     fetchImpl: impl,
     generateRequestId: () => "run-1",
-    setTimeoutFn: scheduler.setTimeoutFn,
-    clearTimeoutFn: scheduler.clearTimeoutFn,
-    onProgress: (snapshot) => phases.push(snapshot.phase),
+    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    pollIntervalMs: 10,
   });
-  await flush();
-  await firePolls(scheduler, 4);
 
-  assert.deepEqual(phases, ["planner", "researcher", "verifier", "proposer"]);
-
-  pending.resolve(jsonResponse(demoAnalyzeResponse));
-  await run;
+  assert.deepEqual(response, demoAnalyzeResponse);
+  assert.equal(pollCount, 3);
 });
 
-test("ignores Not-available-shaped poll replies without failing the run", async () => {
-  const pending = deferred<Response>();
-  let reported = 0;
-  const { impl } = recordingFetch((call) =>
-    call.url === "/api/analyze"
-      ? pending.promise
-      : jsonResponse(notAvailableResponse),
-  );
-  const scheduler = manualScheduler();
+test("reports progress snapshots to onProgress", async () => {
+  let pollCount = 0;
+  const phases: (string | null)[] = [];
+  const { impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount < 3) {
+      const phase = pollCount === 1 ? "planner" : "researcher";
+      return jsonResponse(snapshotOf("run-1", phase, `phase ${pollCount}`));
+    }
+    return jsonResponse(demoAnalyzeResponse);
+  });
 
-  const run = runAnalysis(demoScenarioInput, {
+  await runAnalysis(demoScenarioInput, {
     fetchImpl: impl,
     generateRequestId: () => "run-1",
-    setTimeoutFn: scheduler.setTimeoutFn,
-    clearTimeoutFn: scheduler.clearTimeoutFn,
-    onProgress: () => {
-      reported += 1;
+    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    pollIntervalMs: 10,
+    onProgress: (snapshot) => {
+      phases.push(snapshot.phase);
     },
   });
-  await flush();
-  await firePolls(scheduler, 2);
 
-  pending.resolve(jsonResponse(demoAnalyzeResponse));
-  const response = await run;
-  assert.deepEqual(response, demoAnalyzeResponse);
-  assert.equal(reported, 0, "Not-available poll replies carry no progress");
+  assert.deepEqual(phases, ["planner", "researcher"]);
 });
 
-test("a failing poll does not abort the analysis", async () => {
-  const pending = deferred<Response>();
-  let reported = 0;
-  const { impl } = recordingFetch((call) =>
-    call.url === "/api/analyze"
-      ? pending.promise
-      : Promise.reject(new TypeError("network down")),
-  );
-  const scheduler = manualScheduler();
-
-  const run = runAnalysis(demoScenarioInput, {
-    fetchImpl: impl,
-    generateRequestId: () => "run-1",
-    setTimeoutFn: scheduler.setTimeoutFn,
-    clearTimeoutFn: scheduler.clearTimeoutFn,
-    onProgress: () => {
-      reported += 1;
-    },
+test("times out when the analysis takes too long", async () => {
+  const { impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    return jsonResponse(snapshotOf("run-1", "researcher", "still working"));
   });
-  await flush();
-  await firePolls(scheduler, 2);
 
-  pending.resolve(jsonResponse(demoAnalyzeResponse));
-  const response = await run;
-  assert.deepEqual(response, demoAnalyzeResponse);
-  assert.equal(reported, 0);
-});
-
-test("rejects naming the HTTP status when the backend fails", async () => {
-  const impl = () => Promise.resolve(jsonResponse({ detail: "boom" }, 500));
   await assert.rejects(
     runAnalysis(demoScenarioInput, {
       fetchImpl: impl,
       generateRequestId: () => "run-1",
+      setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+      clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+      pollIntervalMs: 10,
+      timeoutMs: 50,
     }),
-    /HTTP 500/,
+    (error: Error) => {
+      assert.ok(error instanceof AnalyzeFailure);
+      assert.match(error.message, /timed out/);
+      return true;
+    },
   );
 });
 
-test("rejects when the response is not an AnalyzeResponse", async () => {
-  const impl = () => Promise.resolve(jsonResponse({ unrelated: true }));
-  await assert.rejects(
-    runAnalysis(demoScenarioInput, {
-      fetchImpl: impl,
-      generateRequestId: () => "run-1",
-    }),
-    /unrecognized/,
-  );
-});
+test("throws AnalyzeFailure when the progress endpoint returns a terminal failure snapshot", async () => {
+  let pollCount = 0;
+  const { impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return jsonResponse(snapshotOf("run-1", "planner", "decomposing"));
+    }
+    return jsonResponse({
+      request_id: "run-1",
+      phase: "planner",
+      message: "decomposing",
+      transitions: [{ phase: "planner", message: "decomposing", elapsed_ms: 1000 }],
+      error: "the LLM provider rejected the request",
+    });
+  });
 
-test("rejects when the backend cannot be reached at all", async () => {
-  const impl = () => Promise.reject(new TypeError("fetch failed"));
   await assert.rejects(
     runAnalysis(demoScenarioInput, {
       fetchImpl: impl,
       generateRequestId: () => "run-1",
+      setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+      clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+      pollIntervalMs: 10,
     }),
-    /fetch failed/,
+    (error: Error) => {
+      assert.ok(error instanceof AnalyzeFailure);
+      assert.match(error.message, /LLM provider rejected the request/);
+      return true;
+    },
   );
 });
 
 test("without an injected generator, the request id is a fresh UUID", async () => {
-  const { calls, impl } = recordingFetch(() => jsonResponse(demoAnalyzeResponse));
-  await runAnalysis(demoScenarioInput, { fetchImpl: impl });
-  const headers = calls[0].init?.headers as Record<string, string>;
+  let pollCount = 0;
+  const { calls, impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return jsonResponse(demoAnalyzeResponse);
+    }
+    return jsonResponse(snapshotOf("run-1", "planner", "decomposing"));
+  });
+
+  await runAnalysis(demoScenarioInput, {
+    fetchImpl: impl,
+    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    pollIntervalMs: 10,
+  });
+
+  const analyzeCall = analyzeCallOf(calls);
+  const headers = analyzeCall.init?.headers as Record<string, string>;
   assert.match(headers["x-request-id"], /^[0-9a-f]{8}-[0-9a-f-]{27}$/);
 });

@@ -30,6 +30,12 @@ test("renders the Analyze and demo buttons", () => {
   assert.ok(markup.includes("Try the demo scenario"));
 });
 
+test("prevents Firefox from restoring the submit button state across reloads", () => {
+  const markup = renderForm();
+  const submitButton = markup.match(/<button[^>]*type="submit"[^>]*>/)?.[0];
+  assert.match(submitButton ?? "", /autocomplete="off"/i);
+});
+
 test("never surfaces the canonical demo id anywhere in the UI", () => {
   const markup = renderForm();
   assert.ok(!markup.includes(demoScenarioInput.scenario.id));
@@ -37,7 +43,7 @@ test("never surfaces the canonical demo id anywhere in the UI", () => {
 
 test("the preview shows the derived title and id for a description", () => {
   const markup = renderPreview("the Spanish fintech lending company");
-  assert.ok(markup.includes("the Spanish fintech lending company"));
+  assert.ok(markup.includes("Spanish Fintech Lending Company"));
   assert.ok(markup.includes("spanish-fintech-lending-company-"));
 });
 

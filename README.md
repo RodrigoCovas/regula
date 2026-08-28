@@ -15,11 +15,10 @@ cd regula
 
 2. **Start the stack:**
 ```bash
-docker compose up -d --build backend frontend
+docker compose up -d --build
 ```
-This builds both images and starts the backend on port 8000 and the frontend on
-port 3000 (PostgreSQL starts as a compose dependency but is not used by the demo).
-Ollama and pgvector are not required by the demo.
+This builds both images and starts the backend on port 8000, the frontend on
+port 3000, PostgreSQL with pgvector, and Ollama.
 
 3. **Open the demo in your browser:**
 Navigate to http://localhost:3000 to use the web interface. The form accepts a
@@ -31,13 +30,13 @@ Click "Try the demo scenario" to run the canonical Spanish fintech example.
 curl -s http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
   -d '{
-    "scenario": {"id": "spanish-fintech", "description": "Spanish fintech lending"},
-    "question": "What regulations apply?"
+    "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
+    "question": "What regulations apply to our AI-based credit scoring platform?"
   }'
 ```
 The response contains `answer`, `trace`, `detailed_trace`, and `known_limitations`
 as siblings.
-Only `scenario.id == "spanish-fintech"` triggers the demo; any other id gets a
+Only `scenario.id == "spanish-fintech-startup-uses-9e165169"` triggers the demo; any other id gets a
 helpful not-available response.
 
 5. **Check the service is healthy:**
@@ -56,7 +55,7 @@ One environment variable selects the mode before any request is served; nothing
 ever silently degrades between paths:
 
 - `REGULA_MODE=demo` (default) — keyless deterministic demo. Answers only
-  `scenario.id == "spanish-fintech"` from fixed content.
+  `scenario.id == "spanish-fintech-startup-uses-9e165169"` from fixed content.
 - `REGULA_MODE=live` — requires `OPENROUTER_API_KEY`. Starting Live mode
   without the key refuses to boot with an error naming the missing variable.
   Live mode answers **arbitrary** scenarios through the real workflow:
@@ -131,7 +130,10 @@ The steps below are for development beyond the deterministic demo.
   LLM calls. The full stack below is only needed for development beyond the demo.
 - Start everything (PostgreSQL + pgvector, Ollama, backend, frontend):
 ```bash
-docker compose up -d
+docker compose up -d --build
+```
+- Pull the embedding model (required for Live mode):
+```bash
 docker compose exec ollama ollama pull hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16
 ```
 - Frontend runs on http://localhost:3000 (development mode: `cd frontend && npm install && npm run dev`)
@@ -143,9 +145,9 @@ Live mode answers arbitrary Scenarios over the ingested Corpus. Setup is a
 single documented command, run in this order — each step depends on the one
 before it:
 
-1. **Stack up** (PostgreSQL + pgvector and Ollama):
+1. **Stack up** (PostgreSQL + pgvector, Ollama, backend, frontend):
 ```bash
-docker compose up -d postgres ollama
+docker compose up -d --build
 ```
 
 2. **Pull the embedding model** (nomic-embed-text v1.5 via Hugging Face — the
@@ -157,11 +159,6 @@ docker compose exec ollama ollama pull hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF
 3. **Run ingestion** (idempotent — re-running updates existing rows and
    inserts no duplicates):
 ```bash
-python -m backend.src.ingest
-```
-Run it from the repository root with the Python dependencies installed
-(`pip install -r backend/requirements.txt`), or inside the stack:
-```bash
 docker compose exec backend python -m backend.src.ingest
 ```
 
@@ -171,6 +168,34 @@ default; override with `--model`), and upserts it into PostgreSQL/pgvector
 together with its provision metadata (Article XOR Recital XOR Annex). The
 backend never ingests on startup; serving Live mode afterwards additionally
 requires `REGULA_MODE=live` plus `OPENROUTER_API_KEY`.
+
+### Running Live mode
+
+After ingesting the Corpus, start the backend in Live mode:
+
+1. **Configure the API key** in `backend/.env.local`:
+```bash
+echo "OPENROUTER_API_KEY=your-key-here" >> backend/.env.local
+```
+
+2. **Start the backend** with `REGULA_MODE=live`:
+```bash
+REGULA_MODE=live python -m uvicorn backend.src.main:app --reload --reload-dir backend/src
+```
+
+3. **Start the frontend** (in another terminal):
+```bash
+cd frontend && npm run dev
+```
+
+4. **Open** http://localhost:3000 and submit any scenario — the Live workflow
+   (Planner → Researcher → Verifier → Proposer) will answer using the ingested
+   Corpus and the configured LLM. Live mode requests typically take 60-90 seconds;
+   the frontend polls the progress endpoint and displays phase transitions as they
+   occur.
+
+The API key is read from `backend/.env.local` automatically at startup. The LLM
+model is pinned to `upstage/solar-pro4` via OpenRouter and cannot be changed.
 
 ## Architecture
 

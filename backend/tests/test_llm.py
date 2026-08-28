@@ -97,6 +97,34 @@ def test_nested_schemas_render_structurally_in_the_instruction():
     assert '{"targets": [{"query": <string>}]}' in payload["messages"][0]["content"]
 
 
+def test_verdict_strength_wrapper_from_live_model_is_normalized():
+    """The live model may return strength with its rationale as an object."""
+    from src.live_workflow import Verdicts
+    from src.models import Strength
+
+    content = (
+        '{"verdicts": [{"statement": "Claim", "supported": true, '
+        '"strength": {"level": "strong", "rationale": "Direct provision."}, '
+        '"evidence_refs": ["E1"]}]}'
+    )
+    transport = FakeTransport(responses=[chat_response(content)])
+    client = make_client(transport)
+
+    verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
+
+    assert verdicts.verdicts[0].strength is Strength.strong
+
+
+def test_enum_refs_render_as_scalar_choices_in_the_instruction():
+    from src.llm import _schema_example
+    from src.live_workflow import Verdicts
+
+    shape = _schema_example(Verdicts)
+
+    assert '"strength": {}' not in shape
+    assert all(value in shape for value in ("strong", "moderate", "weak"))
+
+
 def test_markdown_fences_and_prose_around_the_json_are_tolerated():
     transport = FakeTransport(
         responses=[chat_response('Here you go:\n```json\n{"targets": ["x"]}\n```')]

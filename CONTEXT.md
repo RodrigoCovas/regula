@@ -2,10 +2,30 @@
 
 Regula is a regulatory research and compliance assistant for answering questions from a small legal corpus with evidence-backed findings and citations. It helps users find the Regulations relevant to their Scenario so qualified legal professionals can act on them; it never dispenses legal advice and never substitutes for professional judgment.
 
+## Frontend Runtime
+
+**Node.js**: 20 (LTS) — pinned in `frontend/.nvmrc`
+
+**Next.js**: 16.3.3 — pinned in `frontend/package.json`
+
+**React**: 18.3.1 — pinned in `frontend/package.json`
+
+## Frontend Dependency Security
+
+**Audit status**: 0 vulnerabilities (verified `npm audit` clean)
+
+**Install script policy**: Two packages have approved install scripts in `frontend/package.json`:
+- `esbuild@0.28.2` — native binary installer for platform-specific build tool; required for TypeScript transpilation
+- `unrs-resolver@1.12.2` — native resolver for Next.js module resolution; required for build
+
+Both are build-time dependencies with well-maintained postinstall scripts that download platform-specific binaries. No runtime code execution risk.
+
+**ESLint deprecation**: `eslint@9.39.5` carries an npm deprecation notice, but this is a dev-only tool. The deprecation does not produce application-actionable warnings — it does not affect the running server, production build, or end users. ESLint 10.x requires breaking changes to plugin APIs that `eslint-config-next` does not yet support.
+
 ## Language
 
 **Scenario**:
-The user’s described company, product, jurisdiction, and question.  
+The user's described company, product, and jurisdiction — the context for a regulatory question. The same scenario can have multiple questions.
 _Avoid_: Case, request, prompt
 
 **Regulatory question**:

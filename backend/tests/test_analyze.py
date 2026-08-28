@@ -34,9 +34,9 @@ def analyze(scenario_id, question, **scenario_extra):
 
 def test_analyze_spanish_fintech_demo():
     data = analyze(
-        "spanish-fintech",
+        "spanish-fintech-startup-uses-9e165169",
         "Would an automated loan denial violate data protection requirements?",
-        description="Demo: Spanish fintech lending",
+        description="A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
     )
     assert "answer" in data
     assert "trace" in data
@@ -75,7 +75,7 @@ def test_demo_actions_are_referral_voiced_and_the_prototype_boundary_is_a_limita
     """ADR-0004: demo Actions name only what a qualified professional can
     settle, and the research-prototype boundary lives in known_limitations —
     a Known limitation is never an Action."""
-    data = analyze("spanish-fintech", "What regulations apply?")
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
     actions = data["answer"]["actions"]
     assert actions, "the demo sheet is not empty"
     assert all(a.startswith("Have a qualified") for a in actions), actions
@@ -89,7 +89,7 @@ def test_demo_actions_are_referral_voiced_and_the_prototype_boundary_is_a_limita
 
 def test_response_shape_has_siblings_not_nested():
     """API returns answer, trace, detailed_trace, known_limitations as siblings; trace is NOT nested inside answer."""
-    data = analyze("spanish-fintech", "What regulations apply?")
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
 
     # Top-level siblings
     assert set(data.keys()) == {"answer", "trace", "detailed_trace", "known_limitations"}
@@ -100,7 +100,7 @@ def test_response_shape_has_siblings_not_nested():
 
 def test_weak_finding_present():
     """Demo answer includes the weak framing Finding (AI Act Article 3 definitions)."""
-    data = analyze("spanish-fintech", "What regulations apply?")
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
     findings = data["answer"]["findings"]
 
     # Find the weak finding about definitions / Article 3
@@ -116,7 +116,7 @@ def test_weak_finding_present():
 
 def test_unsupported_claims_absent_from_answer_recorded_in_trace():
     """Unsupported claims are discarded from Answer but recorded in the trace."""
-    data = analyze("spanish-fintech", "What regulations apply?")
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
 
     # Answer has no unsupported claims (no finding about special-category data, DORA applies to all, etc.)
     finding_statements = " ".join(f["statement"].lower() for f in data["answer"]["findings"])
@@ -161,29 +161,29 @@ def test_non_canonical_scenario_gets_helpful_response_not_keyword_routed():
     # Should get helpful actions explaining how to invoke the demo
     actions = data["answer"]["actions"]
     assert len(actions) >= 1
-    assert any("spanish-fintech" in a for a in actions)
+    assert any("spanish-fintech-startup-uses-9e165169" in a for a in actions)
     assert any("demo" in a.lower() for a in actions)
 
     # Trace should indicate noop
     trace = data["trace"]
     assert trace.get("workflow") == "noop"
-    assert "spanish-fintech" in trace.get("summary", "").lower()
+    assert "spanish-fintech-startup-uses-9e165169" in trace.get("summary", "").lower()
 
 
 def test_exact_scenario_id_required():
-    """Only exact scenario.id == 'spanish-fintech' triggers the demo."""
+    """Only exact scenario.id == 'spanish-fintech-startup-uses-9e165169' triggers the demo."""
     # Test with similar but different id
     data = analyze("spanish-fintech-demo", "What regulations apply?")
     assert len(data["answer"]["findings"]) == 0
 
     # Test with exact match
-    data = analyze("spanish-fintech", "What regulations apply?")
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
     assert len(data["answer"]["findings"]) >= 9  # all 9 demo findings
 
 
 def test_known_limitations_on_every_response():
     """known_limitations is a sibling on both the canonical and the not-available response."""
-    canonical = analyze("spanish-fintech", "What regulations apply?")
+    canonical = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
     non_canonical = analyze("other-scenario", "¿Qué regulaciones aplican?")
 
     for data in (canonical, non_canonical):
@@ -201,7 +201,7 @@ def test_corpus_english_only_limitation_surfaced():
 
 def test_exactly_one_target_citation_invariant():
     """Every citation targets exactly one of article/recital/annex."""
-    data = analyze("spanish-fintech", "What regulations apply?")
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
     for citation in data["answer"]["citations"]:
         targets = [
             citation.get("article_number") is not None,
@@ -234,7 +234,7 @@ def post_canonical_scenario(client):
     return client.post(
         "/api/analyze",
         json={
-            "scenario": {"id": "spanish-fintech", "description": "Spanish fintech lending"},
+            "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
             "question": "What regulations apply?",
         },
     )
@@ -285,7 +285,7 @@ def test_default_boot_serves_demo_mode(monkeypatch):
     with boot_with_env(monkeypatch) as demo_client:
         resp = demo_client.post(
             "/api/analyze",
-            json={"scenario": {"id": "spanish-fintech"}, "question": "What regulations apply?"},
+            json={"scenario": {"id": "spanish-fintech-startup-uses-9e165169"}, "question": "What regulations apply?"},
         )
     assert resp.status_code == 200
     data = resp.json()

@@ -653,6 +653,67 @@ def test_no_kept_findings_serves_the_hand_off_alone_without_a_proposer_call(monk
     assert step["action_decisions"] == []
 
 
+# --- Finding-label grounding rejection (ticket #36) --------------------------
+
+
+def test_proposal_using_finding_labels_is_rejected_with_invalid_grounding(live_client):
+    """A proposal that references Finding labels (F1) instead of Citation
+    labels (C1) cannot create an Action, and the rejection identifies the
+    invalid grounding (#36)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(
+                action="Verify the high-risk classification.",
+                kind="verify_against_facts",
+                citation_refs=["F1"],
+            ),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "Verify the high-risk classification." not in data["answer"]["actions"]
+    assert data["answer"]["actions"] == [SEEK_COUNSEL_ACTION]
+
+    decisions = proposer_step(data)["action_decisions"]
+    assert len(decisions) == 1
+    assert decisions[0]["status"] == "rejected"
+    assert "F1" in decisions[0]["reason"]
+    assert "Finding" in decisions[0]["reason"]
+
+
+def test_proposal_using_citation_labels_produces_grounded_actions(live_client):
+    """A valid Proposer response using only displayed Citation labels produces
+    the expected grounded referral Actions in the Answer (#36)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(
+                action="Have a professional verify the high-risk classification.",
+                kind="verify_against_facts",
+                citation_refs=["C1"],
+            ),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"][0] == "Have a professional verify the high-risk classification."
+    assert data["answer"]["actions"][-1] == SEEK_COUNSEL_ACTION
+
+    decisions = proposer_step(data)["action_decisions"]
+    kept = [d for d in decisions if d["status"] == "kept"]
+    assert len(kept) == 1
+    assert kept[0]["action"] == "Have a professional verify the high-risk classification."
+
+
 # --- Citation rider: source_short_name from corpus metadata (#24) ------------
 
 
@@ -689,3 +750,134 @@ def test_derive_citation_populates_the_short_name_only_for_known_sources():
     assert known.source_short_name == "EU AI Act"
     unknown = derive_citation(make_chunk(source_id="some-future-regulation", number=1))
     assert unknown.source_short_name is None
+
+
+# --- Planner Research-target budget enforcement (ticket #37) -----------------
+
+
+def planner_step(data) -> dict:
+    """The Planner's detailed-trace step."""
+    return [s for s in data["detailed_trace"] if s["step"] == "planner"][0]
+
+
+def run_with_plan(live_client, targets, per_query=None):
+    """Run a scenario with the given ResearchTarget objects, returning the response data."""
+    from src.live_workflow import Plan
+
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=targets)
+    install_fake_pipeline(llm, FakeRetriever(per_query=per_query or {}))
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_planner_response_with_three_targets_is_accepted_unchanged(live_client):
+    """A Planner response with exactly three Research targets is accepted
+    without correction — the declared 1-3 budget is respected."""
+    from src.live_workflow import ResearchTarget
+
+    data = run_with_plan(live_client, [
+        ResearchTarget(query="creditworthiness"),
+        ResearchTarget(query="automated decisions"),
+        ResearchTarget(query="deployer obligations"),
+    ])
+
+    step = planner_step(data)
+    assert len(step["research_targets"]) == 3
+    assert step["research_targets"] == ["creditworthiness", "automated decisions", "deployer obligations"]
+    assert step.get("correction") is None
+
+
+def test_planner_response_with_one_target_is_accepted_unchanged(live_client):
+    """A Planner response with one Research target is accepted — the lower
+    end of the 1-3 budget works unchanged."""
+    from src.live_workflow import ResearchTarget
+
+    data = run_with_plan(live_client, [ResearchTarget(query="creditworthiness")])
+
+    step = planner_step(data)
+    assert len(step["research_targets"]) == 1
+    assert step["research_targets"] == ["creditworthiness"]
+    assert step.get("correction") is None
+
+
+def test_planner_response_with_zero_targets_falls_through_to_insufficient_evidence(live_client):
+    """A Planner response with zero Research targets is under-limit, not
+    over-limit: no correction is applied, and the workflow naturally reaches
+    the Insufficient-evidence path (nothing to research). The acceptance
+    criteria focus on the upper bound; an empty plan is a degenerate case
+    that the system handles honestly."""
+    from src.live_workflow import Plan
+
+    data = run_with_plan(live_client, [])
+
+    step = planner_step(data)
+    assert len(step["research_targets"]) == 0
+    assert step.get("correction") is None
+    assert_insufficient_evidence_response(data)
+
+
+def test_planner_response_over_budget_is_truncated_to_three(live_client):
+    """A Planner response with more than three Research targets is corrected
+    once by truncation: only the first three targets are accepted, the rest
+    are silently dropped — the Evidence pool never expands beyond the
+    accepted plan."""
+    from src.live_workflow import ResearchTarget
+
+    data = run_with_plan(live_client, [
+        ResearchTarget(query="creditworthiness"),
+        ResearchTarget(query="automated decisions"),
+        ResearchTarget(query="deployer obligations"),
+        ResearchTarget(query="extra target one"),
+        ResearchTarget(query="extra target two"),
+    ])
+
+    step = planner_step(data)
+    assert len(step["research_targets"]) == 3
+    assert step["research_targets"] == ["creditworthiness", "automated decisions", "deployer obligations"]
+    assert step["correction"] is not None
+    assert "truncated" in step["correction"].lower()
+    assert "5" in step["correction"]
+    assert "3" in step["correction"]
+
+
+def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_client):
+    """The Evidence pool derives from the accepted plan, not the provider's
+    over-limit response: even when the Planner returns five targets, only
+    three seats' worth of Evidence is retrieved."""
+    from src.live_workflow import ResearchTarget, SEATS_PER_TARGET
+
+    targets = ["creditworthiness", "automated decisions", "deployer obligations", "extra one", "extra two"]
+    per_query = {t: depth_results(t) for t in targets}
+    data = run_with_plan(
+        live_client,
+        [ResearchTarget(query=t) for t in targets],
+        per_query=per_query,
+    )
+
+    retrieved = served_evidence(data)
+    assert len(retrieved) == SEATS_PER_TARGET * 3, "pool bounded by accepted plan, not provider response"
+    sources = {r["source_id"] for r in retrieved}
+    for target in targets[:3]:
+        assert any(s.startswith(f"{target}-") for s in sources), f"{target} is represented"
+    for target in targets[3:]:
+        assert not any(s.startswith(f"{target}-") for s in sources), f"{target} was dropped"
+
+
+def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
+    """An over-limit Planner response leaves a correction record in the
+    detailed trace — the correction is transparent, never silent."""
+    from src.live_workflow import ResearchTarget
+
+    data = run_with_plan(live_client, [
+        ResearchTarget(query="creditworthiness"),
+        ResearchTarget(query="automated decisions"),
+        ResearchTarget(query="deployer obligations"),
+        ResearchTarget(query="extra"),
+    ])
+
+    step = planner_step(data)
+    assert step["correction"] is not None
+    assert "4" in step["correction"]
+    assert "3" in step["correction"]

@@ -151,6 +151,66 @@ def test_default_ttl_keeps_a_record_readable_through_a_slow_live_run():
     assert snapshot.request_id == "run-1"
 
 
+def test_fail_records_terminal_error_in_snapshot():
+    registry = ProgressRegistry()
+    registry.register("run-1")
+    registry.transition("run-1", PhaseReport(phase="planner", message="decomposing"))
+    assert registry.fail("run-1", "the LLM provider rejected the request") is True
+    snapshot = registry.get("run-1")
+    assert snapshot is not None
+    assert snapshot.error == "the LLM provider rejected the request"
+    assert snapshot.phase == "planner"
+    assert [(t.phase, t.message) for t in snapshot.transitions] == [
+        ("planner", "decomposing"),
+    ]
+
+
+def test_fail_for_unknown_id_returns_false():
+    registry = ProgressRegistry()
+    assert registry.fail("never-registered", "boom") is False
+
+
+def test_failed_entry_still_expires_by_ttl():
+    clock = FakeClock()
+    registry = ProgressRegistry(ttl_seconds=10, now=clock)
+    registry.register("run-1")
+    registry.fail("run-1", "unexpected error")
+    clock.advance(10)
+    assert registry.get("run-1") is None
+
+
+def test_fail_prevents_later_complete():
+    registry = ProgressRegistry()
+    registry.register("run-1")
+    registry.fail("run-1", "boom")
+    from src.models import AnalyzeResponse, Answer, Trace
+    response = AnalyzeResponse(
+        answer=Answer(findings=[], citations=[], actions=[]),
+        trace=Trace(workflow="test", summary=""),
+    )
+    assert registry.complete("run-1", response) is False
+    snapshot = registry.get("run-1")
+    assert snapshot is not None
+    assert snapshot.error == "boom"
+    assert registry.get_completed_response("run-1") is None
+
+
+def test_complete_prevents_later_fail():
+    registry = ProgressRegistry()
+    registry.register("run-1")
+    from src.models import AnalyzeResponse, Answer, Trace
+    response = AnalyzeResponse(
+        answer=Answer(findings=[], citations=[], actions=[]),
+        trace=Trace(workflow="test", summary=""),
+    )
+    assert registry.complete("run-1", response) is True
+    assert registry.fail("run-1", "late error") is False
+    snapshot = registry.get("run-1")
+    assert snapshot is not None
+    assert snapshot.error is None
+    assert registry.get_completed_response("run-1") is response
+
+
 def test_live_workflow_reports_each_phase_in_order_through_the_sink():
     """The workflow→registry seam: run_live_analysis reports every phase,
     in agent order, with informative messages — never through HTTP."""
@@ -166,7 +226,7 @@ def test_live_workflow_reports_each_phase_in_order_through_the_sink():
 
     run_live_analysis(
         AnalyzeRequest(
-            scenario=Scenario(id="my-app", description="Spanish fintech lending"),
+            scenario=Scenario(id="my-app", description="A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."),
             question="What regulations apply?",
         ),
         llm=make_offline_llm(),
