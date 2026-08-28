@@ -116,13 +116,20 @@ def _schema_example(schema: type[BaseModel]) -> str:
         ]
         return "{" + ", ".join(fields) + "}"
 
+    def render_ref(ref: str) -> str:
+        referenced = defs[ref.rsplit("/", 1)[-1]]
+        if "enum" in referenced:
+            values = " | ".join(json.dumps(value) for value in referenced["enum"])
+            return f"<{values}>"
+        return render_object(referenced)
+
     def render_prop(prop: dict) -> str:
         if "$ref" in prop:
-            return render_object(defs[prop["$ref"].rsplit("/", 1)[-1]])
+            return render_ref(prop["$ref"])
         if prop.get("type") == "array":
             items = prop.get("items", {})
             if "$ref" in items:
-                return "[" + render_object(defs[items["$ref"].rsplit("/", 1)[-1]]) + "]"
+                return "[" + render_ref(items["$ref"]) + "]"
             return f'[<{items.get("type", "value")}>]'
         return f'<{prop.get("type", "value")}>'
 

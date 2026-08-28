@@ -653,6 +653,67 @@ def test_no_kept_findings_serves_the_hand_off_alone_without_a_proposer_call(monk
     assert step["action_decisions"] == []
 
 
+# --- Finding-label grounding rejection (ticket #36) --------------------------
+
+
+def test_proposal_using_finding_labels_is_rejected_with_invalid_grounding(live_client):
+    """A proposal that references Finding labels (F1) instead of Citation
+    labels (C1) cannot create an Action, and the rejection identifies the
+    invalid grounding (#36)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(
+                action="Verify the high-risk classification.",
+                kind="verify_against_facts",
+                citation_refs=["F1"],
+            ),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "Verify the high-risk classification." not in data["answer"]["actions"]
+    assert data["answer"]["actions"] == [SEEK_COUNSEL_ACTION]
+
+    decisions = proposer_step(data)["action_decisions"]
+    assert len(decisions) == 1
+    assert decisions[0]["status"] == "rejected"
+    assert "F1" in decisions[0]["reason"]
+    assert "Finding" in decisions[0]["reason"]
+
+
+def test_proposal_using_citation_labels_produces_grounded_actions(live_client):
+    """A valid Proposer response using only displayed Citation labels produces
+    the expected grounded referral Actions in the Answer (#36)."""
+    llm = make_offline_llm()
+    llm.proposals = ActionProposals(
+        proposals=[
+            ActionProposal(
+                action="Have a professional verify the high-risk classification.",
+                kind="verify_against_facts",
+                citation_refs=["C1"],
+            ),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["answer"]["actions"][0] == "Have a professional verify the high-risk classification."
+    assert data["answer"]["actions"][-1] == SEEK_COUNSEL_ACTION
+
+    decisions = proposer_step(data)["action_decisions"]
+    kept = [d for d in decisions if d["status"] == "kept"]
+    assert len(kept) == 1
+    assert kept[0]["action"] == "Have a professional verify the high-risk classification."
+
+
 # --- Citation rider: source_short_name from corpus metadata (#24) ------------
 
 
