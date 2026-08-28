@@ -87,6 +87,11 @@ SEEK_COUNSEL_ACTION = (
 # (ADR-0004): the sheet is capped, never empty.
 MAX_ACTIONS = 5
 
+# The Planner's declared budget: 1-3 Research targets. A provider response
+# over this limit is corrected once by truncation — the Evidence pool derives
+# from the accepted plan, never from an over-limit provider response.
+MAX_RESEARCH_TARGETS = 3
+
 
 # --- Workflow boundaries: every agent input/output crosses as a validated schema ---
 
@@ -206,6 +211,7 @@ class LiveState(BaseModel):
     scenario_description: str = ""
     question: str = ""
     plan: list[ResearchTarget] = Field(default_factory=list)
+    plan_correction: Optional[str] = None
     evidence: list[LabeledEvidence] = Field(default_factory=list)
     retrievals: list[dict] = Field(default_factory=list)  # one record per retrieval-tool call
     drafted: DraftClaims = Field(default_factory=DraftClaims)
@@ -497,8 +503,14 @@ def _build_graph(
         started = time.perf_counter()
         user = f"Company/product scenario: {state.scenario_description or '(not described)'}\nRegulatory question: {state.question}"
         plan = llm.complete(system=_PLANNER_SYSTEM, user=user, schema=Plan)
-        logger.info("planner: %d target(s) in %.2fs", len(plan.targets), time.perf_counter() - started)
-        return {"plan": plan.targets}
+        targets = plan.targets
+        correction = None
+        if len(targets) > MAX_RESEARCH_TARGETS:
+            correction = f"Planner response truncated from {len(targets)} to {MAX_RESEARCH_TARGETS} Research targets"
+            logger.warning("planner: %d targets exceeds budget of %d; truncating", len(targets), MAX_RESEARCH_TARGETS)
+            targets = targets[:MAX_RESEARCH_TARGETS]
+        logger.info("planner: %d target(s) in %.2fs", len(targets), time.perf_counter() - started)
+        return {"plan": targets, "plan_correction": correction}
 
     def researcher(state: LiveState) -> dict:
         """Gather Evidence exclusively through the retrieval tool, then draft Claims."""
@@ -753,8 +765,16 @@ def run_live_analysis(
             "in a kept Finding's Citations"
         )
 
+    planner_step: dict[str, Any] = {
+        "step": "planner",
+        "action": "decompose the Regulatory question into research targets",
+        "research_targets": queries,
+    }
+    if state.plan_correction:
+        planner_step["correction"] = state.plan_correction
+
     detailed_trace: list[dict[str, Any]] = [
-        {"step": "planner", "action": "decompose the Regulatory question into research targets", "research_targets": queries},
+        planner_step,
         {
             "step": "researcher",
             "action": "retrieve Evidence exclusively via the retrieve_chunks tool, then draft Claims grounded in it",
