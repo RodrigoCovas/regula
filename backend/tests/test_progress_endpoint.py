@@ -167,11 +167,25 @@ class RaisingLlm:
 
 def test_workflow_exception_records_failure_visible_through_the_endpoint(monkeypatch):
     """An unexpected workflow failure leaves a terminal error in the progress
-    record — the frontend sees the failure, not a stuck spinner."""
+    record — the frontend sees the failure, not a stuck spinner.
+
+    With decoupled submission (issue #41), the POST returns promptly with a
+    ProgressSnapshot; the error surfaces through the progress endpoint once
+    the background thread records it.
+    """
     with boot_live_with_fakes(monkeypatch, RaisingLlm(), FakeRetriever(), raise_server_exceptions=False) as live_client:
         resp = post_canonical(live_client, request_id="failed-run")
-        assert resp.status_code == 500
-        data = get_progress(live_client, "failed-run").json()
+        assert resp.status_code == 200
+        post_data = resp.json()
+        assert post_data["request_id"] == "failed-run"
+        assert isinstance(post_data["transitions"], list)
+
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end:
+            data = get_progress(live_client, "failed-run").json()
+            if data.get("error"):
+                break
+            time.sleep(0.05)
     assert data["request_id"] == "failed-run"
     assert isinstance(data.get("error"), str)
     assert "provider returned an unexpected status code" in data["error"]
@@ -186,11 +200,21 @@ class UnreachableLlm:
 
 def test_llm_unreachable_records_completed_not_available_through_the_endpoint(monkeypatch):
     """An LLM outage is a domain outcome, not a server error: the progress
-    endpoint serves the Not-available response, not a stuck snapshot."""
+    endpoint serves the Not-available response, not a stuck snapshot.
+
+    With decoupled submission (issue #41), the POST returns promptly; the
+    background thread records the Not-available outcome, which polling retrieves.
+    """
     with boot_live_with_fakes(monkeypatch, UnreachableLlm(), FakeRetriever()) as live_client:
         resp = post_canonical(live_client, request_id="llm-down")
         assert resp.status_code == 200
-        data = get_progress(live_client, "llm-down").json()
+
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end:
+            data = get_progress(live_client, "llm-down").json()
+            if "answer" in data:
+                break
+            time.sleep(0.05)
     assert data["trace"]["workflow"] == "not-available"
     assert "llm" in " ".join(data["answer"]["actions"]).lower() or "provider" in " ".join(data["answer"]["actions"]).lower()
 

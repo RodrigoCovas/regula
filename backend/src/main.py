@@ -6,6 +6,7 @@ Backend entry point
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterator, List, Optional, TypedDict, Union
 import logging
+import threading
 import time
 
 from fastapi import Depends, FastAPI, Header
@@ -425,7 +426,7 @@ def _log_request(
     )
 
 
-@app.post("/api/analyze", response_model=AnalyzeResponse)
+@app.post("/api/analyze", response_model=Union[AnalyzeResponse, ProgressSnapshot])
 def analyze(
     request: AnalyzeRequest,
     request_id: Optional[str] = Header(default=None, alias=REQUEST_ID_HEADER),
@@ -450,14 +451,19 @@ def analyze(
     header registers the run in the progress registry once it reaches the
     Live workflow, and each phase transition (Planner → Researcher →
     Verifier → Proposer) is reported into it. GET /api/progress/{request_id}
-    reads the current phase and transition history back. The body contract
-    is unchanged — the header is the only progress channel.
+    reads the current phase and transition history back.
 
-    This handler is deliberately synchronous: Live-mode analysis blocks on
-    LLM and retrieval calls, and FastAPI serves sync endpoints on a worker
-    thread, leaving the event loop free to serve the polling progress
-    endpoint mid-run.
+    When the X-Request-Id header is present in Live mode, the analysis runs
+    in a background thread and the POST returns promptly with a
+    ProgressSnapshot — the UI-facing submission path does not depend on the
+    original POST connection remaining open. A dropped client or proxy
+    connection does not lose the run; progress polling still reaches the
+    eventual Answer or a terminal failure. Without the header, the endpoint
+    retains its synchronous contract for non-UI callers.
     """
+    if settings.regula_mode == Mode.live and request_id:
+        return _handle_live_ui_submission(request, request_id, llm=llm, retriever=retriever)
+
     started = time.perf_counter()
     observation = RequestObservation()
     status, workflow, error = STATUS_SUCCESS, None, None
@@ -486,6 +492,99 @@ def analyze(
         )
 
 
+def _handle_live_ui_submission(
+    request: AnalyzeRequest,
+    request_id: str,
+    *,
+    llm: Llm,
+    retriever: Retriever,
+) -> Union[AnalyzeResponse, ProgressSnapshot]:
+    """UI-facing Live submission: runs the analysis in a background thread
+    so the POST returns promptly. The analysis continues independently of
+    the original connection; progress polling reaches the eventual Answer
+    or terminal failure.
+
+    Availability gates run synchronously first: a gate failure is registered
+    in the progress registry so polling retrieves it, then returned directly.
+
+    The resolved ``llm`` and ``retriever`` from the request context are
+    passed to the background thread — this keeps dependency overrides (used
+    by tests) working and avoids creating duplicate connections for fakes.
+    """
+    started = time.perf_counter()
+    try:
+        empty = vector_store_is_empty(settings.database_url)
+    except UNREACHABLE_STORE_ERRORS as error:
+        if store_unreachable(error):
+            response = unreachable_store_response(error)
+            progress_registry.register(request_id)
+            progress_registry.complete(request_id, response)
+            _log_request(
+                request,
+                llm,
+                RequestObservation(),
+                status=STATUS_SUCCESS,
+                workflow=response.trace.workflow,
+                latency_ms=(time.perf_counter() - started) * 1000,
+            )
+            return response
+        raise
+    if empty:
+        response = un_ingested_corpus_response()
+        progress_registry.register(request_id)
+        progress_registry.complete(request_id, response)
+        _log_request(
+            request,
+            llm,
+            RequestObservation(),
+            status=STATUS_SUCCESS,
+            workflow=response.trace.workflow,
+            latency_ms=(time.perf_counter() - started) * 1000,
+        )
+        return response
+
+    progress_registry.register(request_id)
+
+    def run_in_background() -> None:
+        bg_observation = RequestObservation()
+        bg_status, bg_workflow, bg_error = STATUS_SUCCESS, None, None
+        try:
+            progress = progress_sink(request_id, registry=progress_registry)
+            response = run_live_analysis(
+                request,
+                llm=llm,
+                retriever=retriever,
+                observation=bg_observation,
+                progress=progress,
+            )
+            progress_registry.complete(request_id, response)
+            bg_workflow = response.trace.workflow
+        except LlmUnreachableError as error:
+            not_available = unreachable_llm_response(error)
+            progress_registry.complete(request_id, not_available)
+            bg_workflow = not_available.trace.workflow
+        except Exception as error:
+            bg_status = STATUS_FAILURE
+            bg_error = str(error)
+            progress_registry.fail(request_id, str(error))
+        finally:
+            _log_request(
+                request,
+                llm,
+                bg_observation,
+                status=bg_status,
+                workflow=bg_workflow,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                error=bg_error,
+            )
+
+    thread = threading.Thread(target=run_in_background, daemon=True)
+    thread.start()
+
+    snapshot = progress_registry.get(request_id)
+    return snapshot if snapshot is not None else ProgressSnapshot(request_id=request_id)
+
+
 def _dispatch_analyze(
     request: AnalyzeRequest,
     *,
@@ -494,7 +593,12 @@ def _dispatch_analyze(
     observation: RequestObservation,
     request_id: Optional[str] = None,
 ) -> AnalyzeResponse:
-    """Mode dispatch: the served answer for one request, Demo or Live."""
+    """Mode dispatch: the served answer for one request, Demo or Live.
+
+    Progress tracking for UI-facing Live submissions (with request_id) is
+    handled by ``_handle_live_ui_submission``; this path serves non-UI
+    callers (synchronous, no progress) and Demo mode.
+    """
     if settings.regula_mode == Mode.live:
         try:
             empty = vector_store_is_empty(settings.database_url)
@@ -507,36 +611,20 @@ def _dispatch_analyze(
             raise
         if empty:
             return un_ingested_corpus_response()
-        # Only a run that reaches the Live workflow reports progress: a
-        # request served by a gate above (un-ingested Corpus, unreachable
-        # store or LLM) never leaves a progress record behind.
-        if request_id:
-            progress_registry.register(request_id)
-        progress = progress_sink(request_id, registry=progress_registry) if request_id else None
         try:
             response = run_live_analysis(
                 request,
                 llm=llm,
                 retriever=retriever,
                 observation=observation,
-                progress=progress,
             )
-            if request_id:
-                progress_registry.complete(request_id, response)
             return response
         except LlmUnreachableError as error:
             # A genuine LLM outage is not a server error: it gets its own
             # Not-available reply, mirroring the unreachable-store case.
             # Any other LlmError — a reachable provider rejecting or
             # malforming an answer — still surfaces as a server error.
-            not_available = unreachable_llm_response(error)
-            if request_id:
-                progress_registry.complete(request_id, not_available)
-            return not_available
-        except Exception as error:
-            if request_id:
-                progress_registry.fail(request_id, str(error))
-            raise
+            return unreachable_llm_response(error)
 
     scenario = request.scenario
 
