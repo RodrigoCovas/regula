@@ -62,11 +62,16 @@ export async function runAnalysis(
           return json;
         }
         if (isProgressSnapshot(json)) {
+          if (json.error) {
+            throw new AnalyzeFailure(json.error);
+          }
           deps.onProgress?.(json);
         }
       }
-    } catch {
-      // Poll failed, keep trying
+    } catch (error) {
+      if (error instanceof AnalyzeFailure) {
+        throw error;
+      }
     }
   }
 }

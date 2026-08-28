@@ -529,7 +529,14 @@ def _dispatch_analyze(
             # Not-available reply, mirroring the unreachable-store case.
             # Any other LlmError — a reachable provider rejecting or
             # malforming an answer — still surfaces as a server error.
-            return unreachable_llm_response(error)
+            not_available = unreachable_llm_response(error)
+            if request_id:
+                progress_registry.complete(request_id, not_available)
+            return not_available
+        except Exception as error:
+            if request_id:
+                progress_registry.fail(request_id, str(error))
+            raise
 
     scenario = request.scenario
 

@@ -72,3 +72,16 @@ test("formatElapsed renders minute-scale durations as minutes and seconds", () =
   assert.equal(formatElapsed(65_000), "1m 05s");
   assert.equal(formatElapsed(123_000), "2m 03s");
 });
+
+test("recognizes a progress snapshot with a terminal error field", () => {
+  const failedSnapshot = {
+    request_id: "run-1",
+    phase: "planner",
+    message: "decomposing",
+    transitions: [
+      { phase: "planner", message: "decomposing", elapsed_ms: 1000 },
+    ],
+    error: "the LLM provider rejected the request",
+  };
+  assert.equal(isProgressSnapshot(failedSnapshot), true);
+});

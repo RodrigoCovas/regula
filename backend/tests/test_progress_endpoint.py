@@ -160,6 +160,41 @@ def test_expired_progress_reads_back_as_unknown_through_the_endpoint(monkeypatch
     assert "short-lived" in " ".join(data["answer"]["actions"]).lower()
 
 
+class RaisingLlm:
+    def complete(self, system, user, schema):
+        raise RuntimeError("provider returned an unexpected status code")
+
+
+def test_workflow_exception_records_failure_visible_through_the_endpoint(monkeypatch):
+    """An unexpected workflow failure leaves a terminal error in the progress
+    record — the frontend sees the failure, not a stuck spinner."""
+    with boot_live_with_fakes(monkeypatch, RaisingLlm(), FakeRetriever(), raise_server_exceptions=False) as live_client:
+        resp = post_canonical(live_client, request_id="failed-run")
+        assert resp.status_code == 500
+        data = get_progress(live_client, "failed-run").json()
+    assert data["request_id"] == "failed-run"
+    assert isinstance(data.get("error"), str)
+    assert "provider returned an unexpected status code" in data["error"]
+    assert isinstance(data["transitions"], list)
+
+
+class UnreachableLlm:
+    def complete(self, system, user, schema):
+        from src.llm import LlmUnreachableError
+        raise LlmUnreachableError("connection refused")
+
+
+def test_llm_unreachable_records_completed_not_available_through_the_endpoint(monkeypatch):
+    """An LLM outage is a domain outcome, not a server error: the progress
+    endpoint serves the Not-available response, not a stuck snapshot."""
+    with boot_live_with_fakes(monkeypatch, UnreachableLlm(), FakeRetriever()) as live_client:
+        resp = post_canonical(live_client, request_id="llm-down")
+        assert resp.status_code == 200
+        data = get_progress(live_client, "llm-down").json()
+    assert data["trace"]["workflow"] == "not-available"
+    assert "llm" in " ".join(data["answer"]["actions"]).lower() or "provider" in " ".join(data["answer"]["actions"]).lower()
+
+
 def test_requests_without_a_request_id_header_register_no_progress(monkeypatch):
     """The header is the only registration channel: without it, the analyze
     endpoint leaves no trace and the id reads back as unknown."""

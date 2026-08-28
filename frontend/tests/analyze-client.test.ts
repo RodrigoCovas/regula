@@ -203,6 +203,41 @@ test("times out when the analysis takes too long", async () => {
   );
 });
 
+test("throws AnalyzeFailure when the progress endpoint returns a terminal failure snapshot", async () => {
+  let pollCount = 0;
+  const { impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return jsonResponse(snapshotOf("run-1", "planner", "decomposing"));
+    }
+    return jsonResponse({
+      request_id: "run-1",
+      phase: "planner",
+      message: "decomposing",
+      transitions: [{ phase: "planner", message: "decomposing", elapsed_ms: 1000 }],
+      error: "the LLM provider rejected the request",
+    });
+  });
+
+  await assert.rejects(
+    runAnalysis(demoScenarioInput, {
+      fetchImpl: impl,
+      generateRequestId: () => "run-1",
+      setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+      clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+      pollIntervalMs: 10,
+    }),
+    (error: Error) => {
+      assert.ok(error instanceof AnalyzeFailure);
+      assert.match(error.message, /LLM provider rejected the request/);
+      return true;
+    },
+  );
+});
+
 test("without an injected generator, the request id is a fresh UUID", async () => {
   let pollCount = 0;
   const { calls, impl } = recordingFetch((call) => {
