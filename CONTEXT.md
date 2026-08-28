@@ -2,6 +2,14 @@
 
 Regula is a regulatory research and compliance assistant for answering questions from a small legal corpus with evidence-backed findings and citations. It helps users find the Regulations relevant to their Scenario so qualified legal professionals can act on them; it never dispenses legal advice and never substitutes for professional judgment.
 
+## Frontend Runtime
+
+**Node.js**: 20 (LTS) — pinned in `frontend/.nvmrc`
+
+**Next.js**: 16.3.3 — pinned in `frontend/package.json`
+
+**React**: 18.x — compatible with Next.js 16
+
 ## Language
 
 **Scenario**:

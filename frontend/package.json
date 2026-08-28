@@ -6,25 +6,29 @@
     "dev": "node server.js",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "TSX_TSCONFIG_PATH=tests/tsconfig.json node --import tsx --test tests/*.test.ts tests/*.test.tsx"
   },
   "dependencies": {
+    "next": "16.3.3",
     "react": "^18",
-    "react-dom": "^18",
-    "next": "^14"
+    "react-dom": "^18"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.0.1",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.3",
     "postcss": "^8",
     "tailwindcss": "^3.3.0",
     "tsx": "^4",
-    "eslint": "^8",
-    "eslint-config-next": "^14"
+    "typescript": "^5"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true
   }
 }
