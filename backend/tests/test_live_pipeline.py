@@ -760,22 +760,28 @@ def planner_step(data) -> dict:
     return [s for s in data["detailed_trace"] if s["step"] == "planner"][0]
 
 
+def run_with_plan(live_client, targets, per_query=None):
+    """Run a scenario with the given ResearchTarget objects, returning the response data."""
+    from src.live_workflow import Plan
+
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=targets)
+    install_fake_pipeline(llm, FakeRetriever(per_query=per_query or {}))
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    return resp.json()
+
+
 def test_planner_response_with_three_targets_is_accepted_unchanged(live_client):
     """A Planner response with exactly three Research targets is accepted
     without correction — the declared 1-3 budget is respected."""
-    from src.live_workflow import Plan, ResearchTarget
+    from src.live_workflow import ResearchTarget
 
-    llm = make_offline_llm()
-    llm.plan = Plan(targets=[
+    data = run_with_plan(live_client, [
         ResearchTarget(query="creditworthiness"),
         ResearchTarget(query="automated decisions"),
         ResearchTarget(query="deployer obligations"),
     ])
-    install_fake_pipeline(llm, FakeRetriever())
-
-    resp = post_arbitrary_scenario(live_client)
-    assert resp.status_code == 200
-    data = resp.json()
 
     step = planner_step(data)
     assert len(step["research_targets"]) == 3
@@ -786,15 +792,9 @@ def test_planner_response_with_three_targets_is_accepted_unchanged(live_client):
 def test_planner_response_with_one_target_is_accepted_unchanged(live_client):
     """A Planner response with one Research target is accepted — the lower
     end of the 1-3 budget works unchanged."""
-    from src.live_workflow import Plan, ResearchTarget
+    from src.live_workflow import ResearchTarget
 
-    llm = make_offline_llm()
-    llm.plan = Plan(targets=[ResearchTarget(query="creditworthiness")])
-    install_fake_pipeline(llm, FakeRetriever())
-
-    resp = post_arbitrary_scenario(live_client)
-    assert resp.status_code == 200
-    data = resp.json()
+    data = run_with_plan(live_client, [ResearchTarget(query="creditworthiness")])
 
     step = planner_step(data)
     assert len(step["research_targets"]) == 1
@@ -802,26 +802,36 @@ def test_planner_response_with_one_target_is_accepted_unchanged(live_client):
     assert step.get("correction") is None
 
 
+def test_planner_response_with_zero_targets_falls_through_to_insufficient_evidence(live_client):
+    """A Planner response with zero Research targets is under-limit, not
+    over-limit: no correction is applied, and the workflow naturally reaches
+    the Insufficient-evidence path (nothing to research). The acceptance
+    criteria focus on the upper bound; an empty plan is a degenerate case
+    that the system handles honestly."""
+    from src.live_workflow import Plan
+
+    data = run_with_plan(live_client, [])
+
+    step = planner_step(data)
+    assert len(step["research_targets"]) == 0
+    assert step.get("correction") is None
+    assert_insufficient_evidence_response(data)
+
+
 def test_planner_response_over_budget_is_truncated_to_three(live_client):
     """A Planner response with more than three Research targets is corrected
     once by truncation: only the first three targets are accepted, the rest
     are silently dropped — the Evidence pool never expands beyond the
     accepted plan."""
-    from src.live_workflow import Plan, ResearchTarget
+    from src.live_workflow import ResearchTarget
 
-    llm = make_offline_llm()
-    llm.plan = Plan(targets=[
+    data = run_with_plan(live_client, [
         ResearchTarget(query="creditworthiness"),
         ResearchTarget(query="automated decisions"),
         ResearchTarget(query="deployer obligations"),
         ResearchTarget(query="extra target one"),
         ResearchTarget(query="extra target two"),
     ])
-    install_fake_pipeline(llm, FakeRetriever())
-
-    resp = post_arbitrary_scenario(live_client)
-    assert resp.status_code == 200
-    data = resp.json()
 
     step = planner_step(data)
     assert len(step["research_targets"]) == 3
@@ -836,17 +846,15 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
     """The Evidence pool derives from the accepted plan, not the provider's
     over-limit response: even when the Planner returns five targets, only
     three seats' worth of Evidence is retrieved."""
-    from src.live_workflow import Plan, ResearchTarget, SEATS_PER_TARGET
+    from src.live_workflow import ResearchTarget, SEATS_PER_TARGET
 
-    llm = make_offline_llm()
     targets = ["creditworthiness", "automated decisions", "deployer obligations", "extra one", "extra two"]
-    llm.plan = Plan(targets=[ResearchTarget(query=t) for t in targets])
     per_query = {t: depth_results(t) for t in targets}
-    install_fake_pipeline(llm, FakeRetriever(per_query=per_query))
-
-    resp = post_arbitrary_scenario(live_client)
-    assert resp.status_code == 200
-    data = resp.json()
+    data = run_with_plan(
+        live_client,
+        [ResearchTarget(query=t) for t in targets],
+        per_query=per_query,
+    )
 
     retrieved = served_evidence(data)
     assert len(retrieved) == SEATS_PER_TARGET * 3, "pool bounded by accepted plan, not provider response"
@@ -860,20 +868,14 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
 def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
     """An over-limit Planner response leaves a correction record in the
     detailed trace — the correction is transparent, never silent."""
-    from src.live_workflow import Plan, ResearchTarget
+    from src.live_workflow import ResearchTarget
 
-    llm = make_offline_llm()
-    llm.plan = Plan(targets=[
+    data = run_with_plan(live_client, [
         ResearchTarget(query="creditworthiness"),
         ResearchTarget(query="automated decisions"),
         ResearchTarget(query="deployer obligations"),
         ResearchTarget(query="extra"),
     ])
-    install_fake_pipeline(llm, FakeRetriever())
-
-    resp = post_arbitrary_scenario(live_client)
-    assert resp.status_code == 200
-    data = resp.json()
 
     step = planner_step(data)
     assert step["correction"] is not None
