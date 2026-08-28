@@ -53,6 +53,14 @@ _Avoid_: Chunk budget, result set, context window
 A reference to one provision of a source document — an Article, a Recital, or an Annex — supporting a Claim; exact quotes are optional.
 _Avoid_: Reference, source link
 
+**Citation strength**:
+How directly a cited provision supports the overall Answer: the strongest Strength among the Findings citing it. Distinct from a Finding's Strength, which is judged per Finding.
+_Avoid_: Confidence, average strength
+
+**Provision relevance**:
+The answer-wide statement of why one cited provision matters to the overall Answer, aggregating across the Findings that cite it. It draws only on the content of those Findings — never on material outside the Answer.
+_Avoid_: Citation summary, importance score
+
 **Recital**:
 A numbered explanatory paragraph at the start of a Regulation that states the intent behind the rules.
 _Avoid_: Preamble, whereas-clause, rationale
@@ -89,7 +97,7 @@ The situation where the Corpus holds nothing relevant enough to answer the Regul
 _Avoid_: No results, empty answer
 
 **Answer**:
-The user-facing conclusions: the Findings, Citations, and Actions. The API returns the Answer, the Execution trace, the detailed trace, and the Known limitations as siblings — workflow machinery never nests inside the Answer.
+The user-facing conclusions: the Findings, the Citations with their Provision relevance, and the Actions. The API returns the Answer, the Execution trace, the detailed trace, and the Known limitations as siblings — workflow machinery never nests inside the Answer.
 
 **Action**:
 A pointer that aids legal professionals acting on an Answer: it names something only they can settle — a fact the Scenario hinges on that the Corpus cannot determine, or verification of the cited provisions against the company's actual situation. An Action never presumes a Regulation applies to the Scenario and never substitutes for professional judgment.
@@ -110,15 +118,19 @@ _Avoid_: Chain-of-thought
 A statement the answer makes about what a regulation says or implies. A Claim becomes a Finding when supported by Evidence; a Claim with no Evidence is an Unsupported claim and is discarded.
 
 **Demo mode**:
-The keyless path that serves the canonical Spanish fintech Scenario from fixed content — no LLM calls, no vector retrieval.
+The keyless path that serves the canonical Spanish fintech Scenario from fixed content — no LLM calls, no vector retrieval. Mode is an explicit per-run choice, never inferred from the Scenario's text or id.
 _Avoid_: Offline mode, mock mode
 
 **Live mode**:
-The path where the workflow runs for real over the ingested Corpus, answering arbitrary Scenarios via vector retrieval.
+The path where the workflow runs for real over the ingested Corpus, answering arbitrary Scenarios via vector retrieval. Executable only when Readiness holds.
 _Avoid_: Production mode, online mode
 
+**Readiness**:
+The state that lets a run execute in Live mode: a configured provider key, the embedding model available, and a non-empty ingested Corpus. Missing readiness yields the Not-available response, never a degraded Answer.
+_Avoid_: Health, setup status
+
 **Not-available response**:
-A user-facing reply explaining why a requested capability cannot be served — an unknown Scenario in Demo mode, an un-ingested Corpus, an unreachable store, or an unreachable LLM provider in Live mode — and how to proceed.
+A user-facing reply explaining why a requested capability cannot be served — an unknown Scenario in Demo mode, or missing Readiness in Live mode (missing provider key, un-ingested Corpus, unavailable embedding model, unreachable store or LLM provider) — and how to proceed.
 _Avoid_: Error message, fallback, dead end
 
 ## Workflow
@@ -134,3 +146,6 @@ Checks findings against the evidence and rejects unsupported claims.
 
 **Proposer**:
 Turns kept Findings into referral Actions for legal professionals; every Action it emits must be anchored in a Finding's Evidence, and it never advises on its own authority.
+
+**Summarizer**:
+Turns the kept, cited Findings into Provision relevance — one grounded statement per cited provision — and never draws on material outside those Findings.
