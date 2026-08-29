@@ -8,33 +8,8 @@ import {
   readinessBlocks,
   type Readiness,
 } from "../lib/readiness";
-
-const READY_READINESS: Readiness = {
-  api_key_set: true,
-  embedding_model_present: true,
-  corpus_ingested: true,
-};
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-type FetchCall = { url: string; init?: RequestInit };
-
-function recordingFetch(
-  handler: (call: FetchCall) => Promise<Response> | Response,
-) {
-  const calls: FetchCall[] = [];
-  const impl = (url: string, init?: RequestInit): Promise<Response> => {
-    const call = { url, init };
-    calls.push(call);
-    return Promise.resolve(handler(call));
-  };
-  return { calls, impl };
-}
+import { jsonResponse, recordingFetch } from "./fetch";
+import { READY_READINESS } from "./readiness-states";
 
 test("fetchReadiness GETs /readiness and reports the three booleans", async () => {
   const { calls, impl } = recordingFetch(() => jsonResponse(READY_READINESS));

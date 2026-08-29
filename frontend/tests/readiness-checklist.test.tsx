@@ -5,12 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { missingPrerequisites, type Readiness } from "../lib/readiness";
 import { ReadinessChecklist } from "../components/ReadinessChecklist";
 import { visibleMarkup } from "./escape";
-
-const READY_READINESS: Readiness = {
-  api_key_set: true,
-  embedding_model_present: true,
-  corpus_ingested: true,
-};
+import { READY_READINESS } from "./readiness-states";
 
 function render(readiness: Readiness): string {
   return renderToStaticMarkup(

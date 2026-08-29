@@ -7,12 +7,11 @@ import {
 } from "../lib/fixtures";
 import type { ProgressSnapshot } from "../lib/progress";
 import { buildScenarioInput, demoScenarioInput } from "../lib/scenario-id";
+import { jsonResponse, recordingFetch, type FetchCall } from "./fetch";
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
+interface TimerHandle {
+  ms: number;
+  cb: () => void;
 }
 
 function snapshotOf(
@@ -26,25 +25,6 @@ function snapshotOf(
     message,
     transitions: [...(phase ? [{ phase, message, elapsed_ms: 1000 }] : [])],
   };
-}
-
-type FetchCall = { url: string; init?: RequestInit };
-
-function recordingFetch(
-  handler: (call: FetchCall) => Promise<Response> | Response,
-) {
-  const calls: FetchCall[] = [];
-  const impl = (url: string, init?: RequestInit): Promise<Response> => {
-    const call = { url, init };
-    calls.push(call);
-    return Promise.resolve(handler(call));
-  };
-  return { calls, impl };
-}
-
-interface TimerHandle {
-  ms: number;
-  cb: () => void;
 }
 
 function manualScheduler() {

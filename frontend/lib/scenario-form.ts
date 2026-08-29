@@ -69,9 +69,9 @@ export function scenarioFormReducer(
 }
 
 export function readinessGateOf(state: ScenarioFormState): ReadinessGate {
-  if (state.mode !== "live") {
-    return { kind: "idle" };
-  }
+  // An unavailable check outranks a completed one: the message says why
+  // Live stays blocked. The rest — Demo never gates, Live blocks until a
+  // fresh check reads ready — belongs to liveReadinessGate alone.
   if (state.readinessError !== null) {
     return { kind: "unavailable", message: state.readinessError };
   }

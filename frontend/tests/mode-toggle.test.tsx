@@ -4,14 +4,14 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ModeToggle } from "../components/ModeToggle";
 
-function renderToggle(mode: "demo" | "live" = "demo"): string {
+function renderToggle(mode: "demo" | "live"): string {
   return renderToStaticMarkup(
     React.createElement(ModeToggle, { mode, onChange: () => {} }),
   );
 }
 
 test("renders Demo and Live as a radio pair", () => {
-  const markup = renderToggle();
+  const markup = renderToggle("demo");
   assert.ok(markup.includes('value="demo"'));
   assert.ok(markup.includes('value="live"'));
   assert.ok(markup.includes("Demo"));
@@ -35,6 +35,6 @@ test("reflects Live when it is the selected mode", () => {
 });
 
 test("the radios share one group name so only one mode can be selected", () => {
-  const markup = renderToggle();
+  const markup = renderToggle("demo");
   assert.equal((markup.match(/name="mode"/g) ?? []).length, 2);
 });

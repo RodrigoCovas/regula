@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Readiness } from "../lib/readiness";
 import {
   canSubmit,
   initialScenarioFormState,
@@ -11,14 +10,7 @@ import {
   type ScenarioFormState,
 } from "../lib/scenario-form";
 import { demoScenarioInput } from "../lib/scenario-id";
-
-const READY_READINESS: Readiness = {
-  api_key_set: true,
-  embedding_model_present: true,
-  corpus_ingested: true,
-};
-
-const KEY_MISSING_READINESS: Readiness = { ...READY_READINESS, api_key_set: false };
+import { KEY_MISSING_READINESS, READY_READINESS } from "./readiness-states";
 
 function reduced(actions: ScenarioFormAction[]): ScenarioFormState {
   return actions.reduce(scenarioFormReducer, initialScenarioFormState);
