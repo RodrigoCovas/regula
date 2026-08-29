@@ -363,7 +363,9 @@ The eval harness (`backend/src/eval_harness.py`) scores **provision coverage**
 deterministic set F1 over Citation targets — provision kind + number, never
 label strings — with the expected side weighted by its Findings' Strengths
 (strong = 3, moderate = 2, weak = 1) and every off-target produced Citation
-counted against precision. Statement similarity gates no score; produced and
+counted against precision. This is the first of ADR-0010's three reported
+components; summary fidelity and strength agreement arrive with the
+Summarizer stage. Statement similarity gates no score; produced and
 expected statements ride only in the per-case audit dump for human review.
 
 The Demo-mode cases act as functional tripwires (see

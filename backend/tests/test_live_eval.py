@@ -19,10 +19,11 @@ from src.config import Settings
 from src.eval_harness import (
     LIVE_EVAL_SCENARIOS,
     STRENGTH_WEIGHTS,
+    EvalReport,
     EvalScenarioResult,
     expected_target_weights,
 )
-from src.live_eval import LiveEvalRefused, main, run_live_eval
+from src.live_eval import LiveEvalRefused, main, report_artifact, run_live_eval
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
 from src.models import Mode, ProvisionKind, Strength
 
@@ -198,6 +199,30 @@ def test_not_available_mid_run_aborts_instead_of_scoring_zeros(monkeypatch, quer
 
 
 # --- The operator CLI ---
+
+
+def test_report_artifact_shape_at_the_pure_seam():
+    """The CLI's JSON artifact is a pure function of the report: run metadata
+    over the per-case scores plus the produced-versus-expected dump."""
+    report = EvalReport(
+        scenarios=[EvalScenarioResult(
+            id="case",
+            precision=1.0,
+            recall=0.5,
+            f1=0.666666,
+            expected=[{"statement": "expected", "strength": "strong", "citations": ["gdpr Article 22"]}],
+            produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None}]}],
+        )],
+        mean_f1=0.666666,
+    )
+
+    artifact = report_artifact(report)
+
+    assert artifact["mode"] == "live"
+    assert artifact["generated_at"]
+    assert artifact["mean_f1"] == pytest.approx(0.666666)
+    (case,) = artifact["scenarios"]
+    assert set(case) == {"id", "precision", "recall", "f1", "expected", "produced"}
 
 
 def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):

@@ -4,33 +4,22 @@ Coverage is a deterministic set F1 over Citation targets — provision kind +
 number, never label strings. Recall is strength-weighted on the expected
 side; precision counts off-target produced targets against itself. Statement
 similarity gates nothing: produced-versus-expected statements ride only in
-the per-case audit dump.
+the per-case audit dump (its shape is pinned with the harness suite in
+test_eval_harness.py).
 """
 
 import pytest
 
 from src.eval_harness import (
     STRENGTH_WEIGHTS,
-    EvalScenario,
     ExpectedFinding,
     ProducedFinding,
     coverage_scores,
-    evaluate_scenarios,
     expected_target_weights,
     format_provision_target,
     parse_provision,
 )
-from src.models import (
-    AnalyzeResponse,
-    Answer,
-    Citation,
-    Finding,
-    Mode,
-    ProvisionKind,
-    ProvisionTarget,
-    Strength,
-    Trace,
-)
+from src.models import Citation, ProvisionKind, ProvisionTarget, Strength
 
 
 def _expected(strength: Strength, *labels: str, source_id: str = "ai-act") -> ExpectedFinding:
@@ -251,57 +240,10 @@ def test_scores_ignore_statement_text_entirely():
     assert coverage_scores(expected, produced) == {"precision": 1.0, "recall": 1.0, "f1": 1.0}
 
 
-# --- The audit dump ---
+# --- The audit dump's rendering of a structural target ---
 
 
 def test_provision_target_renders_for_the_audit():
     assert format_provision_target(ProvisionTarget("ai-act", ProvisionKind.article, 6)) == "ai-act Article 6"
     assert format_provision_target(ProvisionTarget("gdpr", ProvisionKind.recital, 71)) == "gdpr Recital 71"
     assert format_provision_target(ProvisionTarget("ai-act", ProvisionKind.annex, 3)) == "ai-act Annex 3"
-
-
-def _respond_with(*findings: Finding):
-    def respond(_request):
-        return AnalyzeResponse(
-            answer=Answer(findings=list(findings), actions=[], citations=[]),
-            trace=Trace(workflow="fake", summary="canned"),
-        )
-
-    return respond
-
-
-def test_per_case_result_carries_the_produced_versus_expected_dump():
-    """The report rides the diagnostic material for the human audit: both
-    sides' statements and Strengths, the authored labels on the expected side,
-    and each produced Citation's structural target with its quote."""
-    scenario = EvalScenario(
-        id="case",
-        scenario_id="some-scenario",
-        question="What applies?",
-        expected=[_expected(Strength.strong, "Recital 71", source_id="gdpr")],
-    )
-    report = evaluate_scenarios(
-        [scenario],
-        _respond_with(Finding(
-            statement="produced wording",
-            strength=Strength.weak,
-            citations=[Citation.model_validate({"source_id": "gdpr", "recital_number": 71, "quote": "snip"})],
-        )),
-        mode=Mode.demo,
-    )
-
-    result = report.scenarios[0]
-    assert result.id == "case"
-    assert result.precision == 1.0
-    assert result.recall == 1.0
-    assert result.f1 == 1.0
-    assert result.expected == [{
-        "statement": "expected finding citing Recital 71",
-        "strength": "strong",
-        "citations": ["gdpr Recital 71"],
-    }]
-    assert result.produced == [{
-        "statement": "produced wording",
-        "strength": "weak",
-        "citations": [{"target": "gdpr Recital 71", "quote": "snip"}],
-    }]

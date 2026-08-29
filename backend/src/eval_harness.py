@@ -4,11 +4,14 @@ Scoring is provision coverage (ADR-0010): a deterministic set F1 over
 Citation targets — provision kind + number via ``parse_provision`` and
 ``Citation.provision_target``, never label strings — with the expected side
 weighted by its Findings' Strengths and every off-target produced target
-counted against precision. Statements are never matched: statement
-similarity left the scoring path with ADR-0010 (ADR-0001's update records
-the retirement), and survives only as diagnostic material — the per-case
-audit dump (``EvalScenarioResult.expected`` / ``.produced``) carries both
-sides' statements for the human review the Live eval CLI writes out.
+counted against precision. This is the first of ADR-0010's three
+never-blended components; summary fidelity and strength agreement arrive
+with the Summarizer stage and the judge (#50). Statements are never
+matched: statement similarity left the scoring path with ADR-0010
+(ADR-0001's updates record the retirement as deletion), and survives only
+as diagnostic material — the per-case audit dump
+(``EvalScenarioResult.expected`` / ``.produced``) carries both sides'
+statements for the human review the Live eval CLI writes out.
 
 Demo pinning (ADR-0001/0008): the curated cases are Demo-mode tripwires.
 Demo production derives its Citations from the same locked targets its
@@ -62,6 +65,40 @@ class ProducedFinding:
     statement: str
     strength: Strength
     citations: List[Citation] = field(default_factory=list)
+
+
+class CoverageScores(TypedDict):
+    """The per-case coverage triple: precision, recall, and their harmonic mean."""
+
+    precision: float
+    recall: float
+    f1: float
+
+
+class ExpectedFindingDump(TypedDict):
+    """One expected Finding's audit-dump entry: the authored statement, its
+    Strength, and the ground-truth provision labels as written."""
+
+    statement: str
+    strength: str
+    citations: List[str]
+
+
+class ProducedCitationDump(TypedDict):
+    """One produced Citation's audit-dump entry: the structural target and
+    the quoted evidence, if any."""
+
+    target: str
+    quote: Optional[str]
+
+
+class ProducedFindingDump(TypedDict):
+    """One produced Finding's audit-dump entry: the statement as the LLM
+    worded it, its Strength, and each Citation's structural target."""
+
+    statement: str
+    strength: str
+    citations: List[ProducedCitationDump]
 
 
 # Ground-truth provision label grammar per ProvisionKind. The number is the
@@ -146,7 +183,7 @@ def format_provision_target(target: ProvisionTarget) -> str:
     return f"{target.source_id} {_KIND_LABELS[target.kind]} {target.number}"
 
 
-def coverage_scores(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
+def coverage_scores(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> CoverageScores:
     """Provision-coverage F1 (ADR-0010): set arithmetic over Citation targets.
 
     Recall is the strength-weighted share of expected targets the produced
@@ -265,8 +302,8 @@ class EvalScenarioResult:
     precision: float
     recall: float
     f1: float
-    expected: List[dict] = field(default_factory=list)
-    produced: List[dict] = field(default_factory=list)
+    expected: List[ExpectedFindingDump]
+    produced: List[ProducedFindingDump]
 
 
 @dataclass
@@ -775,7 +812,7 @@ LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
 
 # The audit-dump form of one expected Finding: the authored statement, its
 # Strength, and the ground-truth provision labels as written.
-def _expected_dump(finding: ExpectedFinding) -> dict:
+def _expected_dump(finding: ExpectedFinding) -> ExpectedFindingDump:
     return {
         "statement": finding.statement,
         "strength": finding.strength.value,
@@ -785,7 +822,7 @@ def _expected_dump(finding: ExpectedFinding) -> dict:
 
 # The audit-dump form of one produced Finding: the statement as the LLM worded
 # it, its Strength, and each Citation's structural target with its quote.
-def _produced_dump(finding: ProducedFinding) -> dict:
+def _produced_dump(finding: ProducedFinding) -> ProducedFindingDump:
     return {
         "statement": finding.statement,
         "strength": finding.strength.value,
