@@ -82,8 +82,9 @@ class Finding(BaseModel):
     citations: List[Citation] = Field(default_factory=list)
 
 
-# The locked embedding model (nomic-embed-text, served locally by Ollama)
-# outputs this many dimensions; the pgvector column and the embedder agree on it.
+# The default embedding model (nomic-embed-text, served locally by Ollama)
+# outputs this many dimensions; the pgvector column and the embedder agree on
+# it, and any EMBEDDING_MODEL override must produce the same width.
 EMBEDDING_DIMENSION = 768
 
 

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Protocol, Sequence
 
 from .chunking import chunk_regulation
-from .config import DEFAULT_DATABASE_URL, DEFAULT_OLLAMA_URL
+from .config import DEFAULT_DATABASE_URL, DEFAULT_OLLAMA_URL, source_local_env
 from .db import ChunkRecord, PgVectorStore, connect
 from .embedder import DEFAULT_MODEL, Embedder, EmbeddingError, OllamaEmbedder
 
@@ -123,14 +123,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=DEFAULT_MODEL,
-        help=f"embedding model (default: {DEFAULT_MODEL})",
+        default=os.environ.get("EMBEDDING_MODEL", DEFAULT_MODEL),
+        help=(
+            "embedding model (default: EMBEDDING_MODEL env or "
+            f"{DEFAULT_MODEL}); must match the model the backend queries with"
+        ),
     )
     parser.add_argument("--batch-size", type=int, default=64, help="texts per embedding request")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # .env.local feeds the env-var defaults below (EMBEDDING_MODEL included);
+    # the real environment wins either way.
+    source_local_env()
     args = parse_args(argv)
     try:
         documents = load_corpus_documents(args.data_dir)

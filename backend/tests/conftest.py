@@ -58,6 +58,16 @@ def _restore_main_settings():
 
 
 @pytest.fixture(autouse=True)
+def _hermetic_env_local(monkeypatch, tmp_path):
+    """Keep every boot hermetic: settings never read the developer's real
+    backend/.env.local (the LLM API key lives there on this machine), so a
+    test that clears a variable sees it cleared regardless of the host."""
+    import src.config as config
+
+    monkeypatch.setattr(config, "_ENV_LOCAL_PATH", tmp_path / "missing" / ".env.local")
+
+
+@pytest.fixture(autouse=True)
 def _hermetic_store_probe(monkeypatch):
     """Keep every boot hermetic: the startup emptiness probe never reaches for
     a real PostgreSQL unless a test replaces it explicitly."""

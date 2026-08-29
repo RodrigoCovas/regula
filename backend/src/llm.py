@@ -1,12 +1,13 @@
-"""LLM access via OpenRouter (spec #9, ticket #17).
+"""LLM access over the OpenAI-compatible chat-completions convention (spec #9, ticket #17, ADR-0009).
 
 ``Llm`` is the second provider protocol at the composition root: tests
 inject deterministic fakes, production wires ``OpenRouterClient``. The
-model is pinned to OpenRouter's ``upstage/solar-pro4`` (paid tier — a
-deliberate repin from the free nemotron tier, recorded as an amendment on
-spec #9) — no env override — and every completion asks for JSON that is
-validated against a Pydantic schema before it can cross a workflow
-boundary.
+model and base URL are environment configuration (``LLM_MODEL``,
+``LLM_BASE_URL``) with the historical defaults baked in as fallbacks —
+Solar Pro 4 via OpenRouter, the tested path. The client speaks plain
+OpenAI chat-completions with Bearer auth and no provider-specific
+headers, and every completion asks for JSON that is validated against a
+Pydantic schema before it can cross a workflow boundary.
 """
 
 from typing import Protocol, runtime_checkable, TypeVar
@@ -16,12 +17,17 @@ import json
 import requests
 from pydantic import BaseModel, ValidationError
 
-# The locked model: pinned via OpenRouter (spec #9, amended 2026-08-26 —
-# nemotron's hybrid-reasoning style truncated answers against the token
-# budget; the repin to a paid tier is recorded on the issue).
-PINNED_MODEL = "upstage/solar-pro4"
+# The default chat model: Solar Pro 4 via OpenRouter (spec #9, amended
+# 2026-08-26 — nemotron's hybrid-reasoning style truncated answers against
+# the token budget). ADR-0009: LLM_MODEL overrides it without code changes.
+DEFAULT_LLM_MODEL = "upstage/solar-pro4"
 
-OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+# The OpenAI-compatible convention (ADR-0009): the base URL ends at the
+# version root and the chat-completions path is appended by the client —
+# the convention OpenAI, Groq, Together, vLLM, LM Studio, and Ollama's
+# OpenAI endpoint assume.
+DEFAULT_LLM_BASE_URL = "https://openrouter.ai/api/v1"
+CHAT_COMPLETIONS_PATH = "/chat/completions"
 
 # The locked single-pass budget: measured empirically — the old 2K cap
 # truncated answers mid-object more often than it bounded them.
@@ -50,7 +56,7 @@ class LlmError(RuntimeError):
 
 
 class LlmUnreachableError(LlmError):
-    """OpenRouter could not be reached at all — a genuine network outage.
+    """The configured provider could not be reached at all — a genuine network outage.
 
     A reachable provider that rejected or malformed the answer is a plain
     ``LlmError``; only this subclass counts as the provider being down, so
@@ -82,7 +88,7 @@ def _extract_json(content: str) -> dict:
     return parsed
 
 
-def _parse_reply(schema: type[SchemaT], content: str) -> SchemaT:
+def _parse_reply(schema: type[SchemaT], content: str, model: str) -> SchemaT:
     """Extract and validate the JSON payload of one completion reply.
 
     Parse failures propagate as ``ValueError``/``JSONDecodeError`` so the
@@ -95,7 +101,7 @@ def _parse_reply(schema: type[SchemaT], content: str) -> SchemaT:
         return schema.model_validate(data)
     except ValidationError as error:
         raise LlmError(
-            f"Model '{PINNED_MODEL}' returned JSON that does not match schema "
+            f"Model '{model}' returned JSON that does not match schema "
             f"{schema.__name__}: {content!r} ({error})"
         ) from error
 
@@ -146,11 +152,14 @@ class Llm(Protocol):
 
 
 class OpenRouterClient:
-    """Posts chat completions to OpenRouter and validates the JSON reply.
+    """Posts chat completions to an OpenAI-compatible provider and validates
+    the JSON reply.
 
-    The model and the completion budget are module-level locks, not
-    parameters — nothing can point the client at another model or widen
-    the single-pass budget by construction.
+    The model and base URL are constructor parameters wired from the
+    environment (ADR-0009), defaulting to the historical Solar Pro 4 /
+    OpenRouter pin — nothing can silently drift from the configured
+    provider, and tests can point the client anywhere. The completion
+    budget stays a module-level lock.
 
     Every completed call that carries provider usage leaves its dictionary
     in ``usage``, so per-request observability can sum what the workflow
@@ -158,8 +167,16 @@ class OpenRouterClient:
     tokens.
     """
 
-    def __init__(self, api_key: str, transport=None):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = DEFAULT_LLM_MODEL,
+        base_url: str = DEFAULT_LLM_BASE_URL,
+        transport=None,
+    ):
         self._api_key = api_key
+        self._model = model
+        self._base_url = base_url.rstrip("/")
         self._transport = transport or _requests_transport
         self.usage: list[dict] = []
 
@@ -177,7 +194,7 @@ class OpenRouterClient:
         ]
         content = self._chat(messages)
         try:
-            return _parse_reply(schema, content)
+            return _parse_reply(schema, content, self._model)
         except (ValueError, json.JSONDecodeError):
             pass
         # One repair pass: replay the broken reply as the assistant's turn
@@ -192,32 +209,33 @@ class OpenRouterClient:
             ]
         )
         try:
-            return _parse_reply(schema, repaired)
+            return _parse_reply(schema, repaired, self._model)
         except (ValueError, json.JSONDecodeError) as error:
             raise LlmError(
-                f"Model '{PINNED_MODEL}' did not return parseable JSON for schema "
+                f"Model '{self._model}' did not return parseable JSON for schema "
                 f"{schema.__name__} ({error}): {repaired!r}"
             ) from error
 
     def _chat(self, messages: list[dict]) -> str:
         """One completion over the given conversation, returning the reply text."""
         payload = {
-            "model": PINNED_MODEL,
+            "model": self._model,
             "max_tokens": MAX_COMPLETION_TOKENS,
             "messages": messages,
         }
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+        url = f"{self._base_url}{CHAT_COMPLETIONS_PATH}"
         try:
-            body = self._transport(OPENROUTER_CHAT_URL, headers, payload)
+            body = self._transport(url, headers, payload)
         except requests.ConnectionError as error:
             raise LlmUnreachableError(
-                f"Could not reach OpenRouter at {OPENROUTER_CHAT_URL}: {error}. "
+                f"Could not reach the LLM provider at {url}: {error}. "
                 "Check the network connection."
             ) from error
         except requests.HTTPError as error:
             detail = error.response.text.strip()[:300] if error.response is not None else ""
             status = error.response.status_code if error.response is not None else "?"
-            raise LlmError(f"OpenRouter rejected the request (HTTP {status}): {detail}") from error
+            raise LlmError(f"The LLM provider rejected the request (HTTP {status}): {detail}") from error
         # Usage lands before any parsing: a reply we cannot parse still spent
         # tokens the operator pays for.
         usage = body.get("usage") if isinstance(body, dict) else None
@@ -227,10 +245,10 @@ class OpenRouterClient:
             choice = body["choices"][0]
             content = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
-            raise LlmError(f"OpenRouter returned an unexpected response body: {body!r}") from error
+            raise LlmError(f"The LLM provider returned an unexpected response body: {body!r}") from error
         if choice.get("finish_reason") == "length":
             raise LlmError(
-                f"Model '{PINNED_MODEL}' hit the {MAX_COMPLETION_TOKENS}-token completion "
+                f"Model '{self._model}' hit the {MAX_COMPLETION_TOKENS}-token completion "
                 f"budget before finishing (finish_reason=length); hidden reasoning tokens "
                 f"count against the cap. Reply so far: {content[:200]!r}"
             )

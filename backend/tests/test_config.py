@@ -2,6 +2,9 @@
 
 Per spec #9: REGULA_MODE selects the mode before any request is served;
 Live mode without OPENROUTER_API_KEY refuses to start with a clear message.
+Per ADR-0009: the provider configuration (LLM model, base URL, API key,
+embedding model) is environment-driven with defaults that reproduce the
+original pin (Solar Pro 4 over OpenRouter, nomic embedder).
 """
 
 import pytest
@@ -77,3 +80,96 @@ def test_query_log_path_selected_via_env_var(monkeypatch, tmp_path):
     monkeypatch.setenv("QUERY_LOG_PATH", str(tmp_path / "queries.jsonl"))
     settings = load_settings()
     assert settings.query_log_path == str(tmp_path / "queries.jsonl")
+
+
+# --- Provider configuration is environment-driven (ADR-0009, issue #43) -------
+
+
+def test_llm_model_defaults_to_solar_pro4(monkeypatch):
+    """Omitting LLM_MODEL reproduces today's behaviour: Solar Pro 4."""
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    settings = load_settings()
+    assert settings.llm_model == "upstage/solar-pro4"
+
+
+def test_llm_model_selected_via_env_var(monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct")
+    settings = load_settings()
+    assert settings.llm_model == "meta-llama/llama-3.3-70b-instruct"
+
+
+def test_llm_base_url_defaults_to_the_openrouter_version_root(monkeypatch):
+    """The OpenAI-compatible convention: the base ends at the version root —
+    no chat-completions path baked into the setting."""
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    settings = load_settings()
+    assert settings.llm_base_url == "https://openrouter.ai/api/v1"
+    assert not settings.llm_base_url.rstrip("/").endswith("/chat/completions")
+
+
+def test_llm_base_url_convention_reproduces_todays_endpoint_when_joined(monkeypatch):
+    """The client appends /chat/completions to the base, so the default
+    settings join back to exactly the URL the pinned client posted to."""
+    from src.llm import CHAT_COMPLETIONS_PATH
+
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    settings = load_settings()
+    assert (
+        settings.llm_base_url.rstrip("/") + CHAT_COMPLETIONS_PATH
+        == "https://openrouter.ai/api/v1/chat/completions"
+    )
+
+
+def test_llm_base_url_selected_via_env_var(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
+    settings = load_settings()
+    assert settings.llm_base_url == "https://api.groq.com/openai/v1"
+
+
+def test_embedding_model_defaults_to_nomic(monkeypatch):
+    """Omitting EMBEDDING_MODEL reproduces today's behaviour: the nomic
+    embedder (the same default the ingest CLI has always used)."""
+    from src.embedder import DEFAULT_MODEL
+
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    settings = load_settings()
+    assert settings.embedding_model == DEFAULT_MODEL
+
+
+def test_embedding_model_selected_via_env_var(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_MODEL", "nomic-embed-text")
+    settings = load_settings()
+    assert settings.embedding_model == "nomic-embed-text"
+
+
+# --- .env.local loading (the documented configuration home) -------------------
+
+
+def test_load_settings_reads_backend_env_local_when_present(monkeypatch, tmp_path):
+    """backend/.env.local is the documented configuration home (.env.example,
+    README): values there reach load_settings without exporting anything."""
+    import src.config
+
+    env_local = tmp_path / ".env.local"
+    env_local.write_text("LLM_MODEL=from-env-local\n")
+    monkeypatch.setattr(src.config, "_ENV_LOCAL_PATH", env_local)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+
+    settings = load_settings()
+
+    assert settings.llm_model == "from-env-local"
+
+
+def test_the_real_environment_wins_over_env_local(monkeypatch, tmp_path):
+    """source_local_env never overrides an exported variable: the process
+    environment stays the stronger contract."""
+    import src.config
+
+    env_local = tmp_path / ".env.local"
+    env_local.write_text("LLM_MODEL=from-env-local\n")
+    monkeypatch.setattr(src.config, "_ENV_LOCAL_PATH", env_local)
+    monkeypatch.setenv("LLM_MODEL", "from-export")
+
+    settings = load_settings()
+
+    assert settings.llm_model == "from-export"

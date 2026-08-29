@@ -384,9 +384,15 @@ def _run_demo_workflow() -> Dict[str, Any]:
 
 
 def get_llm() -> Llm:
-    """The structured-completion client: pinned ``upstage/solar-pro4`` via OpenRouter."""
+    """The structured-completion client, pointed at the configured provider.
+
+    ADR-0009: model, base URL, and key come from the environment with the
+    Solar Pro 4 / OpenRouter defaults; deployments differ only by configuration.
+    """
     key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
-    return OpenRouterClient(api_key=key)
+    return OpenRouterClient(
+        api_key=key, model=settings.llm_model, base_url=settings.llm_base_url
+    )
 
 
 def get_retriever() -> Iterator[Retriever]:
@@ -398,7 +404,12 @@ def get_retriever() -> Iterator[Retriever]:
     """
     store = LazyStore(settings.database_url)
     try:
-        yield VectorRetriever(store=store, embedder=OllamaEmbedder(base_url=settings.ollama_api_url))
+        yield VectorRetriever(
+            store=store,
+            embedder=OllamaEmbedder(
+                base_url=settings.ollama_api_url, model=settings.embedding_model
+            ),
+        )
     finally:
         store.close()
 

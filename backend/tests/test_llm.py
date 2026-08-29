@@ -53,18 +53,20 @@ def test_complete_returns_validated_schema_parsed_from_json_content():
     assert plan == Plan(targets=["a", "b"])
 
 
-def test_complete_posts_the_pinned_model_and_auth_header_to_openrouter():
+def test_complete_posts_the_default_model_and_auth_header_to_openrouter():
+    """With no overrides the client reproduces the historical pin: Solar Pro 4
+    posted to OpenRouter's version root with the chat-completions path joined."""
     transport = FakeTransport(responses=[chat_response('{"targets": []}')])
     client = make_client(transport)
 
     client.complete(system="s", user="u", schema=Plan)
 
     url, headers, payload = transport.calls[0]
-    from src.llm import OPENROUTER_CHAT_URL, PINNED_MODEL
+    from src.llm import CHAT_COMPLETIONS_PATH, DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL
 
-    assert url == OPENROUTER_CHAT_URL
+    assert url == DEFAULT_LLM_BASE_URL + CHAT_COMPLETIONS_PATH
     assert headers["Authorization"] == "Bearer sk-or-test"
-    assert payload["model"] == PINNED_MODEL
+    assert payload["model"] == DEFAULT_LLM_MODEL
     # The locked single-pass reasoning budget bounds every completion.
     from src.llm import MAX_COMPLETION_TOKENS
 
@@ -76,6 +78,27 @@ def test_complete_posts_the_pinned_model_and_auth_header_to_openrouter():
         "put raw newlines inside JSON strings.",
         "u",
     ]
+
+
+def test_configured_model_and_base_url_reach_the_joined_chat_completions_url():
+    """ADR-0009: the client appends /chat/completions to the configured base
+    (which ends at the version root) and asks for the configured model —
+    plain Bearer auth, standard OpenAI shape, any OpenAI-compatible provider."""
+    transport = FakeTransport(responses=[chat_response('{"targets": []}')])
+    client = OpenRouterClient(
+        api_key="sk-other-provider",
+        model="meta-llama/llama-3.3-70b-instruct",
+        base_url="https://api.groq.com/openai/v1/",
+        transport=transport,
+    )
+
+    client.complete(system="s", user="u", schema=Plan)
+
+    url, headers, payload = transport.calls[0]
+    assert url == "https://api.groq.com/openai/v1/chat/completions"
+    assert headers["Authorization"] == "Bearer sk-other-provider"
+    assert payload["model"] == "meta-llama/llama-3.3-70b-instruct"
+    assert payload["messages"][0]["role"] == "system"
 
 
 def test_nested_schemas_render_structurally_in_the_instruction():
@@ -175,7 +198,7 @@ def test_http_error_surfaces_status_and_body_snippet_as_llm_error():
     assert "Rate limit" in str(excinfo.value)
 
 
-def test_connection_error_names_openrouter_and_the_fix():
+def test_connection_error_names_the_provider_url_and_the_fix():
     import requests
 
     transport = FakeTransport(error=requests.ConnectionError("connection refused"))
@@ -183,7 +206,9 @@ def test_connection_error_names_openrouter_and_the_fix():
 
     with pytest.raises(LlmError) as excinfo:
         client.complete(system="s", user="u", schema=Plan)
-    assert "Could not reach OpenRouter" in str(excinfo.value)
+    assert "Could not reach the LLM provider at https://openrouter.ai/api/v1/chat/completions" in str(
+        excinfo.value
+    )
 
 
 def test_unparseable_content_is_an_llm_error_not_a_crash():

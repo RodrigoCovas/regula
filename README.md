@@ -61,8 +61,10 @@ ever silently degrades between paths:
   Live mode answers **arbitrary** scenarios through the real workflow:
   Planner → Researcher → Verifier retrieve Chunks from the ingested pgvector
   Corpus and produce evidence-backed Findings with Strength badges and
-  metadata-derived Citations. The LLM is pinned to
-  `upstage/solar-pro4` via OpenRouter. An un-ingested
+  metadata-derived Citations. The LLM provider is environment configuration
+  (ADR-0009): Solar Pro 4 (`upstage/solar-pro4`) via OpenRouter by default,
+  overridable with `LLM_MODEL`, `LLM_BASE_URL`, and the API key — see
+  `backend/.env.example`. An un-ingested
   or unreachable store still yields a Not-available response naming the fix.
 
 ### Request observability
@@ -195,7 +197,10 @@ cd frontend && npm run dev
    occur.
 
 The API key is read from `backend/.env.local` automatically at startup. The LLM
-model is pinned to `upstage/solar-pro4` via OpenRouter and cannot be changed.
+provider is environment configuration (ADR-0009): it defaults to
+`upstage/solar-pro4` via OpenRouter, and `LLM_MODEL`, `LLM_BASE_URL`,
+`OPENROUTER_API_KEY`, and `EMBEDDING_MODEL` override each part — see
+`backend/.env.example`.
 
 ## Architecture
 
@@ -274,8 +279,8 @@ regula/
 ## Key Technologies
 
 - **LLM policy:** the deterministic MVP demo makes no LLM call and requires no keys or env vars. The stack below is for development beyond the demo only:
-  - **LLM:** upstage/solar-pro4 (via OpenRouter)
-- **Embeddings:** Ollama + nomic-embed-text
+  - **LLM:** upstage/solar-pro4 (via OpenRouter) by default — `LLM_MODEL` / `LLM_BASE_URL` select any OpenAI-compatible provider
+- **Embeddings:** Ollama + nomic-embed-text (default; `EMBEDDING_MODEL` overrides, re-ingest required)
 - **Orchestration:** LangGraph
 - **Database:** PostgreSQL + pgvector
 - **Backend:** FastAPI + Pydantic
