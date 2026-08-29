@@ -656,3 +656,28 @@ export const notAvailableResponse: AnalyzeResponse = {
     "Known limitation: the corpus is English-only; questions in other languages are answered in English."
   ]
 };
+
+// The Not-available response a custom Scenario receives in Demo mode: the
+// canonical scenario is the only one Demo serves (ADR-0005), and the reply
+// hints at the demo button (issue #48).
+export const demoNotAvailableResponse: AnalyzeResponse = {
+  "answer": {
+    "findings": [],
+    "actions": [
+      "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech-startup-uses-9e165169' with the canonical AI credit scoring question.",
+      "In the web UI, use the 'Try the demo scenario' button to fill the form with the canonical scenario, then Analyze.",
+      "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope)."
+    ],
+    "citations": []
+  },
+  "trace": {
+    "workflow": "noop",
+    "summary": "No demo match; no retrieval performed. Provide scenario.id 'spanish-fintech-startup-uses-9e165169' to invoke the demo.",
+    "unsupported_claims_discarded": []
+  },
+  "detailed_trace": [],
+  "known_limitations": [
+    "Known limitation: the corpus is English-only; questions in other languages are answered in English.",
+    "Known limitation: Regula is a research prototype, not legal advice; answers require verification by a qualified professional."
+  ]
+};

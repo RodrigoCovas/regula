@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runAnalysis, AnalyzeFailure } from "../lib/analyze-client";
-import { demoAnalyzeResponse } from "../lib/fixtures";
+import {
+  demoAnalyzeResponse,
+  demoNotAvailableResponse,
+} from "../lib/fixtures";
 import type { ProgressSnapshot } from "../lib/progress";
-import { demoScenarioInput } from "../lib/scenario-id";
+import { buildScenarioInput, demoScenarioInput } from "../lib/scenario-id";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -261,4 +264,72 @@ test("without an injected generator, the request id is a fresh UUID", async () =
   const analyzeCall = analyzeCallOf(calls);
   const headers = analyzeCall.init?.headers as Record<string, string>;
   assert.match(headers["x-request-id"], /^[0-9a-f]{8}-[0-9a-f-]{27}$/);
+});
+
+test("the request body carries the selected mode explicitly (issue #48)", async () => {
+  let pollCount = 0;
+  const { calls, impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return jsonResponse(demoAnalyzeResponse);
+    }
+    return jsonResponse(snapshotOf("run-1", "planner", "decomposing"));
+  });
+
+  const liveInput = buildScenarioInput(
+    "A Berlin insurtech piloting an AI claims triage tool",
+    "What regulations apply?",
+    "live",
+  );
+  await runAnalysis(liveInput, {
+    fetchImpl: impl,
+    generateRequestId: () => "run-1",
+    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    pollIntervalMs: 10,
+  });
+
+  const analyzeCall = analyzeCallOf(calls);
+  const body = JSON.parse(String(analyzeCall.init?.body));
+  assert.equal(body.mode, "live");
+  assert.equal(body.scenario.description, liveInput.scenario.description);
+  assert.equal(body.question, liveInput.question);
+});
+
+test("a custom Scenario in Demo mode yields the Not-available response with the demo-button hint", async () => {
+  let pollCount = 0;
+  const { impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return jsonResponse(demoNotAvailableResponse);
+    }
+    return jsonResponse(snapshotOf("run-1", "planner", "decomposing"));
+  });
+
+  const customDemoInput = buildScenarioInput(
+    "A Portuguese meal-delivery platform",
+    "What regulations apply?",
+    "demo",
+  );
+  const response = await runAnalysis(customDemoInput, {
+    fetchImpl: impl,
+    generateRequestId: () => "run-1",
+    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    pollIntervalMs: 10,
+  });
+
+  assert.equal(response.trace.workflow, "noop");
+  assert.deepEqual(response.answer.findings, []);
+  assert.ok(
+    response.answer.actions.some((action) =>
+      action.includes("Try the demo scenario"),
+    ),
+  );
 });

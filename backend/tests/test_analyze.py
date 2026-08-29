@@ -13,7 +13,7 @@ from src import availability
 from src.config import ConfigurationError
 from src.llm import LlmError, LlmUnreachableError
 from src.live_workflow import LIVE_WORKFLOW_MARKER
-from src.main import app
+from src.main import REQUEST_ID_HEADER, app
 
 from conftest import boot_live_with_fakes, boot_with_env, install_fake_pipeline, poll_progress
 from fakes import FakeRetriever, make_offline_llm
@@ -168,6 +168,81 @@ def test_non_canonical_scenario_gets_helpful_response_not_keyword_routed():
     trace = data["trace"]
     assert trace.get("workflow") == "noop"
     assert "spanish-fintech-startup-uses-9e165169" in trace.get("summary", "").lower()
+
+
+def test_demo_not_available_response_hints_at_the_demo_button():
+    """Issue #48: submitting a custom Scenario in Demo mode yields the
+    Not-available response with a hint pointing at the demo button — the
+    populate-the-form-only path a web user can act on immediately."""
+    data = analyze("custom-scenario", "Does this loan scoring violate GDPR?")
+    actions = data["answer"]["actions"]
+    assert any("Try the demo scenario" in action for action in actions)
+
+
+def post_with_request_id(request_id, scenario_id, question):
+    """POST /api/analyze as the UI does: with the X-Request-Id header whose
+    id the client then polls on the progress endpoint."""
+    return client.post(
+        "/api/analyze",
+        headers={REQUEST_ID_HEADER: request_id},
+        json={"scenario": {"id": scenario_id}, "question": question},
+    )
+
+
+def test_ui_demo_submission_stays_reachable_through_progress_polling():
+    """The frontend's decoupled client (#41) treats the progress endpoint as
+    the source of truth for the answer, so a UI-submitted Demo run — like a
+    Live one — must register its served response under the submitted request
+    id. Polling reaches the demo answer, never the unknown-request reply
+    (issue #48: the Demo/Live toggle keeps the demo flow working)."""
+    resp = post_with_request_id(
+        "demo-poll-run",
+        "spanish-fintech-startup-uses-9e165169",
+        "What regulations apply?",
+    )
+    assert resp.status_code == 200
+
+    data = poll_progress(client, "demo-poll-run", lambda d: "answer" in d)
+    assert data["answer"]["findings"], "polling must reach the demo answer"
+
+
+def test_ui_demo_custom_scenario_polls_into_the_hint_response():
+    """A UI-submitted custom Scenario in Demo mode polls into the helpful
+    noop response — with the demo-button hint — not the unknown-request
+    reply."""
+    resp = post_with_request_id(
+        "demo-poll-custom",
+        "custom-scenario",
+        "Does this loan scoring violate GDPR?",
+    )
+    assert resp.status_code == 200
+
+    data = poll_progress(client, "demo-poll-custom", lambda d: "answer" in d)
+    assert data["trace"]["workflow"] == "noop"
+    assert any("Try the demo scenario" in a for a in data["answer"]["actions"])
+
+
+def test_ui_demo_submission_failure_is_visible_through_polling(monkeypatch):
+    """A Demo dispatch that dies records its failure under the submitted
+    request id: polling reaches the terminal error, never a misleading
+    unknown-request reply."""
+    import src.main as main
+
+    def raising_dispatch(_run):
+        raise RuntimeError("demo dispatch failed")
+
+    monkeypatch.setattr(main, "_dispatch_analyze", raising_dispatch)
+    failing_client = TestClient(main.app, raise_server_exceptions=False)
+    with failing_client as c:
+        resp = c.post(
+            "/api/analyze",
+            headers={REQUEST_ID_HEADER: "demo-poll-failed"},
+            json={"scenario": {"id": "spanish-fintech-startup-uses-9e165169"}, "question": "What regulations apply?"},
+        )
+        assert resp.status_code == 500
+
+    data = poll_progress(client, "demo-poll-failed", lambda d: d.get("error"))
+    assert "demo dispatch failed" in data["error"]
 
 
 def test_exact_scenario_id_required():

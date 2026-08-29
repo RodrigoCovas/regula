@@ -1,4 +1,4 @@
-import type { ScenarioInput } from "./contract";
+import type { Mode, ScenarioInput } from "./contract";
 import { sha256Hex } from "./sha256";
 
 const STOPWORDS = new Set([
@@ -115,6 +115,7 @@ export function deriveScenarioId(description: string): string {
 export function buildScenarioInput(
   description: string,
   question: string,
+  mode: Mode,
 ): ScenarioInput {
   return {
     scenario: {
@@ -123,6 +124,7 @@ export function buildScenarioInput(
       description,
     },
     question,
+    mode,
   };
 }
 
@@ -136,4 +138,5 @@ export const demoScenarioInput: ScenarioInput = {
       "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
   },
   question: "What regulations apply to our AI-based credit scoring platform?",
+  mode: "demo",
 };

@@ -578,11 +578,11 @@ def analyze(
     including failures, which carry an explicit failure status and the
     tokens spent before dying.
 
-    A client may track a long Live-mode run: sending the X-Request-Id
-    header registers the run in the progress registry once it reaches the
-    Live workflow, and each phase transition (Planner → Researcher →
-    Verifier → Proposer) is reported into it. GET /api/progress/{request_id}
-    reads the current phase and transition history back.
+    A client may track a run: sending the X-Request-Id header registers the
+    request in the progress registry — a Live run reports each phase
+    transition (Planner → Researcher → Verifier → Proposer) into it as it
+    works, and a Demo run records its (immediate) outcome — and
+    GET /api/progress/{request_id} reads the result back.
 
     When the X-Request-Id header is present in Live mode, the analysis runs
     in a background thread and the POST returns promptly with a
@@ -606,11 +606,23 @@ def analyze(
     started = time.perf_counter()
     status, workflow, error = STATUS_SUCCESS, None, None
     try:
+        if request_id:
+            # A UI-submitted Demo run polls for its answer like a Live one:
+            # the decoupled client (#41) treats the progress endpoint as the
+            # source of truth, so the synchronous dispatch registers its
+            # outcome — the served response, or the failure — under the
+            # submitted id. Polling then reaches the real answer, never the
+            # unknown-request reply.
+            progress_registry.register(request_id)
         response = _dispatch_analyze(run)
         workflow = response.trace.workflow
+        if request_id:
+            progress_registry.complete(request_id, response)
         return response
     except Exception as caught:
         status, error = STATUS_FAILURE, str(caught)
+        if request_id:
+            progress_registry.fail(request_id, str(caught))
         raise
     finally:
         _log_request(
@@ -786,6 +798,7 @@ def _dispatch_analyze(run: RunContext) -> AnalyzeResponse:
         citations = []
         actions = [
             "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech-startup-uses-9e165169' with the canonical AI credit scoring question.",
+            "In the web UI, use the 'Try the demo scenario' button to fill the form with the canonical scenario, then Analyze.",
             "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope).",
         ]
         trace = Trace(

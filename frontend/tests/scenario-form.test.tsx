@@ -21,7 +21,19 @@ test("takes only a description and a question — no id or title fields", () => 
   assert.ok(markup.includes("Scenario description"));
   assert.ok(markup.includes("Regulatory question"));
   assert.equal((markup.match(/<textarea/g) ?? []).length, 1);
-  assert.equal((markup.match(/<input/g) ?? []).length, 1);
+  assert.equal((markup.match(/<input[^>]*type="text"/g) ?? []).length, 1);
+});
+
+test("the mode toggle defaults to Demo on every load (issue #48)", () => {
+  const markup = renderForm();
+  const demoInput = markup.match(/<input[^>]*value="demo"[^>]*>/)?.[0] ?? "";
+  assert.match(demoInput, /checked/i);
+});
+
+test("renders no readiness checklist while Demo is selected", () => {
+  const markup = renderForm();
+  assert.ok(!markup.includes("not ready"));
+  assert.ok(!markup.includes("docker compose exec"));
 });
 
 test("renders the Analyze and demo buttons", () => {

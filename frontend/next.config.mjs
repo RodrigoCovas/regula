@@ -8,6 +8,12 @@ const nextConfig = {
         source: "/api/:path*",
         destination: `${backendUrl}/api/:path*`,
       },
+      {
+        // The readiness endpoint sits outside /api on the backend (issue #45);
+        // the frontend's readiness check proxies it the same way (issue #48).
+        source: "/readiness",
+        destination: `${backendUrl}/readiness`,
+      },
     ];
   },
 };

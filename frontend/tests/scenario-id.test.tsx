@@ -102,11 +102,19 @@ test("the title is empty for a description of only stopwords", () => {
 
 test("the derived payload carries the derived title and the derived id", () => {
   const description = "Spanish fintech lending";
-  const input = buildScenarioInput(description, "What regulations apply?");
+  const input = buildScenarioInput(description, "What regulations apply?", "demo");
   assert.equal(input.scenario.title, "Spanish Fintech Lending");
   assert.equal(input.scenario.description, description);
   assert.equal(input.scenario.id, deriveScenarioId(description));
   assert.equal(input.question, "What regulations apply?");
+});
+
+test("every submission carries the selected mode explicitly (issue #48)", () => {
+  const description = "Spanish fintech lending";
+  const demo = buildScenarioInput(description, "What regulations apply?", "demo");
+  assert.equal(demo.mode, "demo");
+  const live = buildScenarioInput(description, "What regulations apply?", "live");
+  assert.equal(live.mode, "live");
 });
 
 test("the demo payload is the exact canonical scenario with enriched content", () => {
@@ -119,5 +127,6 @@ test("the demo payload is the exact canonical scenario with enriched content", (
       description: demoDescription,
     },
     question: "What regulations apply to our AI-based credit scoring platform?",
+    mode: "demo",
   });
 });

@@ -10,9 +10,13 @@ export interface Scenario {
   description: string;
 }
 
+// The per-run mode (ADR-0008): every analysis request carries it explicitly.
+export type Mode = "demo" | "live";
+
 export interface ScenarioInput {
   scenario: Scenario;
   question: string;
+  mode: Mode;
 }
 
 export interface Citation {

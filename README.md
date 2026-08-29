@@ -62,6 +62,11 @@ Mode is a per-run choice (ADR-0008): every analysis request carries `mode`
 explicitly, and a request that omits it gets the server default
 (`REGULA_MODE`, itself defaulting to `demo`). One backend serves both modes:
 
+The web UI exposes the choice as a Demo/Live toggle that defaults to Demo on
+every page load and never persists; Live submission stays blocked, with a
+checklist of the missing prerequisites and their remediation commands, until
+the readiness endpoint reports Live mode ready (issue #48).
+
 - **Demo mode** (`mode: "demo"`) — keyless deterministic demo. Answers only
   `scenario.id == "spanish-fintech-startup-uses-9e165169"` from fixed content.
 - **Live mode** (`mode: "live"`) — answers **arbitrary** scenarios through
