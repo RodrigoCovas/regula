@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runAnalysis, AnalyzeFailure } from "../lib/analyze-client";
+import { runAnalysis, AnalyzeFailure, type AnalyzeClientDeps } from "../lib/analyze-client";
 import {
   demoAnalyzeResponse,
   demoNotAvailableResponse,
@@ -70,6 +70,18 @@ function analyzeCallOf(calls: FetchCall[]): FetchCall {
     throw new Error("expected a call to /api/analyze");
   }
   return call;
+}
+
+// The scheduler a fast mocked run needs, so new tests spell only what
+// differs (the fetch impl, a pinned request id, ...).
+function baseDeps(overrides: Partial<AnalyzeClientDeps> = {}): AnalyzeClientDeps {
+  return {
+    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
+    clearTimeoutFn: (handle) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+    pollIntervalMs: 10,
+    ...overrides,
+  };
 }
 
 test("submits the Scenario to /api/analyze with the generated request id header", async () => {
@@ -264,13 +276,10 @@ test("the request body carries the selected mode explicitly (issue #48)", async 
     "What regulations apply?",
     "live",
   );
-  await runAnalysis(liveInput, {
-    fetchImpl: impl,
-    generateRequestId: () => "run-1",
-    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
-    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    pollIntervalMs: 10,
-  });
+  await runAnalysis(
+    liveInput,
+    baseDeps({ fetchImpl: impl, generateRequestId: () => "run-1" }),
+  );
 
   const analyzeCall = analyzeCallOf(calls);
   const body = JSON.parse(String(analyzeCall.init?.body));
@@ -297,13 +306,10 @@ test("a custom Scenario in Demo mode yields the Not-available response with the 
     "What regulations apply?",
     "demo",
   );
-  const response = await runAnalysis(customDemoInput, {
-    fetchImpl: impl,
-    generateRequestId: () => "run-1",
-    setTimeoutFn: (cb) => setTimeout(cb, 0) as unknown as TimerHandle,
-    clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    pollIntervalMs: 10,
-  });
+  const response = await runAnalysis(
+    customDemoInput,
+    baseDeps({ fetchImpl: impl, generateRequestId: () => "run-1" }),
+  );
 
   assert.equal(response.trace.workflow, "noop");
   assert.deepEqual(response.answer.findings, []);

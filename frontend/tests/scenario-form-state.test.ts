@@ -76,6 +76,24 @@ test("Demo mode never gates submission, whatever the last check said", () => {
   assert.equal(canSubmit(state), true);
 });
 
+test("a stale readiness error can never gate Demo mode — even directly constructed", () => {
+  // Constructed straight past the reducer (whose mode-changed clears the
+  // error) to pin the gate's own invariant: Demo never gates.
+  const state: ScenarioFormState = {
+    ...initialScenarioFormState,
+    readiness: { kind: "unavailable", message: "the backend could not be reached" },
+  };
+  assert.deepEqual(readinessGateOf(state), { kind: "idle" });
+  assert.equal(
+    canSubmit({
+      ...state,
+      description: "A Spanish fintech startup",
+      question: "What regulations apply?",
+    }),
+    true,
+  );
+});
+
 test("switching back to Live starts a fresh check: a stale ready result never unblocks", () => {
   const state = filledLive([
     { type: "readiness-known", readiness: READY_READINESS },

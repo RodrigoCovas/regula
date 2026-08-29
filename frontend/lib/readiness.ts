@@ -114,17 +114,29 @@ export type ReadinessGate =
   | { kind: "incomplete"; missing: ReadinessItem[] }
   | { kind: "unavailable"; message: string };
 
-export function liveReadinessGate(mode: Mode, checked: Readiness | null): ReadinessGate {
+// What one readiness check attempt left behind, as the form records it:
+// nothing in force, a completed probe, or a probe that could not run.
+export type ReadinessResult =
+  | { kind: "none" }
+  | { kind: "known"; readiness: Readiness }
+  | { kind: "unavailable"; message: string };
+
+export function liveReadinessGate(mode: Mode, result: ReadinessResult): ReadinessGate {
+  // The mode check leads, so an error can only ever shape a Live gate —
+  // a stale check outcome can never block a Demo submission.
   if (mode !== "live") {
     return { kind: "idle" };
   }
-  if (checked === null) {
-    return { kind: "checking" };
+  switch (result.kind) {
+    case "none":
+      return { kind: "checking" };
+    case "unavailable":
+      return { kind: "unavailable", message: result.message };
+    case "known":
+      return isLiveReady(result.readiness)
+        ? { kind: "ready" }
+        : { kind: "incomplete", missing: missingPrerequisites(result.readiness) };
   }
-  if (isLiveReady(checked)) {
-    return { kind: "ready" };
-  }
-  return { kind: "incomplete", missing: missingPrerequisites(checked) };
 }
 
 export function readinessBlocks(gate: ReadinessGate): boolean {

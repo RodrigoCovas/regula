@@ -1,5 +1,5 @@
 import type { Mode, ScenarioInput } from "./contract";
-import type { Readiness, ReadinessGate } from "./readiness";
+import type { Readiness, ReadinessGate, ReadinessResult } from "./readiness";
 import { liveReadinessGate, readinessBlocks } from "./readiness";
 import { buildScenarioInput, demoScenarioInput } from "./scenario-id";
 
@@ -13,18 +13,16 @@ export interface ScenarioFormState {
   description: string;
   question: string;
   mode: Mode;
-  // The last completed readiness check, null while none is in force —
-  // always null in Demo mode and reset on every mode change.
-  readiness: Readiness | null;
-  readinessError: string | null;
+  // What the latest readiness check attempt left behind — reset on every
+  // mode change, so a Live selection always re-checks.
+  readiness: ReadinessResult;
 }
 
 export const initialScenarioFormState: ScenarioFormState = {
   description: "",
   question: "",
   mode: "demo",
-  readiness: null,
-  readinessError: null,
+  readiness: { kind: "none" },
 };
 
 export type ScenarioFormAction =
@@ -52,8 +50,7 @@ export function scenarioFormReducer(
       return {
         ...state,
         mode: action.mode,
-        readiness: null,
-        readinessError: null,
+        readiness: { kind: "none" },
       };
     case "demo-scenario-filled":
       return {
@@ -62,19 +59,16 @@ export function scenarioFormReducer(
         question: demoScenarioInput.question,
       };
     case "readiness-known":
-      return { ...state, readiness: action.readiness, readinessError: null };
+      return { ...state, readiness: { kind: "known", readiness: action.readiness } };
     case "readiness-unavailable":
-      return { ...state, readinessError: action.message };
+      return { ...state, readiness: { kind: "unavailable", message: action.message } };
   }
 }
 
 export function readinessGateOf(state: ScenarioFormState): ReadinessGate {
-  // An unavailable check outranks a completed one: the message says why
-  // Live stays blocked. The rest — Demo never gates, Live blocks until a
-  // fresh check reads ready — belongs to liveReadinessGate alone.
-  if (state.readinessError !== null) {
-    return { kind: "unavailable", message: state.readinessError };
-  }
+  // One delegate: liveReadinessGate owns the whole mapping — Demo never
+  // gates (the mode check leads), and an unavailable check outranks a
+  // completed one only inside Live mode.
   return liveReadinessGate(state.mode, state.readiness);
 }
 
