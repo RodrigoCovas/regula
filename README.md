@@ -51,21 +51,23 @@ docker compose down
 
 ### Modes
 
-One environment variable selects the mode before any request is served; nothing
-ever silently degrades between paths:
+Mode is a per-run choice (ADR-0008): every analysis request carries `mode`
+explicitly, and a request that omits it gets the server default
+(`REGULA_MODE`, itself defaulting to `demo`). One backend serves both modes:
 
-- `REGULA_MODE=demo` (default) — keyless deterministic demo. Answers only
+- **Demo mode** (`mode: "demo"`) — keyless deterministic demo. Answers only
   `scenario.id == "spanish-fintech-startup-uses-9e165169"` from fixed content.
-- `REGULA_MODE=live` — requires `OPENROUTER_API_KEY`. Starting Live mode
-  without the key refuses to boot with an error naming the missing variable.
-  Live mode answers **arbitrary** scenarios through the real workflow:
-  Planner → Researcher → Verifier retrieve Chunks from the ingested pgvector
-  Corpus and produce evidence-backed Findings with Strength badges and
-  metadata-derived Citations. The LLM provider is environment configuration
-  (ADR-0009): Solar Pro 4 (`upstage/solar-pro4`) via OpenRouter by default,
-  overridable with `LLM_MODEL`, `LLM_BASE_URL`, and the API key — see
-  `backend/.env.example`. An un-ingested
-  or unreachable store still yields a Not-available response naming the fix.
+- **Live mode** (`mode: "live"`) — answers **arbitrary** scenarios through
+  the real workflow: Planner → Researcher → Verifier retrieve Chunks from the
+  ingested pgvector Corpus and produce evidence-backed Findings with Strength
+  badges and metadata-derived Citations. Live mode is executable only when
+  the prerequisites hold: `OPENROUTER_API_KEY`, the embedding model, and an
+  ingested Corpus. A missing provider key or an un-ingested / unreachable
+  store yields a Not-available response naming the exact fix — never a boot
+  refusal in the default mode, never a server error. The LLM provider is
+  environment configuration (ADR-0009): Solar Pro 4 (`upstage/solar-pro4`)
+  via OpenRouter by default, overridable with `LLM_MODEL`, `LLM_BASE_URL`,
+  and the API key — see `backend/.env.example`.
 
 ### Request observability
 
@@ -169,20 +171,20 @@ pulled embedding model (`hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16` by
 default; override with `--model`), and upserts it into PostgreSQL/pgvector
 together with its provision metadata (Article XOR Recital XOR Annex). The
 backend never ingests on startup; serving Live mode afterwards additionally
-requires `REGULA_MODE=live` plus `OPENROUTER_API_KEY`.
+requires `OPENROUTER_API_KEY`.
 
 ### Running Live mode
 
-After ingesting the Corpus, start the backend in Live mode:
+After ingesting the Corpus:
 
 1. **Configure the API key** in `backend/.env.local`:
 ```bash
 echo "OPENROUTER_API_KEY=your-key-here" >> backend/.env.local
 ```
 
-2. **Start the backend** with `REGULA_MODE=live`:
+2. **Start the backend**:
 ```bash
-REGULA_MODE=live python -m uvicorn backend.src.main:app --reload --reload-dir backend/src
+python -m uvicorn backend.src.main:app --reload --reload-dir backend/src
 ```
 
 3. **Start the frontend** (in another terminal):
@@ -190,11 +192,16 @@ REGULA_MODE=live python -m uvicorn backend.src.main:app --reload --reload-dir ba
 cd frontend && npm run dev
 ```
 
-4. **Open** http://localhost:3000 and submit any scenario — the Live workflow
-   (Planner → Researcher → Verifier → Proposer) will answer using the ingested
-   Corpus and the configured LLM. Live mode requests typically take 60-90 seconds;
-   the frontend polls the progress endpoint and displays phase transitions as they
-   occur.
+4. **Run a Live analysis** — the request carries `mode` explicitly (ADR-0008):
+```bash
+curl -s http://localhost:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "live", "scenario": {"description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans."}, "question": "What regulations apply to our AI-based credit scoring platform?"}'
+```
+The Live workflow (Planner → Researcher → Verifier → Proposer) answers using the ingested
+Corpus and the configured LLM. Live mode requests typically take 60-90 seconds;
+the frontend polls the progress endpoint and displays phase transitions as they
+occur.
 
 The API key is read from `backend/.env.local` automatically at startup. The LLM
 provider is environment configuration (ADR-0009): it defaults to
@@ -223,10 +230,10 @@ Provider caveats worth knowing before you switch:
 - **The key variable's name is historical.** `OPENROUTER_API_KEY` holds
   whichever provider's key you are using; with the matching `LLM_BASE_URL`
   an OpenAI, Groq, or local key works the same way.
-- **Local keyless servers still need a key value.** Live mode refuses to
-  boot without `OPENROUTER_API_KEY` and the client always sends the Bearer
-  header, so set it to any non-empty placeholder (e.g. `ollama`) — Ollama,
-  vLLM, and LM Studio ignore its value.
+- **Local keyless servers still need a key value.** A Live-mode request
+  without `OPENROUTER_API_KEY` configured answers Not-available (ADR-0008),
+  and the client always sends the Bearer header — so set it to any non-empty
+  placeholder (e.g. `ollama`); Ollama, vLLM, and LM Studio ignore its value.
 - **Avoid reasoning models for now.** The client sends `max_tokens` (its
   locked single-pass budget); OpenAI's o-series and gpt-5 reasoning models
   reject that parameter in favour of `max_completion_tokens`. Standard chat
@@ -268,7 +275,7 @@ regula/
 ├── backend/
 │   ├── src/
 │   │   ├── main.py                 # FastAPI app and API routes
-│   │   ├── config.py               # Configuration and mode selection
+│   │   ├── config.py               # Configuration (server default mode, provider settings)
 │   │   ├── models.py               # Pydantic schemas
 │   │   ├── db.py                   # Database setup and connection
 │   │   ├── retrieval.py            # Retrieval service layer

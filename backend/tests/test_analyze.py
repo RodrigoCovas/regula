@@ -263,15 +263,6 @@ def test_live_request_over_an_ingested_store_runs_the_real_pipeline(monkeypatch)
     assert any("english-only" in line.lower() for line in data["known_limitations"])
 
 
-def test_live_mode_without_api_key_fails_at_startup(monkeypatch):
-    """Live mode without OPENROUTER_API_KEY refuses to start with a clear message."""
-    client = boot_with_env(monkeypatch, REGULA_MODE="live")
-    with pytest.raises(ConfigurationError) as excinfo:
-        with client:
-            pass
-    assert "OPENROUTER_API_KEY" in str(excinfo.value)
-
-
 def test_configuration_error_is_startup_failure_not_mid_request_server_error(monkeypatch):
     """Invalid mode value aborts startup; requests are never served a 500 from bad config."""
     client = boot_with_env(monkeypatch, REGULA_MODE="banana")
@@ -544,3 +535,131 @@ def test_demo_mode_never_touches_the_store_even_when_it_cannot_be_reached(monkey
     assert resp.status_code == 200
     assert len(resp.json()["answer"]["findings"]) >= 9
     assert calls == []
+
+
+# --- Per-run mode: analysis requests carry mode explicitly (ADR-0008, issue #44) ---
+
+
+def post_mode(client, mode=None, request_id=None):
+    """POST the canonical Scenario with an explicit ``mode`` (or none, to
+    exercise the server default) and an optional progress request id."""
+    from src.main import REQUEST_ID_HEADER
+
+    payload = {
+        "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup."},
+        "question": "What regulations apply?",
+    }
+    if mode is not None:
+        payload["mode"] = mode
+    headers = {REQUEST_ID_HEADER: request_id} if request_id else {}
+    return client.post("/api/analyze", json=payload, headers=headers)
+
+
+def assert_live_pipeline_answered(data):
+    """The canned offline pipeline's Answer: two kept Findings, never demo
+    content — proof the request ran Live mode with the provider fakes."""
+    findings = data["answer"]["findings"]
+    assert len(findings) == 2, findings
+    assert findings[0]["statement"] == "Creditworthiness evaluation is a high-risk use case."
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
+
+
+def assert_demo_answered(data):
+    """The deterministic demo sheet: every canonical Finding, never pipeline content."""
+    assert len(data["answer"]["findings"]) >= 9
+    assert all(
+        f["statement"] != "Creditworthiness evaluation is a high-risk use case."
+        for f in data["answer"]["findings"]
+    )
+
+
+def test_request_with_explicit_live_mode_overrides_a_demo_server_default(monkeypatch):
+    """One backend booted in the default Demo mode serves Live mode when the
+    request carries mode explicitly — mode is a per-run choice (ADR-0008)."""
+    with boot_with_env(monkeypatch, OPENROUTER_API_KEY="sk-or-test") as client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+        install_fake_pipeline(make_offline_llm(), FakeRetriever())
+        resp = post_mode(client, mode="live")
+    assert resp.status_code == 200
+    assert_live_pipeline_answered(resp.json())
+
+
+def test_request_with_explicit_demo_mode_overrides_a_live_server_default(monkeypatch):
+    """A backend whose server default is Live still serves the deterministic
+    demo when the request carries mode='demo' — and the pipeline never runs."""
+    with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever()) as client:
+        resp = post_mode(client, mode="demo")
+    assert resp.status_code == 200
+    assert_demo_answered(resp.json())
+
+
+def test_omitted_mode_falls_back_to_the_live_server_default(monkeypatch):
+    """REGULA_MODE survives as the server-side default: a request that omits
+    mode on a Live-default backend runs Live (the omitted-mode Demo default is
+    covered by test_default_boot_serves_demo_mode)."""
+    with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever()) as client:
+        resp = post_mode(client)
+    assert resp.status_code == 200
+    assert_live_pipeline_answered(resp.json())
+
+
+def test_invalid_explicit_mode_is_a_client_error_never_a_crash(monkeypatch):
+    """An unknown mode value is rejected by request validation (422), never
+    dispatched and never a 500."""
+    with boot_with_env(monkeypatch) as client:
+        resp = post_mode(client, mode="banana")
+    assert resp.status_code == 422
+
+
+def test_keyless_boot_serves_demo_and_a_live_request_answers_not_available(monkeypatch):
+    """ADR-0008: with default configuration and no provider key the backend
+    boots and serves Demo; a Live request surfaces the missing key as a
+    Readiness gap — the Not-available response with recovery guidance, never
+    a boot refusal and never a crash."""
+    with boot_with_env(monkeypatch) as client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+        install_fake_pipeline(make_offline_llm(), FakeRetriever())
+
+        demo_resp = post_canonical_scenario(client)
+        live_resp = post_mode(client, mode="live")
+
+    assert demo_resp.status_code == 200
+    assert_demo_answered(demo_resp.json())
+
+    assert live_resp.status_code == 200
+    data = live_resp.json()
+    assert_not_available_shape(data)
+    actions = data["answer"]["actions"]
+    assert any("OPENROUTER_API_KEY" in a for a in actions), actions
+    assert any(".env.local" in a for a in actions), actions
+    assert "key" in data["trace"]["summary"].lower()
+    # The pipeline must never have run: the reply is not the faked Live Answer.
+    assert data["answer"]["findings"] == []
+
+
+def test_keyless_live_ui_submission_polls_into_the_not_available_response(monkeypatch):
+    """The decoupled UI path surfaces the same Readiness gap: a keyless Live
+    submission registers in the progress registry and completes with the
+    missing-key Not-available response for polling clients."""
+    import time
+
+    with boot_with_env(monkeypatch) as client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+        install_fake_pipeline(make_offline_llm(), FakeRetriever())
+        resp = post_mode(client, mode="live", request_id="keyless-ui")
+        assert resp.status_code == 200
+        snapshot = resp.json()
+        assert snapshot["request_id"] == "keyless-ui"
+        assert "answer" not in snapshot, "POST should return a ProgressSnapshot"
+
+        data = snapshot
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end:
+            data = client.get("/api/progress/keyless-ui").json()
+            if "answer" in data:
+                break
+            time.sleep(0.05)
+
+    assert_not_available_shape(data)
+    actions = data["answer"]["actions"]
+    assert any("OPENROUTER_API_KEY" in a for a in actions), actions

@@ -1,12 +1,13 @@
 """Availability: whether Live mode can serve a request right now.
 
-Three conditions hang off the Live dispatch point, each answering with a
-Not-available response instead of a server error or demo content: the
-Corpus is un-ingested (store-emptiness only this iteration; staleness
-detection after re-chunking or embedding-model changes is deferred), the
-vector store cannot be reached at all, and the LLM provider cannot be
-reached at all. Demo mode never reaches for the store or the LLM —
-availability is a Live-mode concern alone.
+The conditions hang off the Live dispatch point, each answering with a
+Not-available response instead of a server error or demo content: no provider
+key is configured (ADR-0008 — a Readiness gap, since the backend boots without
+a Live-capable configuration), the Corpus is un-ingested (store-emptiness only
+this iteration; staleness detection after re-chunking or embedding-model
+changes is deferred), the vector store cannot be reached at all, and the LLM
+provider cannot be reached at all. Demo mode never reaches for the store or
+the LLM — availability is a Live-mode concern alone.
 
 This module also hosts the sibling shape every Not-available response shares,
 including the standing English-only Known limitation.
@@ -30,10 +31,11 @@ INGEST_COMMAND_IN_STACK = "docker compose exec backend python -m backend.src.ing
 # The one documented way to bring the stack's database up (README, docker-compose.yml).
 START_POSTGRES_COMMAND = "docker compose up -d postgres"
 
-# The standing escape hatch shared by every Not-available response.
+# The standing escape hatch shared by every Not-available response (ADR-0008:
+# switching to Demo is a per-run choice, no restart).
 SWITCH_TO_DEMO_ACTION = (
-    "Set REGULA_MODE=demo (the default) to analyze the canonical Spanish fintech "
-    "scenario via scenario.id 'spanish-fintech-startup-uses-9e165169'."
+    "Re-run with mode 'demo' to analyze the canonical Spanish fintech scenario "
+    "via scenario.id 'spanish-fintech-startup-uses-9e165169'."
 )
 
 ENGLISH_ONLY_LIMITATION = (
@@ -128,6 +130,24 @@ def not_available_response(actions: list[str], summary: str) -> AnalyzeResponse:
         trace=Trace(workflow=NOT_AVAILABLE_WORKFLOW, summary=summary),
         detailed_trace=[],
         known_limitations=[ENGLISH_ONLY_LIMITATION],
+    )
+
+
+def missing_api_key_response() -> AnalyzeResponse:
+    """Not-available response for Live mode while no provider key is configured.
+
+    ADR-0008: the backend boots without a Live-capable configuration, so a
+    missing key is a per-request Readiness gap, not a boot refusal. The reply
+    names the exact variable and the documented key home — settings load at
+    boot, so picking the key up does need a restart, unlike ingestion.
+    """
+    return not_available_response(
+        actions=[
+            "Live mode needs an LLM provider key, but OPENROUTER_API_KEY is not configured.",
+            "Set it in backend/.env.local (or export it) and restart the backend; no re-ingestion is needed.",
+            SWITCH_TO_DEMO_ACTION,
+        ],
+        summary="Live mode selected but no provider key is configured; no analysis performed.",
     )
 
 

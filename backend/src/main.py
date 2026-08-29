@@ -17,19 +17,20 @@ from .availability import (
     PROTOTYPE_LIMITATION,
     UNREACHABLE_STORE_ERRORS,
     log_startup_store_warning,
+    missing_api_key_response,
     store_unreachable,
     un_ingested_corpus_response,
     unreachable_llm_response,
     unreachable_store_response,
     vector_store_is_empty,
 )
-from .config import ConfigurationError, Mode, load_settings
+from .config import ConfigurationError, load_settings
 from .corpus import load_documents
 from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
 from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Mode, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
 from .progress import ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
 from .query_log import (
     STATUS_FAILURE,
@@ -424,6 +425,7 @@ def _log_request(
     llm: Llm,
     observation: RequestObservation,
     *,
+    mode: Mode,
     status: str,
     workflow: Optional[str],
     latency_ms: float,
@@ -436,7 +438,7 @@ def _log_request(
     append_query_record(
         settings.query_log_path,
         build_query_record(
-            mode=settings.regula_mode.value,
+            mode=mode.value,
             scenario_id=request.scenario.id,
             workflow=workflow,
             status=status,
@@ -446,6 +448,13 @@ def _log_request(
             error=error,
         ),
     )
+
+
+def _resolve_mode(request: AnalyzeRequest) -> Mode:
+    """The mode this run executes in (ADR-0008): the request's explicit
+    choice, or the server default (REGULA_MODE, itself defaulting to Demo)
+    when the request omits it."""
+    return request.mode or settings.regula_mode
 
 
 @app.post("/api/analyze", response_model=Union[AnalyzeResponse, ProgressSnapshot])
@@ -458,12 +467,16 @@ def analyze(
     """Answer a Scenario through Demo mode (canonical, deterministic) or
     Live mode (arbitrary scenarios via retrieval + LLM workflow).
 
-    This endpoint accepts {scenario, question} and returns a structured
+    Mode is a per-run choice (ADR-0008): the request carries ``mode``
+    explicitly, and a request that omits it gets the server default
+    (REGULA_MODE, defaulting to Demo).
+
+    This endpoint accepts {scenario, question, mode} and returns a structured
     response with answer, trace, detailed_trace, and known_limitations
-    as siblings. Live mode first passes the availability gates: an empty
-    vector store yields a Not-available response naming the ingest command,
-    an unreachable store or LLM provider one naming the outage — never a
-    server error for a condition the operator can fix.
+    as siblings. Live mode first passes the availability gates: a missing
+    provider key or an empty vector store yields a Not-available response
+    naming the fix, an unreachable store or LLM provider one naming the
+    outage — never a server error for a condition the operator can fix.
 
     Every request appends one observability record to the query log —
     including failures, which carry an explicit failure status and the
@@ -483,8 +496,10 @@ def analyze(
     eventual Answer or a terminal failure. Without the header, the endpoint
     retains its synchronous contract for non-UI callers.
     """
-    if settings.regula_mode == Mode.live and request_id:
-        return _handle_live_ui_submission(request, request_id, llm=llm, retriever=retriever)
+    mode = _resolve_mode(request)
+
+    if mode == Mode.live and request_id:
+        return _handle_live_ui_submission(request, request_id, mode=mode, llm=llm, retriever=retriever)
 
     started = time.perf_counter()
     observation = RequestObservation()
@@ -492,6 +507,7 @@ def analyze(
     try:
         response = _dispatch_analyze(
             request,
+            mode=mode,
             llm=llm,
             retriever=retriever,
             observation=observation,
@@ -506,6 +522,7 @@ def analyze(
             request,
             llm,
             observation,
+            mode=mode,
             status=status,
             workflow=workflow,
             latency_ms=(time.perf_counter() - started) * 1000,
@@ -514,13 +531,15 @@ def analyze(
 
 
 def _check_live_availability() -> Optional[AnalyzeResponse]:
-    """Run the Live-mode availability gates (un-ingested corpus, unreachable
-    store). Returns None when the gates pass, or a Not-available
-    AnalyzeResponse when they fail.
+    """Run the Live-mode Readiness gates (missing provider key, un-ingested
+    corpus, unreachable store). Returns None when the gates pass, or a
+    Not-available AnalyzeResponse when they fail.
 
     Shared between the synchronous non-UI path and the background UI path
     so the gate logic lives in one place.
     """
+    if not settings.openrouter_api_key:
+        return missing_api_key_response()
     try:
         empty = vector_store_is_empty(settings.database_url)
     except UNREACHABLE_STORE_ERRORS as error:
@@ -536,6 +555,7 @@ def _handle_live_ui_submission(
     request: AnalyzeRequest,
     request_id: str,
     *,
+    mode: Mode,
     llm: Llm,
     retriever: Retriever,
 ) -> ProgressSnapshot:
@@ -593,6 +613,7 @@ def _handle_live_ui_submission(
                 request,
                 llm,
                 bg_observation,
+                mode=mode,
                 status=bg_status,
                 workflow=bg_workflow,
                 latency_ms=(time.perf_counter() - started) * 1000,
@@ -611,17 +632,21 @@ def _handle_live_ui_submission(
 def _dispatch_analyze(
     request: AnalyzeRequest,
     *,
+    mode: Mode,
     llm: Llm,
     retriever: Retriever,
     observation: RequestObservation,
 ) -> AnalyzeResponse:
     """Mode dispatch: the served answer for one request, Demo or Live.
 
+    ``mode`` is already resolved for this run — the request's explicit
+    choice, or the server default when it omitted one (ADR-0008).
+
     Progress tracking for UI-facing Live submissions (with request_id) is
     handled by ``_handle_live_ui_submission``; this path serves non-UI
     callers (synchronous, no progress) and Demo mode.
     """
-    if settings.regula_mode == Mode.live:
+    if mode == Mode.live:
         gate_response = _check_live_availability()
         if gate_response is not None:
             return gate_response

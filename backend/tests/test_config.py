@@ -1,15 +1,19 @@
-"""Configuration seam: one env var selects demo (default) or live; misconfigs fail fast.
+"""Configuration seam: REGULA_MODE is the server default mode; provider settings are env-driven.
 
-Per spec #9: REGULA_MODE selects the mode before any request is served;
-Live mode without OPENROUTER_API_KEY refuses to start with a clear message.
-Per ADR-0009: the provider configuration (LLM model, base URL, API key,
-embedding model) is environment-driven with defaults that reproduce the
-original pin (Solar Pro 4 over OpenRouter, nomic embedder).
+Per ADR-0008, mode is a per-run choice carried on each analysis request and
+REGULA_MODE survives only as the server-side default when a request omits it
+— so the backend boots without a Live-capable configuration: Live mode
+without OPENROUTER_API_KEY still loads, and the missing key surfaces as a
+per-request Readiness gap. Per ADR-0009, the provider configuration (LLM
+model, base URL, API key, embedding model) is environment-driven with
+defaults that reproduce the original pin (Solar Pro 4 over OpenRouter, nomic
+embedder).
 """
 
 import pytest
 
-from src.config import ConfigurationError, Mode, load_settings
+from src.config import ConfigurationError, load_settings
+from src.models import Mode
 
 
 def test_default_mode_is_demo(monkeypatch):
@@ -27,12 +31,15 @@ def test_live_mode_selected_via_env_var(monkeypatch):
     assert settings.openrouter_api_key is not None
 
 
-def test_live_mode_without_api_key_raises_configuration_error(monkeypatch):
+def test_live_mode_without_api_key_still_loads_key_gap_surfaces_per_request(monkeypatch):
+    """ADR-0008: the backend boots without a Live-capable configuration — a
+    missing provider key is a per-request Readiness gap (the Not-available
+    response), not a boot refusal."""
     monkeypatch.setenv("REGULA_MODE", "live")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    with pytest.raises(ConfigurationError) as excinfo:
-        load_settings()
-    assert "OPENROUTER_API_KEY" in str(excinfo.value)
+    settings = load_settings()
+    assert settings.regula_mode == Mode.live
+    assert settings.openrouter_api_key is None
 
 
 def test_invalid_mode_value_raises_configuration_error_not_silent_demo(monkeypatch):

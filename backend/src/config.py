@@ -1,14 +1,18 @@
-"""Configuration: environment selects mode and provider (ADR-0009).
+"""Configuration: the environment provides the server default mode and the
+provider (ADR-0009).
 
 Misconfiguration must fail fast at startup, never surface as a mid-request
-server error. Live mode requires OPENROUTER_API_KEY and refuses to start
-without it; nothing ever silently degrades. DATABASE_URL points the un-ingested
-guard at the pgvector store — the store is never required to boot. The LLM
-provider configuration (model, base URL, key, embedding model) is
-environment-driven: deployments differ only by configuration.
+server error. Mode itself is a per-run choice (ADR-0008): every analysis
+request carries its mode explicitly, and REGULA_MODE survives only as the
+server-side default for requests that omit it — so the backend boots without
+a Live-capable configuration, and a missing provider key is a per-request
+Readiness gap (the Not-available response), not a boot refusal. DATABASE_URL
+points the un-ingested guard at the pgvector store — the store is never
+required to boot. The LLM provider configuration (model, base URL, key,
+embedding model) is environment-driven: deployments differ only by
+configuration.
 """
 
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +22,7 @@ from pydantic_settings import BaseSettings
 
 from .embedder import DEFAULT_MODEL as DEFAULT_EMBEDDING_MODEL
 from .llm import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL
+from .models import Mode
 from .query_log import DEFAULT_QUERY_LOG_PATH
 
 # The local stack DSN: where the ingest CLI writes Chunks and where the
@@ -34,16 +39,14 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 _ENV_LOCAL_PATH = Path(__file__).resolve().parents[1] / ".env.local"
 
 
-class Mode(str, Enum):
-    demo = "demo"
-    live = "live"
-
-
 class ConfigurationError(RuntimeError):
     """Invalid configuration; startup must refuse to serve rather than degrade."""
 
 
 class Settings(BaseSettings):
+    # The server-side default mode for requests that omit mode (ADR-0008) —
+    # not a boot-time pin. Demo is the default so the keyless path serves
+    # with zero configuration.
     regula_mode: Mode = Mode.demo
     openrouter_api_key: Optional[SecretStr] = None
     # The chat model every completion asks for (ADR-0009): env-overridable,
@@ -75,11 +78,6 @@ def load_settings() -> Settings:
         settings = Settings()
     except ValidationError as exc:
         raise ConfigurationError(f"Invalid configuration (check REGULA_MODE): {exc}") from exc
-    if settings.regula_mode == Mode.live and not settings.openrouter_api_key:
-        raise ConfigurationError(
-            "REGULA_MODE=live requires OPENROUTER_API_KEY to be set. "
-            "Set the key or start with REGULA_MODE=demo (the default)."
-        )
     return settings
 
 

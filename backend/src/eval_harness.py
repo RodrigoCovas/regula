@@ -51,6 +51,7 @@ from .models import (
     AnalyzeRequest,
     AnalyzeResponse,
     Citation,
+    Mode,
     ProvisionKind,
     ProvisionTarget,
     Scenario,
@@ -903,19 +904,22 @@ LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
 def evaluate_scenarios(
     scenarios: List[EvalScenario],
     respond: Callable[[AnalyzeRequest], AnalyzeResponse],
+    mode: Mode,
 ) -> EvalReport:
     """Run each Scenario through ``respond`` and score the produced Findings.
 
     The one evaluation loop both runners share: ``respond`` answers one
     request (the Demo harness calls analyze directly, the Live runner crosses
     HTTP), and everything after — Findings mapping, per-case scoring with the
-    case's matcher, mean F1 — happens identically for every mode.
+    case's matcher, mean F1 — happens identically for every mode. The mode is
+    pinned per request (ADR-0008): every request carries it explicitly.
     """
     scenario_results: List[EvalScenarioResult] = []
     for scenario in scenarios:
         request = AnalyzeRequest(
             scenario=Scenario(id=scenario.scenario_id, description=scenario.description),
             question=scenario.question,
+            mode=mode,
         )
         response = respond(request)
         produced = [
@@ -934,12 +938,9 @@ def run_eval() -> EvalReport:
 
     Drives the app's analyze entry point directly — no HTTP.
     Per ADR-0001 the curated cases are Demo-mode tripwires, so the harness
-    pins Demo mode regardless of how the app is configured and restores the
-    app's settings afterwards.
+    pins Demo mode per request (ADR-0008) regardless of how the app booted.
     """
 
-    from . import main
-    from .config import Mode, Settings
     from .main import analyze
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
@@ -948,12 +949,7 @@ def run_eval() -> EvalReport:
         # progress registry.
         return analyze(request, request_id=None)
 
-    app_settings = main.settings
-    main.settings = Settings(regula_mode=Mode.demo)
-    try:
-        return evaluate_scenarios(CURATED_SCENARIOS, respond)
-    finally:
-        main.settings = app_settings
+    return evaluate_scenarios(CURATED_SCENARIOS, respond, mode=Mode.demo)
 
 
 if __name__ == "__main__":

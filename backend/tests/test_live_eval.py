@@ -8,14 +8,16 @@ no OpenRouter, no Ollama, no PostgreSQL. The command itself is
 operator-run and never part of CI.
 """
 
+import json
+
 import pytest
 from pydantic import SecretStr
 
-from src.config import Mode, Settings
+from src.config import Settings
 from src.eval_harness import LIVE_EVAL_SCENARIOS, STRENGTH_WEIGHTS, EvalScenarioResult
 from src.live_eval import LiveEvalRefused, main, run_live_eval
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
-from src.models import ProvisionKind, Strength
+from src.models import Mode, ProvisionKind, Strength
 
 from conftest import install_fake_pipeline
 from fakes import FakeRetriever, ScriptedLlm, make_chunk
@@ -151,10 +153,10 @@ def test_semantic_matching_and_citation_fidelity_are_applied(ingested_store, que
     assert first.recall == pytest.approx(STRENGTH_WEIGHTS[Strength.strong] / expected_weight_total)
 
 
-def test_pins_live_mode_and_restores_app_settings(ingested_store, query_log_path):
-    """The run forces Live dispatch even when the app booted Demo, and the
-    app's settings come back exactly as they were — the run_eval contract,
-    mirrored."""
+def test_pins_live_mode_per_request_even_when_the_app_boots_demo(ingested_store, query_log_path):
+    """ADR-0008: the run pins Live mode per request — every query-log record
+    carries mode 'live' even though the app booted Demo — and the app's
+    settings come back exactly as they were afterwards."""
     import src.main as main_module
 
     install_fake_pipeline(_paraphrasing_llm(), _on_target_retriever())
@@ -164,6 +166,11 @@ def test_pins_live_mode_and_restores_app_settings(ingested_store, query_log_path
 
     assert main_module.settings is before
     assert main_module.settings.regula_mode == Mode.demo
+    records = [
+        json.loads(line) for line in query_log_path.read_text().splitlines() if line.strip()
+    ]
+    assert records, "every request must append its observability record"
+    assert all(record["mode"] == "live" for record in records)
 
 
 def test_not_available_mid_run_aborts_instead_of_scoring_zeros(monkeypatch, query_log_path):

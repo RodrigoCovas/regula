@@ -34,9 +34,9 @@ from .availability import (
     UNREACHABLE_STORE_ERRORS,
     vector_store_is_empty,
 )
-from .config import ConfigurationError, Mode, Settings, load_settings
+from .config import ConfigurationError, Settings, load_settings
 from .eval_harness import LIVE_EVAL_SCENARIOS, EvalReport, evaluate_scenarios
-from .models import AnalyzeRequest, AnalyzeResponse
+from .models import AnalyzeRequest, AnalyzeResponse, Mode
 
 
 class LiveEvalRefused(RuntimeError):
@@ -74,11 +74,14 @@ def ensure_runnable(settings: Settings) -> None:
 def run_live_eval(settings: Settings) -> EvalReport:
     """Run every curated Live case through /api/analyze in Live mode and score it.
 
-    Pins Live dispatch for the duration regardless of how the app booted —
-    the mirror of ``run_eval``'s Demo pinning — and restores the app's
-    settings afterwards. The requests cross the real endpoint, so provider
-    fakes installed at the composition root (the test seam) are honoured and
-    every request appends its observability record like any other.
+    Pins Live mode per request (ADR-0008) regardless of how the app booted —
+    the mirror of ``run_eval``'s Demo pinning. The app's request path is also
+    pointed at the operator's settings for the duration (restored afterwards),
+    so the run measures the configured deployment — key, store, model — not
+    the import-time boot state. The requests cross the real endpoint, so
+    provider fakes installed at the composition root (the test seam) are
+    honoured and every request appends its observability record like any
+    other.
 
     A Not-available response mid-run means the ground shifted under the run
     (the store emptied, an outage began): it is infrastructure failure, never
@@ -91,9 +94,9 @@ def run_live_eval(settings: Settings) -> EvalReport:
     client = TestClient(main.app)
     app_settings = main.settings
     # Rebuild through the constructor instead of model_copy: update= bypasses
-    # pydantic validation, and a pinned Settings must obey the same rules as
-    # one built from the environment.
-    main.settings = Settings(**{**settings.model_dump(), "regula_mode": Mode.live})
+    # pydantic validation, and the settings handed to the request path must
+    # obey the same rules as one built from the environment.
+    main.settings = Settings(**settings.model_dump())
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
         response = client.post("/api/analyze", json=request.model_dump())
@@ -108,7 +111,7 @@ def run_live_eval(settings: Settings) -> EvalReport:
         return analyzed
 
     try:
-        return evaluate_scenarios(LIVE_EVAL_SCENARIOS, respond)
+        return evaluate_scenarios(LIVE_EVAL_SCENARIOS, respond, mode=Mode.live)
     finally:
         main.settings = app_settings
 

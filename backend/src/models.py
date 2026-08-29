@@ -9,9 +9,19 @@ class Scenario(BaseModel):
     description: Optional[str] = None
 
 
+class Mode(str, Enum):
+    demo = "demo"
+    live = "live"
+
+
 class AnalyzeRequest(BaseModel):
+    """One analysis run (ADR-0008): mode is a per-run choice carried on the
+    request itself. A request that omits ``mode`` gets the server default
+    (REGULA_MODE, itself defaulting to Demo)."""
+
     scenario: Scenario
     question: str
+    mode: Optional[Mode] = None
 
 
 class Strength(str, Enum):
