@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Iterable, List, Literal, NamedTuple, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Literal, NamedTuple, Optional, Protocol, Tuple
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -121,6 +121,27 @@ def max_rule_strengths(
     return strengths
 
 
+class CitedFinding(Protocol):
+    """Anything Finding-shaped the max-rule reads: a Strength plus Citations.
+
+    ``Finding`` and the eval harness's ``ProducedFinding`` both satisfy it
+    structurally, so one pair-generator serves both sides of the comparison.
+    """
+
+    strength: Strength
+    citations: List[Citation]
+
+
+def iter_target_strength_pairs(
+    findings: Iterable[CitedFinding],
+) -> Iterator[Tuple[ProvisionTarget, Strength]]:
+    """(provision target, citing Finding's Strength) for every Citation of
+    every Finding — the pairs ``max_rule_strengths`` consumes."""
+    for finding in findings:
+        for citation in finding.citations:
+            yield citation.provision_target, finding.strength
+
+
 def answer_citations(
     findings: List[Finding],
     relevance: Optional[Dict[ProvisionTarget, str]] = None,
@@ -132,11 +153,7 @@ def answer_citations(
     are answer-wide, so they attach here and never to the per-Finding
     Citations the Findings section renders."""
     known_relevance = relevance or {}
-    strengths = max_rule_strengths(
-        (citation.provision_target, finding.strength)
-        for finding in findings
-        for citation in finding.citations
-    )
+    strengths = max_rule_strengths(iter_target_strength_pairs(findings))
     entries: Dict[ProvisionTarget, Citation] = {}
     for finding in findings:
         for citation in finding.citations:

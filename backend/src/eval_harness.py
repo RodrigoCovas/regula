@@ -38,6 +38,7 @@ from .models import (
     ProvisionTarget,
     Scenario,
     Strength,
+    iter_target_strength_pairs,
     max_rule_strengths,
 )
 
@@ -176,11 +177,7 @@ def produced_target_strengths(produced: List[ProducedFinding]) -> Dict[Provision
     (CONTEXT.md, issue #47): per produced Citation target, the strongest
     Strength among the produced Findings citing it — the produced half the
     strength-agreement component (#50) compares against ground truth."""
-    return max_rule_strengths(
-        (citation.provision_target, finding.strength)
-        for finding in produced
-        for citation in finding.citations
-    )
+    return max_rule_strengths(iter_target_strength_pairs(produced))
 
 
 # The human-readable provision kind for an audit-dump target string.

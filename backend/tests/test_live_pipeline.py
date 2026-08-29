@@ -771,20 +771,26 @@ def test_an_all_rejected_summary_batch_degrades_like_a_failure(live_client):
 
 def test_summarizer_prompt_shows_only_the_citing_findings_material(live_client):
     """The Summarizer's prompt groups the kept Findings' Citations by
-    provision with the citing Findings' statements — the only material the
-    relevance statements may draw on."""
+    provision with the citing Findings' statements — and nothing else: the
+    grounding window is exactly the citing Findings' material (#47)."""
     llm = make_offline_llm()
     install_fake_pipeline(llm, FakeRetriever())
     resp = post_arbitrary_scenario(live_client)
     assert resp.status_code == 200
 
-    summarizer_user = llm.calls[4][1]
-    assert "Cited provisions with the Findings that cite them" in summarizer_user
-    assert "[P1]" in summarizer_user
+    summarizer_system, summarizer_user = llm.calls[4][0], llm.calls[4][1]
+    # The prompt is the block alone: the provisions with the citing Findings'
+    # statements — no framing prose, no extra material.
+    assert summarizer_user.startswith("[P1]")
     assert "[P2]" in summarizer_user
     assert "cited by" in summarizer_user
     # The citing Findings' statements ride along as the grounding material.
     assert "Creditworthiness evaluation is a high-risk use case." in summarizer_user
+    # Nothing outside the citing Findings: not the question, not the Evidence
+    # text — CONTEXT.md's grounding boundary is the prompt's boundary.
+    assert "Does automated loan scoring trigger high-risk obligations?" not in summarizer_user
+    assert "Does automated loan scoring trigger high-risk obligations?" not in summarizer_system
+    assert "Automated individual decision-making" not in summarizer_user
 
 
 def test_partial_summary_coverage_ships_what_survived_plus_a_known_limitation(live_client):

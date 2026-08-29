@@ -42,7 +42,7 @@ import logging
 import re
 import time
 from collections import Counter
-from typing import Any, Literal, Optional
+from typing import Any, Literal, NamedTuple, Optional
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -472,9 +472,18 @@ def _labelled_findings(
     return "\n".join(lines), groundings
 
 
+class SummarizerPrompt(NamedTuple):
+    """The Summarizer's prompt block plus the ref → target map the gate
+    validates against. One enumeration serves both, so the gate validates
+    exactly the labels the LLM saw — the pair never travels apart."""
+
+    block: str
+    targets_by_ref: dict[str, ProvisionTarget]
+
+
 def _labelled_provisions(
     findings: list[Finding],
-) -> tuple[str, dict[str, ProvisionTarget]]:
+) -> SummarizerPrompt:
     """The cited-provisions block the Summarizer reads, plus the ref → target
     map the gate validates against.
 
@@ -506,7 +515,7 @@ def _labelled_provisions(
                 listed_findings[ref].add(position)
                 blocks[ref].append(f"  - ({finding.strength.value}) {finding.statement}")
     lines = [line for block in blocks.values() for line in block]
-    return "\n".join(lines), targets_by_ref
+    return SummarizerPrompt(block="\n".join(lines), targets_by_ref=targets_by_ref)
 
 
 _NO_RESOLVABLE_CITATION_REASON = "its citations resolve to no kept Finding"
@@ -633,6 +642,86 @@ def _validate_summaries(
         relevance[target] = summary.relevance
         decisions.append(SummaryDecision(ref=summary.ref, status="kept"))
     return relevance, decisions
+
+
+# --- The Summarizer's outcome: classified once, described by every surface ---
+
+
+class SummarizerOutcome(NamedTuple):
+    """The one classification of the Summarizer's pass, derived once from the
+    state and read by every surface that describes it — the Known limitation,
+    the Execution-trace sentence, and the detailed-trace step. ``covered`` of
+    ``total`` cited provisions carry a relevance statement."""
+
+    status: Literal["failed", "skipped", "partial", "complete"]
+    covered: int
+    total: int
+
+
+def _classify_summarizer(state: LiveState, total: int) -> SummarizerOutcome:
+    """Classify the Summarizer's pass: ``failed`` (it produced nothing
+    usable), ``skipped`` (no cited provision needed a statement), ``partial``
+    (some cited provisions are covered), or ``complete``. The three surfaces
+    that describe the pass re-derive no conditions of their own."""
+    if state.summarizer_failed:
+        return SummarizerOutcome("failed", 0, total)
+    if total == 0:
+        return SummarizerOutcome("skipped", 0, 0)
+    covered = len(state.relevance)
+    return SummarizerOutcome(
+        "partial" if covered < total else "complete", covered, total
+    )
+
+
+def _summarizer_limitation(outcome: SummarizerOutcome) -> Optional[str]:
+    """The Known limitation the outcome owes the Answer, if any."""
+    if outcome.status == "failed":
+        return SUMMARIZER_FAILURE_LIMITATION
+    if outcome.status == "partial":
+        return SUMMARIZER_PARTIAL_LIMITATION.format(
+            covered=outcome.covered, total=outcome.total
+        )
+    return None
+
+
+def _summarizer_sentence(outcome: SummarizerOutcome) -> str:
+    """The Execution-trace's sentence about the Summarizer's pass."""
+    if outcome.status == "failed":
+        return (
+            "the Summarizer produced no usable Provision relevance statement, so the Answer "
+            "ships without them (a Known limitation names it)"
+        )
+    if outcome.status == "partial":
+        return (
+            f"the Summarizer covered {outcome.covered} of {outcome.total} cited "
+            "provision(s) with Provision relevance (a Known limitation names the gap)"
+        )
+    return (
+        f"Summarizer wrote {outcome.covered} Provision relevance "
+        f"statement(s) for the {outcome.total} cited provision(s)"
+    )
+
+
+def _summarizer_step_action(outcome: SummarizerOutcome) -> str:
+    """The detailed trace's honest description of the Summarizer's pass."""
+    if outcome.status == "failed":
+        return (
+            "the Summarizer produced no usable relevance statement: the Answer ships "
+            "without Provision relevance, named by a Known limitation"
+        )
+    if outcome.status == "skipped":
+        return (
+            "no cited provision needed a relevance statement, and no LLM call was made"
+        )
+    if outcome.status == "partial":
+        return (
+            f"covered {outcome.covered} of {outcome.total} cited provision(s); "
+            "the Answer ships with Provision relevance incomplete, named by a Known limitation"
+        )
+    return (
+        "aggregate the Findings citing each provision into one grounded "
+        "Provision relevance statement, drawn only on those Findings"
+    )
 
 
 # --- The graph: START → planner → researcher → verifier → proposer → END ---
@@ -797,24 +886,25 @@ def _build_graph(
         """Turn the kept, cited Findings into Provision relevance (issue #47).
 
         The block and the ref map come from one computation over the kept
-        Findings — the gate validates exactly the labels the LLM saw. A
+        Findings — the gate validates exactly the labels the LLM saw. The
+        prompt carries nothing but that block: the citing Findings' statements
+        are the relevance statements' only permitted grounding (CONTEXT.md),
+        so the question and the Evidence text stay out of the window. A
         Summarizer failure never fails the run: the Answer ships without
         summaries plus a Known limitation.
         """
         if progress:
             progress(PhaseReport(phase="summarizer", message="aggregating the kept Findings into one grounded Provision relevance statement per cited provision"))
-        block, targets_by_ref = _labelled_provisions(state.kept_findings)
-        if not targets_by_ref:
+        prompt = _labelled_provisions(state.kept_findings)
+        if not prompt.targets_by_ref:
             # No cited provision carries a Finding: nothing to summarize, and
             # no LLM call is made over nothing.
             return {}
-        user = (
-            f"Regulatory question: {state.question}\n\n"
-            f"Cited provisions with the Findings that cite them:\n\n{block}"
-        )
         started = time.perf_counter()
         try:
-            summaries = llm.complete(system=_SUMMARIZER_SYSTEM, user=user, schema=Summaries)
+            summaries = llm.complete(
+                system=_SUMMARIZER_SYSTEM, user=prompt.block, schema=Summaries
+            )
         except Exception as error:
             # Degrade, never fail (issue #47): any Summarizer failure — an
             # unreachable provider, a malformed reply, a bug — leaves the
@@ -823,7 +913,7 @@ def _build_graph(
                 "summarizer failed (%s); the Answer ships without Provision relevance", error
             )
             return {"summarizer_failed": True}
-        relevance, decisions = _validate_summaries(summaries, targets_by_ref)
+        relevance, decisions = _validate_summaries(summaries, prompt.targets_by_ref)
         if not relevance:
             # Nothing usable came back — every statement was rejected, or none
             # was made: the same degradation as an outright failure, never a
@@ -832,7 +922,7 @@ def _build_graph(
         logger.info(
             "summarizer: %d relevance statement(s) over %d provision(s) in %.2fs",
             len(relevance),
-            len(targets_by_ref),
+            len(prompt.targets_by_ref),
             time.perf_counter() - started,
         )
         return {
@@ -912,17 +1002,12 @@ def run_live_analysis(
     known_limitations = [ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION] + (
         [INSUFFICIENT_EVIDENCE_LIMITATION] if insufficient else []
     )
-    if state.summarizer_failed:
-        known_limitations.append(SUMMARIZER_FAILURE_LIMITATION)
-    elif all_citations and len(state.relevance) < len(all_citations):
-        # Partial coverage still ships what survived the gate — grounded and
-        # useful — but the one-statement-per-provision guarantee did not hold,
-        # and a Known limitation names the gap instead of hiding it.
-        known_limitations.append(
-            SUMMARIZER_PARTIAL_LIMITATION.format(
-                covered=len(state.relevance), total=len(all_citations)
-            )
-        )
+    # The Summarizer's pass is classified once; the Known limitation, the
+    # trace sentence, and the step action all read that classification.
+    summarizer_outcome = _classify_summarizer(state, total=len(all_citations))
+    summarizer_limitation = _summarizer_limitation(summarizer_outcome)
+    if summarizer_limitation is not None:
+        known_limitations.append(summarizer_limitation)
 
     proposal_decisions: list[ActionDecision] = []
     if insufficient:
@@ -952,21 +1037,6 @@ def run_live_analysis(
     else:
         kept_proposals = sum(1 for d in proposal_decisions if d.status == "kept")
         rejected_proposals = sum(1 for d in proposal_decisions if d.status == "rejected")
-        if state.summarizer_failed:
-            summarizer_sentence = (
-                "the Summarizer produced no usable Provision relevance statement, so the Answer "
-                "ships without them (a Known limitation names it)"
-            )
-        elif len(state.relevance) < len(all_citations):
-            summarizer_sentence = (
-                f"the Summarizer covered {len(state.relevance)} of {len(all_citations)} cited "
-                "provision(s) with Provision relevance (a Known limitation names the gap)"
-            )
-        else:
-            summarizer_sentence = (
-                f"Summarizer wrote {len(state.relevance)} Provision relevance "
-                f"statement(s) for the {len(all_citations)} cited provision(s)"
-            )
         summary = (
             f"Planner identified research targets ({plan_summary}); Researcher retrieved "
             f"{len(retrieved_chunks)} Chunk(s) via the retrieval tool and drafted "
@@ -974,7 +1044,7 @@ def run_live_analysis(
             f"and recorded {len(discarded)} Unsupported claim(s) as rejected; Proposer "
             f"distilled {kept_proposals} referral Action(s) from the kept Findings "
             f"and recorded {rejected_proposals} ungrounded proposal(s) as rejected; "
-            f"{summarizer_sentence}."
+            f"{_summarizer_sentence(summarizer_outcome)}."
         )
 
     if insufficient:
@@ -994,27 +1064,7 @@ def run_live_analysis(
             "in a kept Finding's Citations"
         )
 
-    if state.summarizer_failed:
-        # The trace stays honest about the degraded pass: the Answer carries
-        # no relevance, and the run did not fail.
-        summarizer_step_action = (
-            "the Summarizer produced no usable relevance statement: the Answer ships "
-            "without Provision relevance, named by a Known limitation"
-        )
-    elif not state.kept_findings:
-        summarizer_step_action = (
-            "no cited provision needed a relevance statement, and no LLM call was made"
-        )
-    elif len(state.relevance) < len(all_citations):
-        summarizer_step_action = (
-            f"covered {len(state.relevance)} of {len(all_citations)} cited provision(s); "
-            "the Answer ships with Provision relevance incomplete, named by a Known limitation"
-        )
-    else:
-        summarizer_step_action = (
-            "aggregate the Findings citing each provision into one grounded "
-            "Provision relevance statement, drawn only on those Findings"
-        )
+    summarizer_step_action = _summarizer_step_action(summarizer_outcome)
 
     planner_step: dict[str, Any] = {
         "step": "planner",
