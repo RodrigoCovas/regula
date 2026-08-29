@@ -202,6 +202,48 @@ provider is environment configuration (ADR-0009): it defaults to
 `OPENROUTER_API_KEY`, and `EMBEDDING_MODEL` override each part — see
 `backend/.env.example`.
 
+### Using another LLM provider
+
+The LLM client speaks the OpenAI-compatible chat-completions convention:
+`LLM_BASE_URL` ends at the version root and the client appends
+`/chat/completions` itself; auth is a plain `Authorization: Bearer` header
+with no provider-specific extras. **OpenRouter is the tested path**; the
+providers below are expected to work but untested.
+
+| Provider | `LLM_BASE_URL` | `LLM_MODEL` example |
+|---|---|---|
+| OpenRouter (default, tested) | `https://openrouter.ai/api/v1` | `upstage/solar-pro4` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Ollama (local) | `http://localhost:11434/v1` | `llama3.1` |
+| vLLM / LM Studio (local) | `http://localhost:8000/v1` / `http://localhost:1234/v1` | the served model's name |
+
+Provider caveats worth knowing before you switch:
+
+- **The key variable's name is historical.** `OPENROUTER_API_KEY` holds
+  whichever provider's key you are using; with the matching `LLM_BASE_URL`
+  an OpenAI, Groq, or local key works the same way.
+- **Local keyless servers still need a key value.** Live mode refuses to
+  boot without `OPENROUTER_API_KEY` and the client always sends the Bearer
+  header, so set it to any non-empty placeholder (e.g. `ollama`) — Ollama,
+  vLLM, and LM Studio ignore its value.
+- **Avoid reasoning models for now.** The client sends `max_tokens` (its
+  locked single-pass budget); OpenAI's o-series and gpt-5 reasoning models
+  reject that parameter in favour of `max_completion_tokens`. Standard chat
+  models — GPT-4o, Llama, Solar Pro 4 — accept it. An unsupported model
+  fails loudly with the provider's error, never silently.
+- **The provider must speak the OpenAI chat-completions shape.** Anthropic's
+  native API (`/v1/messages`) is a different protocol — use Claude through
+  OpenRouter instead.
+- **Embeddings are not covered by the provider switch.** `EMBEDDING_MODEL`
+  always runs on local Ollama; a remote key cannot serve embeddings, and the
+  pgvector column is fixed at nomic's 768 dimensions, so remote embedding
+  APIs are out by construction. Changing the embedding model still requires
+  re-ingest.
+- **Results are model-sensitive (ADR-0009).** Evaluation numbers are
+  comparable only within a model; whichever model produced the published
+  metrics is quoted alongside them.
+
 ## Architecture
 
 ```
