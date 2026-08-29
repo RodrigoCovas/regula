@@ -176,7 +176,13 @@ class OpenRouterClient:
     ):
         self._api_key = api_key
         self._model = model
-        self._base_url = base_url.rstrip("/")
+        # Forgiving join: a base that already carries the chat-completions
+        # path (a pasted full endpoint) is trimmed back to the version root
+        # so the append in _chat cannot double it.
+        base = base_url.rstrip("/")
+        if base.endswith(CHAT_COMPLETIONS_PATH):
+            base = base[: -len(CHAT_COMPLETIONS_PATH)]
+        self._base_url = base
         self._transport = transport or _requests_transport
         self.usage: list[dict] = []
 

@@ -173,3 +173,12 @@ def test_the_real_environment_wins_over_env_local(monkeypatch, tmp_path):
     settings = load_settings()
 
     assert settings.llm_model == "from-export"
+
+
+def test_the_session_never_points_at_the_real_env_local():
+    """conftest neutralises _ENV_LOCAL_PATH at collection time — before any
+    test module imports src.main and its import-time load_settings() runs —
+    so the host's real backend/.env.local can never leak into the session."""
+    import src.config
+
+    assert not src.config._ENV_LOCAL_PATH.exists()

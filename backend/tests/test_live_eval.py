@@ -190,7 +190,6 @@ def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
     monkeypatch.setenv("REGULA_MODE", "demo")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    monkeypatch.setattr("src.live_eval.source_local_env", lambda: None)
     install_fake_pipeline(_paraphrasing_llm(), _on_target_retriever())
 
     exit_code = main()
@@ -205,7 +204,6 @@ def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):
 
 def test_main_refusal_exits_nonzero_with_cause_on_stderr(monkeypatch, capsys):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr("src.live_eval.source_local_env", lambda: None)
 
     exit_code = main()
 

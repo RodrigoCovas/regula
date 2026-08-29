@@ -83,15 +83,14 @@ def load_settings() -> Settings:
     return settings
 
 
-def source_local_env(env_local: Path | None = None) -> None:
+def source_local_env() -> None:
     """Place backend/.env.local into the environment when present.
 
     Every configuration entry point goes through here: the backend boots by
-    calling ``load_settings``, and the ingest and eval CLIs call it directly.
-    Values only ever enter the process environment — they are never read
-    back, echoed, or logged. The real environment wins: nothing here
-    overrides an exported variable.
+    calling ``load_settings``, and the ingest CLI calls it before parsing
+    arguments. Values only ever enter the process environment — they are
+    never read back, echoed, or logged. The real environment wins: nothing
+    here overrides an exported variable.
     """
-    env_local = env_local or _ENV_LOCAL_PATH
-    if env_local.exists():
-        load_dotenv(env_local, override=False)
+    if _ENV_LOCAL_PATH.exists():
+        load_dotenv(_ENV_LOCAL_PATH, override=False)

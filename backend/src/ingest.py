@@ -21,14 +21,15 @@ or inside the stack:
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
 
+from pydantic import ValidationError
+
 from .chunking import chunk_regulation
-from .config import DEFAULT_DATABASE_URL, DEFAULT_OLLAMA_URL, source_local_env
+from .config import Settings, source_local_env
 from .db import ChunkRecord, PgVectorStore, connect
 from .embedder import DEFAULT_MODEL, Embedder, EmbeddingError, OllamaEmbedder
 
@@ -101,6 +102,14 @@ def run_ingestion(
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    # One config seam: the same Settings the backend serves from supplies the
+    # defaults (env vars and backend/.env.local, in that precedence). Plain
+    # Settings, not load_settings — ingestion is mode-agnostic and must not
+    # trip Live-mode boot validation.
+    try:
+        settings = Settings()
+    except ValidationError as error:
+        raise IngestError(f"Invalid configuration: {error}") from error
     parser = argparse.ArgumentParser(
         prog="python -m backend.src.ingest",
         description="Embed and upsert the Corpus into PostgreSQL/pgvector (idempotent).",
@@ -113,20 +122,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--database-url",
-        default=os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL),
-        help="PostgreSQL connection URL (default: DATABASE_URL env or local compose stack)",
+        default=settings.database_url,
+        help="PostgreSQL connection URL (default: DATABASE_URL or the local compose stack)",
     )
     parser.add_argument(
         "--ollama-url",
-        default=os.environ.get("OLLAMA_API_URL", DEFAULT_OLLAMA_URL),
-        help="Ollama base URL (default: OLLAMA_API_URL env or local compose stack)",
+        default=settings.ollama_api_url,
+        help="Ollama base URL (default: OLLAMA_API_URL or the local compose stack)",
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("EMBEDDING_MODEL", DEFAULT_MODEL),
+        default=settings.embedding_model,
         help=(
-            "embedding model (default: EMBEDDING_MODEL env or "
-            f"{DEFAULT_MODEL}); must match the model the backend queries with"
+            f"embedding model (default: EMBEDDING_MODEL or {DEFAULT_MODEL}); "
+            "must match the model the backend queries with"
         ),
     )
     parser.add_argument("--batch-size", type=int, default=64, help="texts per embedding request")

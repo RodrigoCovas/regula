@@ -1,11 +1,22 @@
 import sys
 from pathlib import Path
+from tempfile import mkdtemp
 
 import pytest
 
 # Ensure backend.src is importable when running tests from repo root
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
+
+# Neutralise backend/.env.local for the whole session — and it MUST happen
+# here, at conftest import time: test modules import src.main, whose
+# module-level load_settings() then runs before any fixture could intervene
+# and would bake the host's real .env.local (the LLM API key lives there)
+# into os.environ for every test. Tests that exercise the loading point it
+# at their own tmp file via monkeypatch instead (see test_config.py).
+import src.config as _config
+
+_config._ENV_LOCAL_PATH = Path(mkdtemp()) / ".env.local"
 
 from src.models import Chunk
 
@@ -55,16 +66,6 @@ def _restore_main_settings():
     saved = main.settings
     yield
     main.settings = saved
-
-
-@pytest.fixture(autouse=True)
-def _hermetic_env_local(monkeypatch, tmp_path):
-    """Keep every boot hermetic: settings never read the developer's real
-    backend/.env.local (the LLM API key lives there on this machine), so a
-    test that clears a variable sees it cleared regardless of the host."""
-    import src.config as config
-
-    monkeypatch.setattr(config, "_ENV_LOCAL_PATH", tmp_path / "missing" / ".env.local")
 
 
 @pytest.fixture(autouse=True)

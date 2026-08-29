@@ -34,7 +34,7 @@ from .availability import (
     UNREACHABLE_STORE_ERRORS,
     vector_store_is_empty,
 )
-from .config import ConfigurationError, Mode, Settings, load_settings, source_local_env
+from .config import ConfigurationError, Mode, Settings, load_settings
 from .eval_harness import LIVE_EVAL_SCENARIOS, EvalReport, evaluate_scenarios
 from .models import AnalyzeRequest, AnalyzeResponse
 
@@ -127,7 +127,6 @@ def print_report(report: EvalReport) -> None:
 def main() -> int:
     """The CLI entry point: refuse with exit 1 when prerequisites are missing,
     otherwise print the report and exit 0."""
-    source_local_env()
     try:
         report = run_live_eval(load_settings())
     except (LiveEvalRefused, ConfigurationError) as error:

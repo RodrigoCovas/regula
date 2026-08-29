@@ -101,6 +101,23 @@ def test_configured_model_and_base_url_reach_the_joined_chat_completions_url():
     assert payload["messages"][0]["role"] == "system"
 
 
+def test_a_base_url_already_carrying_the_chat_completions_path_is_not_doubled():
+    """A pasted full endpoint is trimmed back to the version root before the
+    client appends the path, so the join stays idempotent instead of posting
+    to .../chat/completions/chat/completions and failing opaquely."""
+    transport = FakeTransport(responses=[chat_response('{"targets": []}')])
+    client = OpenRouterClient(
+        api_key="sk-or-test",
+        base_url="https://openrouter.ai/api/v1/chat/completions",
+        transport=transport,
+    )
+
+    client.complete(system="s", user="u", schema=Plan)
+
+    url, _, _ = transport.calls[0]
+    assert url == "https://openrouter.ai/api/v1/chat/completions"
+
+
 def test_nested_schemas_render_structurally_in_the_instruction():
     """The shape template shows array elements as objects, not bare values —
     a live nemotron reply returned bare strings when only 'array' was named."""
