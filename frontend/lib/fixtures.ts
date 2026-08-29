@@ -185,6 +185,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "Classification of AI Systems as High-Risk",
         "provision": "Article 6(2)",
+        "relevance": "Article 6(2) is the classification rule that brings the company's credit-scoring system into the AI Act's high-risk regime, so every high-risk obligation in the other Findings applies.",
+        "strength": "strong",
         "quote": "Irrespective of whether an AI system is placed on the market or put into service independently of the products referred to in points (a) and (b), that AI system shall be considered to be high-risk where both of the following conditions are fulfilled: (a) the AI system is intended to be used as a saf..."
       },
       {
@@ -195,6 +197,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": 3,
         "section": "Annexes",
         "provision": "Annex III point 5(b)",
+        "relevance": "Annex III point 5(b) names creditworthiness evaluation of natural persons as a high-risk use outright, which is what pins the company's loan-scoring system to Article 6(2)'s high-risk classification.",
+        "strength": "strong",
         "quote": "High-risk AI systems pursuant to Article 6(2) are the AI systems listed in any of the following areas:\n\n1. Biometrics, in so far as their use is permitted under relevant Union or national law:\n(a) remote biometric identification systems. This shall not include AI systems intended to be used for biom..."
       },
       {
@@ -205,6 +209,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "Obligations of Providers and Deployers",
         "provision": "Article 26(2), (4), (6), (11)",
+        "relevance": "Article 26 sets the deployer duties that fall directly on the company once its system is high-risk: human oversight, six-month log retention, and informing applicants.",
+        "strength": "strong",
         "quote": "Deployers of high-risk AI systems shall take appropriate technical and organisational measures to ensure they use such systems in accordance with the instructions for use accompanying the systems, pursuant to paragraphs 3 and 6. Deployers shall assign human oversight to natural persons who have the ..."
       },
       {
@@ -215,6 +221,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "Obligations of Providers and Deployers",
         "provision": "Article 27(1)-(4)",
+        "relevance": "Article 27 makes the Fundamental Rights Impact Assessment — and notifying its results — a step the company must complete before first deploying the creditworthiness system.",
+        "strength": "strong",
         "quote": "Prior to deploying a high-risk AI system referred to in Article 6(2), with the exception of high-risk AI systems intended to be used in the area listed in point 2 of Annex III, deployers that are bodies governed by public law, or are private entities providing public services, and deployers of high-..."
       },
       {
@@ -225,6 +233,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "Enforcement",
         "provision": "Article 86(1)",
+        "relevance": "Article 86 gives loan applicants subject to decisions based on the system's output a right to a clear and meaningful explanation of the AI system's role in the decision.",
+        "strength": "strong",
         "quote": "Any affected person subject to a decision which is taken by the deployer on the basis of the output from a high-risk AI system listed in Annex III, with the exception of systems listed under point 2 thereof, and which produces legal effects or similarly significantly affects that person in a way tha..."
       },
       {
@@ -235,6 +245,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "Right to Object and Automated Individual Decision-Making",
         "provision": "Article 22(1), (2)(a), (3)",
+        "relevance": "Article 22 restricts decisions based solely on automated processing such as the company's loan scoring, and even the contract-necessity route still requires human intervention and contest rights.",
+        "strength": "strong",
         "quote": "The data subject shall have the right not to be subject to a decision based solely on automated processing, including profiling, which produces legal effects concerning him or her or similarly significantly affects him or her. Paragraph 1 shall not apply if the decision: (a) is necessary for enterin..."
       },
       {
@@ -245,6 +257,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "Recitals",
         "provision": "Recital 71",
+        "relevance": "Recital 71 backs Article 22's restriction with the GDPR's own framing of profiling — the automated processing the company's credit scoring performs, producing legal effects for applicants.",
+        "strength": "strong",
         "quote": null
       },
       {
@@ -255,6 +269,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "Data Protection Impact Assessment and Prior Consultation",
         "provision": "Article 35(1), (3)(a)",
+        "relevance": "Article 35 requires the data protection impact assessment before the company's credit-scoring processing starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
+        "strength": "strong",
         "quote": "Where a type of processing in particular using new technologies, and taking into account the nature, scope, context and purposes of the processing, is likely to result in a high risk to the rights and freedoms of natural persons, the controller shall, prior to the processing, carry out an assessment..."
       },
       {
@@ -265,6 +281,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "General provisions",
         "provision": "Article 2(1)(a), (2)",
+        "relevance": "Article 2 decides whether DORA applies to the company at all: only as a licensed financial entity, the contingency the Findings leave to the company's actual status.",
+        "strength": "moderate",
         "quote": "Without prejudice to paragraphs 3 and 4, this Regulation applies to the following entities: For the purposes of this Regulation, entities referred to in paragraph 1, points (a) to (t), shall collectively be referred to as 'financial entities'. This Regulation does not apply to: Member States may exc..."
       },
       {
@@ -275,6 +293,8 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "General provisions",
         "provision": "Article 1(1)",
+        "relevance": "Article 1 bounds DORA to the digital operational resilience of financial entities, so it governs ICT risk rather than the substance of credit decisions.",
+        "strength": "moderate",
         "quote": "In order to achieve a high common level of digital operational resilience, this Regulation lays down uniform requirements concerning the security of network and information systems supporting the business processes of financial entities as follows: In relation to financial entities identified as ess..."
       },
       {
@@ -285,12 +305,14 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
         "annex_number": null,
         "section": "General Provisions",
         "provision": "Article 3(1), (3), (4), (52)",
+        "relevance": "Article 3 supplies the definitions — AI system, provider, deployer, profiling — the other Findings rely on, without establishing an obligation on its own.",
+        "strength": "weak",
         "quote": "For the purposes of this Regulation, the following definitions apply: (1) 'AI system' means a machine-based system that is designed to operate with varying levels of autonomy and that may exhibit adaptiveness after deployment, and that, for explicit or implicit objectives, infers, from the input it ..."
       }
     ]
   },
   "trace": {
-    "workflow": "planner -> researcher -> verifier -> proposer",
+    "workflow": "planner -> researcher -> verifier -> proposer -> summarizer",
     "summary": "Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier recorded each anticipated-but-unsupported claim as rejected \u2014 no Evidence in the Corpus supports it.",
     "unsupported_claims_discarded": [
       "Credit scoring data is special-category (sensitive) data.",
@@ -548,6 +570,11 @@ export const demoAnalyzeResponse: AnalyzeResponse = {
           "reason": "no Evidence in the Corpus supports this claim"
         }
       ]
+    },
+    {
+      "step": "summarizer",
+      "action": "serve the locked Provision relevance for each cited provision from the demo content",
+      "summary_decisions": []
     }
   ],
   "known_limitations": [
@@ -566,7 +593,7 @@ export const insufficientEvidenceResponse: AnalyzeResponse = {
     "citations": []
   },
   "trace": {
-    "workflow": "planner -> researcher -> verifier -> proposer",
+    "workflow": "planner -> researcher -> verifier -> proposer -> summarizer",
     "summary": "Planner identified research targets (employment-law obligations for Spanish restaurant booking software); retrieval returned no Chunks relevant enough, so no Claims were drafted or verified \u2014 the Corpus holds nothing for this question.",
     "unsupported_claims_discarded": []
   },
@@ -593,6 +620,11 @@ export const insufficientEvidenceResponse: AnalyzeResponse = {
       "step": "proposer",
       "action": "no Evidence was retrieved: the Insufficient-evidence path was served and the Proposer made no LLM call",
       "action_decisions": []
+    },
+    {
+      "step": "summarizer",
+      "action": "no cited provision needed a relevance statement, and no LLM call was made",
+      "summary_decisions": []
     }
   ],
   "known_limitations": [

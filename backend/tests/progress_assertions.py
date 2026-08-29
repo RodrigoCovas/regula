@@ -1,7 +1,7 @@
 """Shared progress assertions for the registry and endpoint test files.
 
 Both the pure registry (test_progress.py) and the HTTP seam
-(test_progress_endpoint.py) assert the same two contracts — the four
+(test_progress_endpoint.py) assert the same two contracts — the five
 workflow phases in agent order with informative messages, and the
 Not-available reply for an unknown request id — so the assertions live
 here once instead of twice.
@@ -9,19 +9,20 @@ here once instead of twice.
 
 from test_analyze import assert_not_available_shape
 
-PHASE_ORDER = ["planner", "researcher", "verifier", "proposer"]
+PHASE_ORDER = ["planner", "researcher", "verifier", "proposer", "summarizer"]
 
 _MESSAGE_CONTENT_CHECKS = [
     ("target", "the Planner's message names research targets"),
     ("evidence", "the Researcher's message names Evidence"),
     ("claim", "the Verifier's message names Claims"),
     ("action", "the Proposer's message names Actions"),
+    ("relevance", "the Summarizer's message names Provision relevance"),
 ]
 
 
 def assert_phases_in_agent_order(reported):
-    """The four workflow agents report in order: phases are exactly
-    Planner → Researcher → Verifier → Proposer, every message is
+    """The five workflow agents report in order: phases are exactly
+    Planner → Researcher → Verifier → Proposer → Summarizer, every message is
     non-empty, and each phase's message names what the agent does.
 
     ``reported`` is a list of (phase, message) pairs in report order.

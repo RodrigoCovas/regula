@@ -5,9 +5,10 @@ Citation targets — provision kind + number via ``parse_provision`` and
 ``Citation.provision_target``, never label strings — with the expected side
 weighted by its Findings' Strengths and every off-target produced target
 counted against precision. This is the first of ADR-0010's three
-never-blended components; summary fidelity and strength agreement arrive
-with the Summarizer stage and the judge (#50). Statements are never
-matched: statement similarity left the scoring path with ADR-0010
+never-blended components; summary fidelity and strength agreement follow
+with the judge (#50) — the Summarizer stage itself now ships (issue #47).
+Statements are never matched: statement similarity left the scoring path
+with ADR-0010
 (ADR-0001's updates record the retirement as deletion), and survives only
 as diagnostic material — the per-case audit dump
 (``EvalScenarioResult.expected`` / ``.produced``) carries both sides'
@@ -37,6 +38,7 @@ from .models import (
     ProvisionTarget,
     Scenario,
     Strength,
+    max_rule_strengths,
 )
 
 
@@ -156,17 +158,29 @@ def parse_provision(source_id: str, label: str) -> ProvisionTarget:
 def expected_target_weights(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, int]:
     """Weight each expected Citation target by the strongest Strength among
     the ground-truth Findings citing it — CONTEXT.md's max-rule Citation
-    strength, applied to the expected side. A target cited by several
+    strength, applied to the expected side through the one shared max-rule
+    implementation (models.max_rule_strengths). A target cited by several
     Findings enters once (set semantics); a Finding citing no target
     contributes nothing, so an expectation that names no provision can never
     be covered."""
-    weights: Dict[ProvisionTarget, int] = {}
-    for finding in expected:
-        weight = STRENGTH_WEIGHTS[finding.strength]
-        for citation in finding.citations:
-            target = parse_provision(citation["source_id"], citation["provision"])
-            weights[target] = max(weights.get(target, 0), weight)
-    return weights
+    strengths = max_rule_strengths(
+        (parse_provision(citation["source_id"], citation["provision"]), finding.strength)
+        for finding in expected
+        for citation in finding.citations
+    )
+    return {target: STRENGTH_WEIGHTS[strength] for target, strength in strengths.items()}
+
+
+def produced_target_strengths(produced: List[ProducedFinding]) -> Dict[ProvisionTarget, Strength]:
+    """The produced side's Citation strength under the same max-rule
+    (CONTEXT.md, issue #47): per produced Citation target, the strongest
+    Strength among the produced Findings citing it — the produced half the
+    strength-agreement component (#50) compares against ground truth."""
+    return max_rule_strengths(
+        (citation.provision_target, finding.strength)
+        for finding in produced
+        for citation in finding.citations
+    )
 
 
 # The human-readable provision kind for an audit-dump target string.

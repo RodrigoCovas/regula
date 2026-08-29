@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import pytest
 
+from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import REQUEST_ID_HEADER
 from src.progress import ProgressRegistry
 
@@ -142,7 +143,7 @@ def test_background_analysis_completes_and_is_visible_through_polling(monkeypatc
     data = poll_progress(live_client, "bg-complete", lambda d: "answer" in d, timeout=10.0)
 
     assert "answer" in data, "analysis did not complete in background"
-    assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
     assert "findings" in data["answer"]
 
 
@@ -179,7 +180,7 @@ def test_post_without_request_id_retains_synchronous_contract(monkeypatch):
 
     assert "answer" in data
     assert "findings" in data["answer"]
-    assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
     assert "request_id" not in data or data.get("transitions") is None
 
 
@@ -224,4 +225,4 @@ def test_submission_survives_client_disconnect_simulation(monkeypatch):
             data = poll_progress(poll_client, "disconnect-run", lambda d: "answer" in d, timeout=10.0)
 
         assert "answer" in data, "analysis did not complete after submitting client disconnected"
-        assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
+        assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER

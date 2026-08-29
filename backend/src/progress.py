@@ -5,7 +5,8 @@ frontend polls a progress endpoint instead of staring at a silent spinner.
 This module is the backend half of that contract (spec #25, ticket #28).
 
 The Live workflow reports each phase transition — Planner → Researcher →
-Verifier → Proposer, named after the workflow agents — through an optional
+Verifier → Proposer → Summarizer, named after the workflow agents — through
+an optional
 progress sink (a thin callback into the shared registry) with an
 informative message per phase. The progress endpoint reads the same
 registry and returns the current phase plus the ordered transition
@@ -40,10 +41,10 @@ logger = logging.getLogger(__name__)
 # generous Live run; expired records read back as unknown.
 PROGRESS_TTL_SECONDS = 15 * 60
 
-# The workflow's four phases, named after the workflow agents in the order
+# The workflow's five phases, named after the workflow agents in the order
 # they run — the one vocabulary the sink, the workflow, and the frontend's
 # stage display share.
-WorkflowPhase = Literal["planner", "researcher", "verifier", "proposer"]
+WorkflowPhase = Literal["planner", "researcher", "verifier", "proposer", "summarizer"]
 
 
 class PhaseReport(BaseModel):

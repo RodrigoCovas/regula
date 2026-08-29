@@ -17,10 +17,11 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import pytest
 
+from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import REQUEST_ID_HEADER
 from src.progress import ProgressRegistry
 
-from conftest import boot_live_with_fakes
+from conftest import boot_live_with_fakes, poll_progress
 from fakes import FakeClock, FakeRetriever, make_offline_llm
 from progress_assertions import assert_phases_in_agent_order, assert_unknown_request_reply
 
@@ -73,11 +74,12 @@ def test_live_run_reports_each_phase_in_order_through_the_endpoint(monkeypatch):
     with boot_live_with_fakes(monkeypatch, make_offline_llm(), FakeRetriever()) as live_client:
         resp = post_canonical(live_client, request_id="run-1")
         assert resp.status_code == 200
-        progress = get_progress(live_client, "run-1")
-        assert progress.status_code == 200
-        data = progress.json()
+        # Poll until the background run reaches its terminal state: the POST
+        # returns promptly with a snapshot, and five workflow LLM calls race
+        # the very next GET.
+        data = poll_progress(live_client, "run-1", lambda d: "answer" in d)
     # After completion, the endpoint returns the AnalyzeResponse, not the snapshot
-    assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
+    assert data["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
     assert "answer" in data
     assert "findings" in data["answer"]
     assert "actions" in data["answer"]
@@ -145,7 +147,7 @@ def test_phases_are_visible_through_the_endpoint_while_the_run_reports_them(monk
     assert result["resp"].status_code == 200
     # After completion, the endpoint returns the AnalyzeResponse
     final = get_progress(live_client, "inflight").json()
-    assert final["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
+    assert final["trace"]["workflow"] == LIVE_WORKFLOW_MARKER
 
 
 def test_unknown_request_id_gets_the_not_available_shaped_reply(monkeypatch):

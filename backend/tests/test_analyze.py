@@ -211,6 +211,40 @@ def test_exactly_one_target_citation_invariant():
         assert sum(targets) == 1, f"Citation must target exactly one provision: {citation}"
 
 
+def test_demo_citations_carry_fixed_relevance_and_max_rule_strength():
+    """Demo Answers ship fixed Provision relevance consistent with the locked
+    demo content, and the max-rule Citation strength — one entry per cited
+    provision, keylessly (#47)."""
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    citations = data["answer"]["citations"]
+
+    assert citations, "the demo answer cites provisions"
+    assert all(c["relevance"] for c in citations), "every cited provision carries relevance"
+    assert all(c["strength"] in {"strong", "moderate", "weak"} for c in citations)
+
+    # One entry per cited provision: the demo's targets are distinct, so the
+    # flat list matches the per-Finding citations one-for-one.
+    assert len(citations) == sum(len(f["citations"]) for f in data["answer"]["findings"])
+
+    # Spot-check the max-rule where it is pinned by the locked content: the
+    # high-risk classification is a strong Finding; the definitions Article is
+    # the weak framing one.
+    by_number = {(c["source_id"], c.get("article_number")): c for c in citations}
+    assert by_number[("ai-act", 6)]["strength"] == "strong"
+    assert by_number[("ai-act", 3)]["strength"] == "weak"
+    assert by_number[("dora", 2)]["strength"] == "moderate"
+
+
+def test_demo_detailed_trace_honestly_serves_the_locked_relevance():
+    """The demo's detailed trace names where its Provision relevance came
+    from: the locked demo content, served by the summarizer step (#47)."""
+    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    steps = [s["step"] for s in data["detailed_trace"]]
+    assert steps == ["planner", "researcher", "verifier", "summarizer"]
+    summarizer = data["detailed_trace"][-1]
+    assert "locked Provision relevance" in summarizer["action"]
+
+
 def boot_live(monkeypatch, **overrides):
     """Boot in Live mode with a throwaway key — the preamble every Live
     dispatch test shares."""

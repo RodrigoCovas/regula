@@ -18,6 +18,7 @@ from src.eval_harness import (
     expected_target_weights,
     format_provision_target,
     parse_provision,
+    produced_target_strengths,
 )
 from src.models import Citation, ProvisionKind, ProvisionTarget, Strength
 
@@ -136,6 +137,47 @@ def test_a_target_cited_by_several_findings_enters_the_denominator_once():
         _expected(Strength.weak, "Article 6"),
     ])
     assert sum(weights.values()) == STRENGTH_WEIGHTS[Strength.weak]
+
+
+# --- Strength agreement's produced side (ADR-0010, issue #47) ---
+
+
+def test_produced_citation_strength_follows_the_max_rule():
+    """The produced half of the strength-agreement component: per produced
+    Citation target, the strongest Strength among the produced Findings
+    citing it — CONTEXT.md's max-rule, applied identically to both sides."""
+    strengths = produced_target_strengths([
+        _produced(Strength.weak, _article(6)),
+        _produced(Strength.strong, _article(6)),
+    ])
+    assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
+
+
+def test_produced_citation_strengths_are_per_target():
+    strengths = produced_target_strengths([
+        _produced(Strength.moderate, _article(6)),
+        _produced(Strength.weak, _recital(71), source_id="gdpr"),
+    ])
+    assert strengths == {
+        ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.moderate,
+        ProvisionTarget("gdpr", ProvisionKind.recital, 71): Strength.weak,
+    }
+
+
+def test_expected_and_produced_max_rule_meet_in_one_implementation():
+    """The eval's two sides share models.max_rule_strengths: a target cited by
+    Findings of different Strengths grades the same way either side of the
+    comparison — expected weights read through STRENGTH_WEIGHTS."""
+    expected_weights = expected_target_weights([
+        _expected(Strength.weak, "Article 6"),
+        _expected(Strength.strong, "Article 6"),
+    ])
+    produced_strengths = produced_target_strengths([
+        _produced(Strength.moderate, _article(6)),
+        _produced(Strength.strong, _article(6)),
+    ])
+    assert expected_weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.strong]}
+    assert produced_strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
 
 
 # --- Coverage arithmetic ---

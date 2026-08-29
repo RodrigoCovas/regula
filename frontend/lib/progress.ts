@@ -1,6 +1,6 @@
 import type { AnalyzeResponse } from "./contract";
 
-export type WorkflowPhase = "planner" | "researcher" | "verifier" | "proposer";
+export type WorkflowPhase = "planner" | "researcher" | "verifier" | "proposer" | "summarizer";
 
 export interface ProgressTransition {
   phase: WorkflowPhase;
@@ -21,6 +21,7 @@ const PHASE_LABELS: Record<WorkflowPhase, string> = {
   researcher: "Researcher",
   verifier: "Verifier",
   proposer: "Proposer",
+  summarizer: "Summarizer",
 };
 
 export function phaseLabel(phase: WorkflowPhase): string {

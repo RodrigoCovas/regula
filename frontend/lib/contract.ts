@@ -24,6 +24,10 @@ export interface Citation {
   section: string | null;
   provision: string | null;
   quote: string | null;
+  // Answer-wide fields (issue #47): the Citations section renders them from
+  // the Answer's list only — a per-Finding Citation carries neither.
+  relevance?: string | null;
+  strength?: Strength | null;
 }
 
 export interface Finding {
@@ -75,6 +79,12 @@ export interface ToolCall {
   chunks_returned?: number;
 }
 
+export interface SummaryDecision {
+  ref: string;
+  status: "kept" | "rejected";
+  reason: string | null;
+}
+
 export interface DetailedTraceStep {
   step: string;
   action: string;
@@ -83,6 +93,7 @@ export interface DetailedTraceStep {
   tool_calls?: ToolCall[];
   claim_decisions?: ClaimDecision[];
   action_decisions?: ActionDecision[];
+  summary_decisions?: SummaryDecision[];
 }
 
 export interface AnalyzeResponse {

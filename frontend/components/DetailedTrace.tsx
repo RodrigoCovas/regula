@@ -75,6 +75,7 @@ function StepBlock({ step }: { step: DetailedTraceStep }) {
   const toolCalls = step.tool_calls ?? [];
   const claimDecisions = step.claim_decisions ?? [];
   const actionDecisions = step.action_decisions ?? [];
+  const summaryDecisions = step.summary_decisions ?? [];
   return (
     <li className="rounded-md border border-slate-200 bg-white p-3">
       <div className="mb-1 flex items-center gap-2">
@@ -141,6 +142,13 @@ function StepBlock({ step }: { step: DetailedTraceStep }) {
               text={decision.action}
               droppedRefs={decision.dropped_refs}
             />
+          ))}
+        </ul>
+      </StepSection>
+      <StepSection heading="Summary decisions" count={summaryDecisions.length}>
+        <ul className="mt-1 space-y-1">
+          {summaryDecisions.map((decision, index) => (
+            <DecisionRow key={index} decision={decision} text={decision.ref} />
           ))}
         </ul>
       </StepSection>

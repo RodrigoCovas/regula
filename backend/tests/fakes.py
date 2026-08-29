@@ -13,7 +13,9 @@ from src.live_workflow import (
     DraftClaim,
     DraftClaims,
     Plan,
+    ProvisionSummary,
     ResearchTarget,
+    Summaries,
     Verdict,
     Verdicts,
 )
@@ -162,12 +164,14 @@ class ScriptedLlm:
         claims: DraftClaims | None = None,
         verdicts: Verdicts | None = None,
         proposals: ActionProposals | None = None,
+        summaries: Summaries | None = None,
         usage: dict | None = None,
     ):
         self.plan = plan or Plan(targets=[ResearchTarget(query="creditworthiness evaluation")])
         self.claims = claims or DraftClaims(claims=[])
         self.verdicts = verdicts or Verdicts(verdicts=[])
         self.proposals = proposals or ActionProposals(proposals=[])
+        self.summaries = summaries or Summaries(summaries=[])
         self._canned_usage = usage
         self.calls: list[tuple[str, str, type]] = []
         self.usage: list[dict] = []
@@ -181,6 +185,7 @@ class ScriptedLlm:
             DraftClaims: self.claims,
             Verdicts: self.verdicts,
             ActionProposals: self.proposals,
+            Summaries: self.summaries,
         }[schema]  # type: ignore[index]
         return canned.model_copy(deep=True)
 
@@ -231,6 +236,25 @@ def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
                     action="Have a qualified professional verify that the company's credit evaluation duties match the high-risk provisions cited.",
                     kind="verify_against_facts",
                     citation_refs=["C1"],
+                ),
+            ]
+        ),
+        # The kept Findings cite two provisions (P1: the strong high-risk
+        # claim's Citation, P2: the weak definitions one); each relevance
+        # statement draws only on its citing Findings' content.
+        summaries=Summaries(
+            summaries=[
+                ProvisionSummary(
+                    ref="P1",
+                    relevance=(
+                        "Annex III point 5(b) of the AI Act names creditworthiness evaluation "
+                        "of natural persons as a high-risk use, which is what puts the "
+                        "company's loan-scoring system under the full high-risk obligations."
+                    ),
+                ),
+                ProvisionSummary(
+                    ref="P2",
+                    relevance="The definitions Article supplies the vocabulary the other Findings rely on — AI system, provider, deployer, profiling — without establishing an obligation on its own.",
                 ),
             ]
         ),

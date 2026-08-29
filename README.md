@@ -65,9 +65,10 @@ explicitly, and a request that omits it gets the server default
 - **Demo mode** (`mode: "demo"`) — keyless deterministic demo. Answers only
   `scenario.id == "spanish-fintech-startup-uses-9e165169"` from fixed content.
 - **Live mode** (`mode: "live"`) — answers **arbitrary** scenarios through
-  the real workflow: Planner → Researcher → Verifier retrieve Chunks from the
-  ingested pgvector Corpus and produce evidence-backed Findings with Strength
-  badges and metadata-derived Citations. Live mode is executable only when
+  the real workflow: Planner → Researcher → Verifier → Proposer → Summarizer
+  retrieve Chunks from the ingested pgvector Corpus and produce
+  evidence-backed Findings with Strength badges, metadata-derived Citations,
+  and Provision relevance. Live mode is executable only when
   the prerequisites hold: `OPENROUTER_API_KEY`, the embedding model, and an
   ingested Corpus. A missing provider key or an un-ingested / unreachable
   store yields a Not-available response naming the exact fix — never a boot
@@ -102,7 +103,7 @@ destination degrades to a warning; serving is never affected.
 ### Progress endpoint
 
 Live-mode requests can take time as the workflow progresses through Planner,
-Researcher, Verifier, and Proposer phases. The frontend polls
+Researcher, Verifier, Proposer, and Summarizer phases. The frontend polls
 `GET /api/progress/{request_id}` to display which phase is currently running.
 The backend records the active workflow step in an in-memory registry with
 TTL cleanup; unknown request ids return a Not-available-shaped response.
@@ -219,7 +220,7 @@ curl -s http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
   -d '{"mode": "live", "scenario": {"description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans."}, "question": "What regulations apply to our AI-based credit scoring platform?"}'
 ```
-The Live workflow (Planner → Researcher → Verifier → Proposer) answers using the ingested
+The Live workflow (Planner → Researcher → Verifier → Proposer → Summarizer) answers using the ingested
 Corpus and the configured LLM. Live mode requests typically take 60-90 seconds;
 the frontend polls the progress endpoint and displays phase transitions as they
 occur.
@@ -280,7 +281,7 @@ Frontend (Next.js + TypeScript + Tailwind) :3000
 FastAPI Backend (/api/analyze) :8000
     ↓
 LangGraph Workflow:
-  Planner → Researcher (with Retrieval) → Verifier → Proposer
+  Planner → Researcher (with Retrieval) → Verifier → Proposer → Summarizer
     ↓
 Retrieval Service Layer
     ↓
@@ -305,7 +306,7 @@ regula/
 │   │   ├── corpus.py               # Corpus management
 │   │   ├── ingest.py               # Document ingestion CLI
 │   │   ├── llm.py                  # LLM client (OpenRouter)
-│   │   ├── live_workflow.py        # Live-mode workflow (Planner → Researcher → Verifier → Proposer)
+│   │   ├── live_workflow.py        # Live-mode workflow (Planner → Researcher → Verifier → Proposer → Summarizer)
 │   │   ├── availability.py         # Availability checks and Not-available responses
 │   │   ├── progress.py             # In-memory progress registry for workflow phases
 │   │   ├── query_log.py            # Query logging to queries.jsonl

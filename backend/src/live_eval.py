@@ -7,7 +7,8 @@ with provision coverage (ADR-0010) — deterministic set F1 over Citation
 targets, strength-weighted on the expected side. It prints per-case
 coverage precision, recall, and F1 plus the aggregate mean F1. (The
 coverage component is the first of ADR-0010's three; summary fidelity and
-strength agreement follow with the Summarizer stage and the judge, #50.)
+strength agreement follow with the judge, #50 — the Summarizer stage itself
+now ships, issue #47.)
 
 With ``--output PATH`` the command also writes a JSON artifact: the run's
 metadata, the per-case component scores, and the produced-versus-expected

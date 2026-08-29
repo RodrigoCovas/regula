@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src import availability
+from src.llm import LlmError
 from src.live_workflow import (
     LIVE_WORKFLOW_MARKER,
     NARROW_THE_QUESTION_ACTIONS,
@@ -26,6 +27,8 @@ from src.live_workflow import (
     ActionProposal,
     ActionProposals,
     DraftClaims,
+    ProvisionSummary,
+    Summaries,
 )
 from src.main import app
 from src.models import Strength
@@ -173,8 +176,9 @@ def test_researcher_touches_the_corpus_only_via_the_retrieval_tool(live_client):
     assert [call["tool"] for call in tool_calls] == ["retrieve_chunks"] * len(planned)
     assert [call["input"]["query"] for call in tool_calls] == planned
     assert all(call["chunks_returned"] == 3 for call in tool_calls)
-    # Each LLM call is visible in the scripted client's log.
-    assert len(llm.calls) == 4
+    # Each LLM call is visible in the scripted client's log: planner,
+    # researcher, verifier, proposer, summarizer.
+    assert len(llm.calls) == 5
     # The Verifier receives the drafted claims as JSON, not a Python repr.
     verifier_user = llm.calls[2][1]
     claims_segment = verifier_user.split("Drafted claims:\n")[1]
@@ -606,6 +610,209 @@ def test_partial_grounding_drops_are_recorded_on_the_kept_decision(live_client):
     decisions = proposer_step(data)["action_decisions"]
     kept = next(d for d in decisions if d["status"] == "kept")
     assert kept["dropped_refs"] == ["C99"]
+
+
+# --- Summarizer: Provision relevance and Citation strength (issue #47) ---------
+
+
+def summarizer_step(data) -> dict:
+    """The Summarizer's detailed-trace step."""
+    return [s for s in data["detailed_trace"] if s["step"] == "summarizer"][0]
+
+
+def test_live_answer_citations_carry_relevance_and_max_rule_strength(live_client):
+    """The served Answer's Citations carry one entry per cited provision, each
+    with its Summarizer relevance and the max-rule Citation strength — while
+    the per-Finding Citations carry neither (issue #47)."""
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    citations = data["answer"]["citations"]
+    assert len(citations) == 2, "one entry per cited provision, not per Finding citation"
+    by_number = {c["article_number"]: c for c in citations}
+    assert by_number[HIGH_RISK_CHUNK.article_number]["strength"] == "strong"
+    assert by_number[DEFINITIONS_CHUNK.article_number]["strength"] == "weak"
+    assert all(c["relevance"] for c in citations), "every cited provision carries relevance"
+
+    # The per-Finding Citations stay bare: relevance and strength are
+    # answer-wide and ride the Answer's list only.
+    for finding in data["answer"]["findings"]:
+        for citation in finding["citations"]:
+            assert citation["relevance"] is None
+            assert citation["strength"] is None
+
+    step = summarizer_step(data)
+    assert step["action"]
+    kept = [d for d in step["summary_decisions"] if d["status"] == "kept"]
+    assert len(kept) == 2, "one kept decision per cited provision"
+
+
+def test_grounding_gate_drops_summaries_for_unknown_labels(live_client):
+    """A relevance statement whose ref names no cited provision never reaches
+    the Answer and is recorded as rejected in the detailed trace — the
+    Summarizer's grounding gate (the Action proposals' discipline)."""
+    llm = make_offline_llm()
+    llm.summaries = Summaries(
+        summaries=[
+            ProvisionSummary(ref="P1", relevance="Grounded in the citing Findings."),
+            ProvisionSummary(ref="P99", relevance="Drawn on nothing the Findings say."),
+            ProvisionSummary(ref="F1", relevance="A Finding label, not a provision."),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    citations = data["answer"]["citations"]
+    grounded = [c for c in citations if c["relevance"]]
+    assert [c["article_number"] for c in grounded] == [HIGH_RISK_CHUNK.article_number]
+    assert grounded[0]["relevance"] == "Grounded in the citing Findings."
+
+    decisions = summarizer_step(data)["summary_decisions"]
+    rejected = [d for d in decisions if d["status"] == "rejected"]
+    assert {d["ref"] for d in rejected} == {"P99", "F1"}
+    # The ungated statements never reached the Answer.
+    served_relevance = [c["relevance"] for c in citations if c["relevance"]]
+    assert "Drawn on nothing the Findings say." not in served_relevance
+    assert "A Finding label, not a provision." not in served_relevance
+
+
+def test_citation_strength_follows_the_max_rule_across_findings(live_client):
+    """Two kept Findings citing one provision, at different Strengths: the
+    Answer's Citation carries the strongest (CONTEXT.md's max-rule)."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
+
+    strong_statement = "A strong claim about creditworthiness."
+    weak_statement = "A weak framing claim over the same provision."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="creditworthiness")])
+    llm.claims = DraftClaims(
+        claims=[
+            DraftClaim(statement=strong_statement, evidence_refs=["E1"]),
+            DraftClaim(statement=weak_statement, evidence_refs=["E1"]),
+        ]
+    )
+    llm.verdicts = Verdicts(
+        verdicts=[
+            grounded_verdict(strong_statement, Strength.strong, ["E1"]),
+            grounded_verdict(weak_statement, Strength.weak, ["E1"]),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert len(data["answer"]["findings"]) == 2
+    citations = data["answer"]["citations"]
+    assert len(citations) == 1, "both Findings cite one provision: one Answer entry"
+    assert citations[0]["article_number"] == HIGH_RISK_CHUNK.article_number
+    assert citations[0]["strength"] == "strong", "the strongest citing Finding wins"
+
+
+def test_summarizer_failure_degrades_gracefully_never_fails_the_run(live_client):
+    """A Summarizer failure is not a failed run: the Answer ships with its
+    Findings and Citations intact but without relevance, plus a Known
+    limitation naming the gap (#47)."""
+    class SummarizerFailsLlm:
+        """Serves every earlier agent, then dies at the Summaries boundary."""
+
+        def __init__(self, base):
+            self._base = base
+
+        def complete(self, system, user, schema):
+            if schema is Summaries:
+                raise LlmError("OpenRouter rejected the request (HTTP 429)")
+            return self._base.complete(system, user, schema)
+
+    llm = SummarizerFailsLlm(make_offline_llm())
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert len(data["answer"]["findings"]) == 2, "the Findings are unaffected"
+    assert data["answer"]["citations"], "the Citations are unaffected"
+    assert all(c["relevance"] is None for c in data["answer"]["citations"])
+    assert any(
+        "provision relevance is unavailable" in line.lower()
+        for line in data["known_limitations"]
+    ), data["known_limitations"]
+    assert "without Provision relevance" in summarizer_step(data)["action"]
+
+
+def test_an_all_rejected_summary_batch_degrades_like_a_failure(live_client):
+    """Every statement the Summarizer offered was rejected by the gate: the
+    Answer ships without relevance plus the same Known limitation — a silent
+    absence would look like a clean run."""
+    llm = make_offline_llm()
+    llm.summaries = Summaries(
+        summaries=[ProvisionSummary(ref="P99", relevance="Grounded on nothing.")]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert all(c["relevance"] is None for c in data["answer"]["citations"])
+    assert any(
+        "provision relevance is unavailable" in line.lower()
+        for line in data["known_limitations"]
+    )
+    decisions = summarizer_step(data)["summary_decisions"]
+    assert [d["status"] for d in decisions] == ["rejected"]
+
+
+def test_summarizer_prompt_shows_only_the_citing_findings_material(live_client):
+    """The Summarizer's prompt groups the kept Findings' Citations by
+    provision with the citing Findings' statements — the only material the
+    relevance statements may draw on."""
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, FakeRetriever())
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+
+    summarizer_user = llm.calls[4][1]
+    assert "Cited provisions with the Findings that cite them" in summarizer_user
+    assert "[P1]" in summarizer_user
+    assert "[P2]" in summarizer_user
+    assert "cited by" in summarizer_user
+    # The citing Findings' statements ride along as the grounding material.
+    assert "Creditworthiness evaluation is a high-risk use case." in summarizer_user
+
+
+def test_partial_summary_coverage_ships_what_survived_plus_a_known_limitation(live_client):
+    """The Summarizer ran but covered only some cited provisions: the grounded
+    statements it did produce still ship, and a Known limitation names the gap
+    instead of letting partial coverage pass silently (#47)."""
+    llm = make_offline_llm()
+    llm.summaries = Summaries(
+        summaries=[ProvisionSummary(ref="P1", relevance="Grounded in the citing Findings.")]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    citations = data["answer"]["citations"]
+    assert len(citations) == 2
+    covered = [c for c in citations if c["relevance"]]
+    bare = [c for c in citations if not c["relevance"]]
+    assert len(covered) == 1 and len(bare) == 1
+    assert any(
+        "provision relevance is incomplete" in line.lower()
+        and "1 of 2" in line
+        for line in data["known_limitations"]
+    ), data["known_limitations"]
+    assert "covered 1 of 2" in summarizer_step(data)["action"]
+    assert "covered 1 of 2 cited" in data["trace"]["summary"]
 
 
 def test_insufficient_evidence_path_is_unchanged_and_never_calls_the_proposer(monkeypatch):

@@ -40,7 +40,7 @@ test("renders the collapsed detailed trace behind the Insufficient-evidence pane
     !markup.includes("<details open"),
     "detailed trace must be collapsed by default",
   );
-  assert.ok(markup.includes("Detailed execution trace (4 steps)"));
+  assert.ok(markup.includes("Detailed execution trace (5 steps)"));
   assert.ok(markup.includes(">planner<"));
   assert.ok(markup.includes(">proposer<"));
 });

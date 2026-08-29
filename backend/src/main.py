@@ -31,7 +31,7 @@ from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
 from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Mode, Readiness, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Mode, ProvisionTarget, Readiness, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, answer_citations, quote_snippet
 from .progress import ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
 from .query_log import (
     STATUS_FAILURE,
@@ -154,6 +154,7 @@ class LookupTarget(TypedDict):
     kind: str
     number: int
     provision: str
+    relevance: str
 
 
 # Where each provision kind's context lives in the corpus JSON structure.
@@ -191,65 +192,131 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
         "statement": "An AI system that evaluates the creditworthiness of natural persons or establishes their credit score is a high-risk AI system under the AI Act, so the full high-risk obligations apply.",
         "strength": Strength.strong,
         "targets": [
-            {"source_id": "ai-act", "kind": "article", "number": 6, "provision": "Article 6(2)"},
-            {"source_id": "ai-act", "kind": "annex", "number": 3, "provision": "Annex III point 5(b)"},
+            {
+                "source_id": "ai-act",
+                "kind": "article",
+                "number": 6,
+                "provision": "Article 6(2)",
+                "relevance": "Article 6(2) is the classification rule that brings the company's credit-scoring system into the AI Act's high-risk regime, so every high-risk obligation in the other Findings applies.",
+            },
+            {
+                "source_id": "ai-act",
+                "kind": "annex",
+                "number": 3,
+                "provision": "Annex III point 5(b)",
+                "relevance": "Annex III point 5(b) names creditworthiness evaluation of natural persons as a high-risk use outright, which is what pins the company's loan-scoring system to Article 6(2)'s high-risk classification.",
+            },
         ],
     },
     {
         "statement": "As deployer, the company must assign human oversight, keep automatically generated logs for at least six months, and inform applicants that they are subject to a high-risk AI system.",
         "strength": Strength.strong,
         "targets": [
-            {"source_id": "ai-act", "kind": "article", "number": 26, "provision": "Article 26(2), (4), (6), (11)"},
+            {
+                "source_id": "ai-act",
+                "kind": "article",
+                "number": 26,
+                "provision": "Article 26(2), (4), (6), (11)",
+                "relevance": "Article 26 sets the deployer duties that fall directly on the company once its system is high-risk: human oversight, six-month log retention, and informing applicants.",
+            },
         ],
     },
     {
         "statement": "Before first deployment, the deployer of the creditworthiness system must perform a Fundamental Rights Impact Assessment and notify its results to the market surveillance authority.",
         "strength": Strength.strong,
         "targets": [
-            {"source_id": "ai-act", "kind": "article", "number": 27, "provision": "Article 27(1)-(4)"},
+            {
+                "source_id": "ai-act",
+                "kind": "article",
+                "number": 27,
+                "provision": "Article 27(1)-(4)",
+                "relevance": "Article 27 makes the Fundamental Rights Impact Assessment — and notifying its results — a step the company must complete before first deploying the creditworthiness system.",
+            },
         ],
     },
     {
         "statement": "Applicants subject to a loan decision based on the system's output have a right to a clear and meaningful explanation of the role of the AI system in the decision.",
         "strength": Strength.strong,
         "targets": [
-            {"source_id": "ai-act", "kind": "article", "number": 86, "provision": "Article 86(1)"},
+            {
+                "source_id": "ai-act",
+                "kind": "article",
+                "number": 86,
+                "provision": "Article 86(1)",
+                "relevance": "Article 86 gives loan applicants subject to decisions based on the system's output a right to a clear and meaningful explanation of the AI system's role in the decision.",
+            },
         ],
     },
     {
         "statement": "GDPR restricts decisions based solely on automated processing, including profiling, that produce legal or similarly significant effects; loan scoring is such a decision, and even the contract-necessity exception still requires human intervention and contest rights.",
         "strength": Strength.strong,
         "targets": [
-            {"source_id": "gdpr", "kind": "article", "number": 22, "provision": "Article 22(1), (2)(a), (3)"},
-            {"source_id": "gdpr", "kind": "recital", "number": 71, "provision": "Recital 71"},
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 22,
+                "provision": "Article 22(1), (2)(a), (3)",
+                "relevance": "Article 22 restricts decisions based solely on automated processing such as the company's loan scoring, and even the contract-necessity route still requires human intervention and contest rights.",
+            },
+            {
+                "source_id": "gdpr",
+                "kind": "recital",
+                "number": 71,
+                "provision": "Recital 71",
+                "relevance": "Recital 71 backs Article 22's restriction with the GDPR's own framing of profiling — the automated processing the company's credit scoring performs, producing legal effects for applicants.",
+            },
         ],
     },
     {
         "statement": "The credit-scoring processing requires a data protection impact assessment before it starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
         "strength": Strength.strong,
         "targets": [
-            {"source_id": "gdpr", "kind": "article", "number": 35, "provision": "Article 35(1), (3)(a)"},
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 35,
+                "provision": "Article 35(1), (3)(a)",
+                "relevance": "Article 35 requires the data protection impact assessment before the company's credit-scoring processing starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
+            },
         ],
     },
     {
         "statement": "DORA applies in full only if the company is itself a licensed financial entity; otherwise its main relevance is through ICT third-party risk where the AI is supplied to financial entities.",
         "strength": Strength.moderate,
         "targets": [
-            {"source_id": "dora", "kind": "article", "number": 2, "provision": "Article 2(1)(a), (2)"},
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 2,
+                "provision": "Article 2(1)(a), (2)",
+                "relevance": "Article 2 decides whether DORA applies to the company at all: only as a licensed financial entity, the contingency the Findings leave to the company's actual status.",
+            },
         ],
     },
     {
         "statement": "DORA governs the digital operational resilience of financial entities, not the substance of credit decisions; credit scoring itself is regulated by the AI Act and GDPR, not DORA.",
         "strength": Strength.moderate,
         "targets": [
-            {"source_id": "dora", "kind": "article", "number": 1, "provision": "Article 1(1)"},
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 1,
+                "provision": "Article 1(1)",
+                "relevance": "Article 1 bounds DORA to the digital operational resilience of financial entities, so it governs ICT risk rather than the substance of credit decisions.",
+            },
         ],
     },
     {
         "statement": "The system qualifies as an AI system; the company will be a provider and/or deployer; credit scoring is a form of profiling as cross-referenced into the AI Act.",
         "strength": Strength.weak,
         "targets": [
-            {"source_id": "ai-act", "kind": "article", "number": 3, "provision": "Article 3(1), (3), (4), (52)"},
+            {
+                "source_id": "ai-act",
+                "kind": "article",
+                "number": 3,
+                "provision": "Article 3(1), (3), (4), (52)",
+                "relevance": "Article 3 supplies the definitions — AI system, provider, deployer, profiling — the other Findings rely on, without establishing an obligation on its own.",
+            },
         ],
     },
 ]
@@ -323,10 +390,12 @@ def _lookup_tool_call(target: LookupTarget, status: str) -> dict:
 def _run_demo_workflow() -> Dict[str, Any]:
     """Run the deterministic demo workflow for the Spanish fintech scenario.
 
-    Returns findings, citations, retrieved passages, and tool calls.
+    Returns findings, the Answer's citations (one per cited provision, with
+    the locked Provision relevance and the max-rule Citation strength —
+    issue #47), retrieved passages, and tool calls.
     """
     findings: List[Finding] = []
-    citations: List[Citation] = []
+    relevance_by_target: Dict[ProvisionTarget, str] = {}
     retrieved_passages: List[dict] = []
     tool_calls: List[dict] = []
 
@@ -354,7 +423,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
             citation_kwargs[resolved["field"]] = target["number"]
             citation = Citation(**citation_kwargs)
             finding_citations.append(citation)
-            citations.append(citation)
+            relevance_by_target[citation.provision_target] = target["relevance"]
             retrieved_passages.append(
                 {
                     "source_id": target["source_id"],
@@ -377,7 +446,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
 
     return {
         "findings": findings,
-        "citations": citations,
+        "citations": answer_citations(findings, relevance_by_target),
         "retrieved_passages": retrieved_passages,
         "tool_calls": tool_calls,
     }
@@ -704,6 +773,11 @@ def _dispatch_analyze(run: RunContext) -> AnalyzeResponse:
                 "step": "verifier",
                 "action": "record the curated anticipated-but-unsupported claims as rejected (no Evidence in the Corpus supports this claim) and tag each finding with its evidence strength",
                 "claim_decisions": [decision.model_dump() for decision in claim_decisions],
+            },
+            {
+                "step": "summarizer",
+                "action": "serve the locked Provision relevance for each cited provision from the demo content",
+                "summary_decisions": [],
             },
         ]
     else:

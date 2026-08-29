@@ -1,4 +1,4 @@
-"""The Live workflow: Planner → Researcher → Verifier → Proposer as a LangGraph graph.
+"""The Live workflow: Planner → Researcher → Verifier → Proposer → Summarizer as a LangGraph graph.
 
 One pass answers an arbitrary Scenario: the Planner decomposes the
 Regulatory question into research targets; the Researcher gathers Evidence
@@ -7,9 +7,12 @@ its own decomposition (``SEATS_PER_TARGET`` seats per Research target); the
 Verifier checks every produced Claim against the retrieved Evidence, tags
 its Strength, and discards Unsupported claims into the Execution trace;
 the Proposer distills the kept Findings into referral Actions, each
-grounded in a kept Finding's Citations (ADR-0004).
+grounded in a kept Finding's Citations (ADR-0004); and the Summarizer
+turns the kept, cited Findings into Provision relevance — one grounded
+statement per cited provision, drawing only on the content of the Findings
+citing it (#47).
 
-Three rules are enforced by application code, never trusted to the LLM:
+Four rules are enforced by application code, never trusted to the LLM:
 
 - Citations are derived deterministically from Chunk provision metadata —
   the LLM only selects which Chunks support a Claim by their label, and a
@@ -21,6 +24,11 @@ Three rules are enforced by application code, never trusted to the LLM:
   kind contradicts its strongest anchor — is dropped and recorded in
   the detailed trace: an ungrounded referral never reaches the Answer,
   and the standing seek-counsel hand-off keeps the sheet never empty.
+- A relevance statement whose reference resolves to no cited provision is
+  dropped and recorded: Provision relevance aggregates only the Findings
+  citing a provision, never material outside them. On Summarizer failure
+  the Answer ships without summaries plus a Known limitation — the run
+  does not fail.
 
 When retrieval returns nothing relevant enough (no Chunk clears the
 relevance threshold), no LLM call drafts, verifies, or proposes anything:
@@ -42,7 +50,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
 from .corpus import source_short_names
 from .llm import Llm
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, Strength, Trace, PROVISION_NUMBER_FIELDS, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, ProvisionTarget, STRENGTH_ORDER, Strength, Trace, PROVISION_NUMBER_FIELDS, answer_citations, quote_snippet
 from .progress import PhaseReport, ProgressSink
 from .query_log import RequestObservation
 from .retrieval import Retriever
@@ -50,7 +58,7 @@ from .retrieval import Retriever
 logger = logging.getLogger(__name__)
 
 # The workflow marker the Execution trace carries for every served Live answer.
-LIVE_WORKFLOW_MARKER = "planner -> researcher -> verifier -> proposer"
+LIVE_WORKFLOW_MARKER = "planner -> researcher -> verifier -> proposer -> summarizer"
 
 # Prompt-side bound: each retrieved Chunk contributes at most this many
 # characters of Evidence to a prompt, so even a full pool stays within a
@@ -68,6 +76,16 @@ SEATS_PER_TARGET = 6
 INSUFFICIENT_EVIDENCE_LIMITATION = (
     "Known limitation: the Corpus holds nothing relevant enough to answer this "
     "question, so no Findings were produced."
+)
+
+SUMMARIZER_FAILURE_LIMITATION = (
+    "Known limitation: Provision relevance is unavailable for this answer — the Summarizer "
+    "produced no usable statement; the Findings and Citations are unaffected."
+)
+
+SUMMARIZER_PARTIAL_LIMITATION = (
+    "Known limitation: Provision relevance is incomplete for this answer — the Summarizer "
+    "covered {covered} of {total} cited provision(s)."
 )
 
 NARROW_THE_QUESTION_ACTIONS = [
@@ -174,6 +192,28 @@ class ActionProposals(BaseModel):
     proposals: list[ActionProposal] = Field(default_factory=list)
 
 
+class ProvisionSummary(BaseModel):
+    """One candidate Provision relevance the Summarizer emitted, referencing
+    the cited provision by the label it was shown (P1, P2, ...)."""
+
+    ref: str
+    relevance: str
+
+
+class Summaries(BaseModel):
+    summaries: list[ProvisionSummary] = Field(default_factory=list)
+
+
+class SummaryDecision(BaseModel):
+    """One Summarizer decision in the detailed trace: kept, or rejected with
+    why. Mirrors ``ClaimDecision``/``ActionDecision``: rejected relevance
+    never vanishes silently."""
+
+    ref: str
+    status: Literal["kept", "rejected"]
+    reason: Optional[str] = None
+
+
 class ActionDecision(BaseModel):
     """One Proposer decision in the detailed trace: kept, or rejected with why.
 
@@ -205,6 +245,14 @@ class Grounding(BaseModel):
     anchor: Strength
 
 
+class GroundedSummary(BaseModel):
+    """One cited provision's Provision relevance, grounded in the Findings
+    citing it — the gate-validated Summarizer output the Answer carries."""
+
+    target: ProvisionTarget
+    relevance: str
+
+
 class LiveState(BaseModel):
     """The LangGraph state: one field per boundary between the agents."""
 
@@ -229,6 +277,12 @@ class LiveState(BaseModel):
     # hand-off alone — the composition serves this sheet verbatim, except on
     # the Insufficient-evidence path, whose narrowing Actions it owns.
     actions: list[str] = Field(default_factory=list)
+    # The Summarizer's output (issue #47): one grounded relevance statement
+    # per cited provision, the per-summary decisions for the detailed trace,
+    # and the failure flag that degrades the Answer without failing the run.
+    relevance: list[GroundedSummary] = Field(default_factory=list)
+    summary_decisions: list[SummaryDecision] = Field(default_factory=list)
+    summarizer_failed: bool = False
 
 
 # --- Prompts: JSON-only instructions; the client repeats the schema contract ---
@@ -280,6 +334,17 @@ _PROPOSER_SYSTEM = (
     "kind='verify_against_facts' when it is strong — the gate rejects a mismatch. Weak "
     "Findings may enrich an Action's wording but never support one alone. Never propose a "
     "compliance task, never presume a Regulation applies, never advise on your own authority."
+)
+
+_SUMMARIZER_SYSTEM = (
+    "You are the Summarizer of a regulatory research assistant. You are given the provisions an "
+    "Answer cites, each with a label like [P1] and the statements of the Findings that cite it. "
+    "For each provision, write ONE answer-wide Provision relevance statement: why the provision "
+    "matters to the overall Answer, aggregating across the Findings that cite it. Ground each "
+    "statement ONLY in the content of the Findings citing that provision — never on the "
+    "provision's own text, never on other provisions, never on outside knowledge. Set ref to the "
+    "provision's label (P1, P2, ...) — never a label that was not given to you. Never write more "
+    "than one statement per provision."
 )
 
 
@@ -407,6 +472,43 @@ def _labelled_findings(
     return "\n".join(lines), groundings
 
 
+def _labelled_provisions(
+    findings: list[Finding],
+) -> tuple[str, dict[str, ProvisionTarget]]:
+    """The cited-provisions block the Summarizer reads, plus the ref → target
+    map the gate validates against.
+
+    One enumeration serves both, so a label shown to the LLM always resolves
+    the same way in validation. Provisions group the kept Findings' Citations
+    by structural target (first mention, P-labels flat), each listed with the
+    statements of the Findings citing it — the only material the Summarizer
+    may draw on. A Finding citing one provision through several Citations is
+    listed once: the statements are the grounding material, and duplication
+    in the prompt can only weight them, never inform.
+    """
+    targets_by_ref: dict[str, ProvisionTarget] = {}
+    blocks: dict[str, list[str]] = {}
+    listed_findings: dict[str, set[int]] = {}
+    for position, finding in enumerate(findings):
+        for citation in finding.citations:
+            target = citation.provision_target
+            ref = next(
+                (ref for ref, known in targets_by_ref.items() if known == target),
+                None,
+            )
+            if ref is None:
+                ref = f"P{len(targets_by_ref) + 1}"
+                targets_by_ref[ref] = target
+                name = citation.source_short_name or citation.source_id
+                blocks[ref] = [f"[{ref}] {name} {citation.provision or ''}".rstrip(), "  cited by:"]
+                listed_findings[ref] = set()
+            if position not in listed_findings[ref]:
+                listed_findings[ref].add(position)
+                blocks[ref].append(f"  - ({finding.strength.value}) {finding.statement}")
+    lines = [line for block in blocks.values() for line in block]
+    return "\n".join(lines), targets_by_ref
+
+
 _NO_RESOLVABLE_CITATION_REASON = "its citations resolve to no kept Finding"
 _INVALID_GROUNDING_REASON = (
     "invalid grounding: {finding_refs} name Findings, not their Citations — "
@@ -486,6 +588,51 @@ def _validate_proposals(
             ActionDecision(action=proposal.action, status="kept", dropped_refs=unknown)
         )
     return served, decisions
+
+
+# --- Summarizer grounding: labels over the cited provisions ---
+
+
+_UNKNOWN_REF_REASON = "the label names no cited provision"
+_DUPLICATE_REF_REASON = "this provision already carries its relevance statement"
+_EMPTY_RELEVANCE_REASON = "the relevance statement is empty"
+
+
+def _validate_summaries(
+    summaries: Summaries,
+    targets_by_ref: dict[str, ProvisionTarget],
+) -> tuple[dict[ProvisionTarget, str], list[SummaryDecision]]:
+    """The Summarizer's grounding gate: only cited provisions receive relevance.
+
+    A summary's reference must resolve to a cited provision through the same
+    label map the prompt showed the LLM — a reference to anything else (a
+    Finding label, an invented ref) is rejected and recorded in the detailed
+    trace, so ungrounded relevance never reaches the Answer. One grounded
+    statement per cited provision: a second statement for an already-summarised
+    provision is rejected — the first stands, nothing merges or overwrites.
+    """
+    relevance: dict[ProvisionTarget, str] = {}
+    decisions: list[SummaryDecision] = []
+    for summary in summaries.summaries:
+        target = targets_by_ref.get(summary.ref)
+        if target is None:
+            decisions.append(
+                SummaryDecision(ref=summary.ref, status="rejected", reason=_UNKNOWN_REF_REASON)
+            )
+            continue
+        if not summary.relevance.strip():
+            decisions.append(
+                SummaryDecision(ref=summary.ref, status="rejected", reason=_EMPTY_RELEVANCE_REASON)
+            )
+            continue
+        if target in relevance:
+            decisions.append(
+                SummaryDecision(ref=summary.ref, status="rejected", reason=_DUPLICATE_REF_REASON)
+            )
+            continue
+        relevance[target] = summary.relevance
+        decisions.append(SummaryDecision(ref=summary.ref, status="kept"))
+    return relevance, decisions
 
 
 # --- The graph: START → planner → researcher → verifier → proposer → END ---
@@ -646,16 +793,68 @@ def _build_graph(
             "grounding_by_label": grounding_by_label,
         }
 
+    def summarizer(state: LiveState) -> dict:
+        """Turn the kept, cited Findings into Provision relevance (issue #47).
+
+        The block and the ref map come from one computation over the kept
+        Findings — the gate validates exactly the labels the LLM saw. A
+        Summarizer failure never fails the run: the Answer ships without
+        summaries plus a Known limitation.
+        """
+        if progress:
+            progress(PhaseReport(phase="summarizer", message="aggregating the kept Findings into one grounded Provision relevance statement per cited provision"))
+        block, targets_by_ref = _labelled_provisions(state.kept_findings)
+        if not targets_by_ref:
+            # No cited provision carries a Finding: nothing to summarize, and
+            # no LLM call is made over nothing.
+            return {}
+        user = (
+            f"Regulatory question: {state.question}\n\n"
+            f"Cited provisions with the Findings that cite them:\n\n{block}"
+        )
+        started = time.perf_counter()
+        try:
+            summaries = llm.complete(system=_SUMMARIZER_SYSTEM, user=user, schema=Summaries)
+        except Exception as error:
+            # Degrade, never fail (issue #47): any Summarizer failure — an
+            # unreachable provider, a malformed reply, a bug — leaves the
+            # Answer served without relevance, named by a Known limitation.
+            logger.warning(
+                "summarizer failed (%s); the Answer ships without Provision relevance", error
+            )
+            return {"summarizer_failed": True}
+        relevance, decisions = _validate_summaries(summaries, targets_by_ref)
+        if not relevance:
+            # Nothing usable came back — every statement was rejected, or none
+            # was made: the same degradation as an outright failure, never a
+            # silent absence.
+            return {"summarizer_failed": True, "summary_decisions": decisions}
+        logger.info(
+            "summarizer: %d relevance statement(s) over %d provision(s) in %.2fs",
+            len(relevance),
+            len(targets_by_ref),
+            time.perf_counter() - started,
+        )
+        return {
+            "relevance": [
+                GroundedSummary(target=target, relevance=statement)
+                for target, statement in relevance.items()
+            ],
+            "summary_decisions": decisions,
+        }
+
     builder = StateGraph(LiveState)
     builder.add_node("planner", planner)
     builder.add_node("researcher", researcher)
     builder.add_node("verifier", verifier)
     builder.add_node("proposer", proposer)
+    builder.add_node("summarizer", summarizer)
     builder.add_edge(START, "planner")
     builder.add_edge("planner", "researcher")
     builder.add_edge("researcher", "verifier")
     builder.add_edge("verifier", "proposer")
-    builder.add_edge("proposer", END)
+    builder.add_edge("proposer", "summarizer")
+    builder.add_edge("summarizer", END)
     return builder.compile()
 
 
@@ -673,9 +872,10 @@ def run_live_analysis(
     stays the one seam the API layer calls. ``observation`` receives the
     per-request observability counts — the size of the Evidence pool this
     pass actually reasoned over. ``progress``, when given, receives each
-    phase transition the moment its workflow agent starts: the four
-    agent names in order (Planner → Researcher → Verifier → Proposer)
-    with an informative message each. The composition root builds it with
+    phase transition the moment its workflow agent starts: the five
+    agent names in order (Planner → Researcher → Verifier → Proposer →
+    Summarizer) with an informative message each. The composition root
+    builds it with
     ``progress.progress_sink(request_id)`` — bound to the shared registry
     by default — and None leaves the run unreported.
     """
@@ -688,11 +888,13 @@ def run_live_analysis(
     # The Verifier's output was decided once, by the Proposer: kept Findings,
     # per-claim decisions, and the citation labels the grounding gate reads
     # all travel through the state from that single computation.
-    _STRENGTH_SORT = {Strength.strong: 0, Strength.moderate: 1, Strength.weak: 2}
-    findings = sorted(state.kept_findings, key=lambda f: _STRENGTH_SORT.get(f.strength, 1))
+    findings = sorted(state.kept_findings, key=lambda f: STRENGTH_ORDER.get(f.strength, 1))
     decisions = state.claim_decisions
     discarded = [decision.claim for decision in decisions if decision.status == "rejected"]
-    all_citations = [citation for finding in findings for citation in finding.citations]
+    # The Summarizer's gate-validated relevance, keyed by provision target for
+    # the Answer's one-entry-per-provision citation list.
+    relevance_by_target = {grounded.target: grounded.relevance for grounded in state.relevance}
+    all_citations = answer_citations(findings, relevance_by_target)
     retrieved_chunks = [
         {
             "label": item.label,
@@ -710,6 +912,17 @@ def run_live_analysis(
     known_limitations = [ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION] + (
         [INSUFFICIENT_EVIDENCE_LIMITATION] if insufficient else []
     )
+    if state.summarizer_failed:
+        known_limitations.append(SUMMARIZER_FAILURE_LIMITATION)
+    elif all_citations and len(state.relevance) < len(all_citations):
+        # Partial coverage still ships what survived the gate — grounded and
+        # useful — but the one-statement-per-provision guarantee did not hold,
+        # and a Known limitation names the gap instead of hiding it.
+        known_limitations.append(
+            SUMMARIZER_PARTIAL_LIMITATION.format(
+                covered=len(state.relevance), total=len(all_citations)
+            )
+        )
 
     proposal_decisions: list[ActionDecision] = []
     if insufficient:
@@ -739,13 +952,29 @@ def run_live_analysis(
     else:
         kept_proposals = sum(1 for d in proposal_decisions if d.status == "kept")
         rejected_proposals = sum(1 for d in proposal_decisions if d.status == "rejected")
+        if state.summarizer_failed:
+            summarizer_sentence = (
+                "the Summarizer produced no usable Provision relevance statement, so the Answer "
+                "ships without them (a Known limitation names it)"
+            )
+        elif len(state.relevance) < len(all_citations):
+            summarizer_sentence = (
+                f"the Summarizer covered {len(state.relevance)} of {len(all_citations)} cited "
+                "provision(s) with Provision relevance (a Known limitation names the gap)"
+            )
+        else:
+            summarizer_sentence = (
+                f"Summarizer wrote {len(state.relevance)} Provision relevance "
+                f"statement(s) for the {len(all_citations)} cited provision(s)"
+            )
         summary = (
             f"Planner identified research targets ({plan_summary}); Researcher retrieved "
             f"{len(retrieved_chunks)} Chunk(s) via the retrieval tool and drafted "
             f"{len(state.drafted.claims)} claim(s); Verifier kept {len(findings)} Finding(s) "
             f"and recorded {len(discarded)} Unsupported claim(s) as rejected; Proposer "
             f"distilled {kept_proposals} referral Action(s) from the kept Findings "
-            f"and recorded {rejected_proposals} ungrounded proposal(s) as rejected."
+            f"and recorded {rejected_proposals} ungrounded proposal(s) as rejected; "
+            f"{summarizer_sentence}."
         )
 
     if insufficient:
@@ -763,6 +992,28 @@ def run_live_analysis(
         proposer_step_action = (
             "distill the kept Findings into referral Actions, each grounded "
             "in a kept Finding's Citations"
+        )
+
+    if state.summarizer_failed:
+        # The trace stays honest about the degraded pass: the Answer carries
+        # no relevance, and the run did not fail.
+        summarizer_step_action = (
+            "the Summarizer produced no usable relevance statement: the Answer ships "
+            "without Provision relevance, named by a Known limitation"
+        )
+    elif not state.kept_findings:
+        summarizer_step_action = (
+            "no cited provision needed a relevance statement, and no LLM call was made"
+        )
+    elif len(state.relevance) < len(all_citations):
+        summarizer_step_action = (
+            f"covered {len(state.relevance)} of {len(all_citations)} cited provision(s); "
+            "the Answer ships with Provision relevance incomplete, named by a Known limitation"
+        )
+    else:
+        summarizer_step_action = (
+            "aggregate the Findings citing each provision into one grounded "
+            "Provision relevance statement, drawn only on those Findings"
         )
 
     planner_step: dict[str, Any] = {
@@ -790,6 +1041,11 @@ def run_live_analysis(
             "step": "proposer",
             "action": proposer_step_action,
             "action_decisions": [decision.model_dump() for decision in proposal_decisions],
+        },
+        {
+            "step": "summarizer",
+            "action": summarizer_step_action,
+            "summary_decisions": [decision.model_dump() for decision in state.summary_decisions],
         },
     ]
 
