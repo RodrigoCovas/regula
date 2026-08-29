@@ -173,6 +173,20 @@ class AnalyzeResponse(BaseModel):
     known_limitations: List[str] = Field(default_factory=list)
 
 
+class Readiness(BaseModel):
+    """Live-mode Readiness (CONTEXT.md) as three independent booleans.
+
+    GET /readiness reports them so tooling and the frontend can check the
+    prerequisites — a configured provider key, the embedding model available,
+    a non-empty ingested Corpus — without probing internals. Each is probed
+    separately, so a checklist can name exactly which one is missing.
+    """
+
+    api_key_set: bool
+    embedding_model_present: bool
+    corpus_ingested: bool
+
+
 def quote_snippet(text: str, limit: int = 300) -> str:
     """The citation-quote form of a provision text: first ``limit`` chars, elided."""
     return text[:limit] + ("..." if len(text) > limit else "")

@@ -31,7 +31,7 @@ from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError, OpenRouterClient
 from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Mode, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Mode, Readiness, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, quote_snippet
 from .progress import ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
 from .query_log import (
     STATUS_FAILURE,
@@ -41,6 +41,7 @@ from .query_log import (
     append_query_record,
     build_query_record,
 )
+from .readiness import live_readiness
 from .retrieval import Retriever, VectorRetriever
 
 logging.basicConfig(level=logging.INFO)
@@ -419,6 +420,21 @@ def get_retriever() -> Iterator[Retriever]:
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/readiness", response_model=Readiness)
+def readiness() -> Readiness:
+    """Report Live-mode Readiness as three booleans (issue #45): the provider
+    key configured, the embedding model available on Ollama, and a non-empty
+    ingested Corpus — each probed from real state so tooling and the frontend
+    can check the prerequisites without probing internals.
+
+    A liveness probe this is not: /health keeps answering process-up only,
+    while Readiness can be false on a perfectly healthy process that lacks a
+    prerequisite. Unreachable Ollama or store reads as not-ready, never a
+    server error — an outage is a Readiness gap, not a crash.
+    """
+    return live_readiness(settings)
 
 
 @dataclass

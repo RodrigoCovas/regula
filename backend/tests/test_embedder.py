@@ -7,7 +7,13 @@ a fake transport — no network, no Ollama in the unit suite.
 import pytest
 import requests
 
-from src.embedder import DEFAULT_MODEL, EMBEDDING_DIMENSION, EmbeddingError, OllamaEmbedder
+from src.embedder import (
+    DEFAULT_MODEL,
+    EMBEDDING_DIMENSION,
+    EmbeddingError,
+    OllamaEmbedder,
+    embedding_model_available,
+)
 
 
 class FakeTransport:
@@ -114,3 +120,102 @@ def test_model_can_be_overridden_for_tests():
 
     assert result == [[0.1] * 5]
     assert transport.calls[0][1]["model"] == "fake-embed"
+
+
+# --- Embedding-model availability probe: the Readiness boolean's source (issue #45) ---
+
+
+class FakeTagsTransport:
+    """Records GET urls; replays one canned /api/tags body."""
+
+    def __init__(self, body=None, error=None):
+        self.calls: list[str] = []
+        self.body = body if body is not None else {"models": []}
+        self.error = error
+
+    def __call__(self, url: str) -> dict:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(url)
+        return self.body
+
+
+def tags(*names):
+    return {"models": [{"name": name, "model": name} for name in names]}
+
+
+def test_probe_hits_the_tags_endpoint_and_finds_the_configured_model():
+    transport = FakeTagsTransport(body=tags("some-chat-model", DEFAULT_MODEL))
+
+    assert embedding_model_available("http://ollama:11434", transport=transport) is True
+    assert transport.calls == ["http://ollama:11434/api/tags"]
+
+
+def test_probe_overrides_the_default_model():
+    transport = FakeTagsTransport(body=tags("my-embed"))
+
+    assert embedding_model_available("http://x", model="my-embed", transport=transport) is True
+
+
+def test_model_absent_from_the_listing_reports_not_present():
+    transport = FakeTagsTransport(body=tags("some-chat-model"))
+
+    assert embedding_model_available("http://x", transport=transport) is False
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.ConnectionError("connection refused"),
+        requests.HTTPError("500"),
+        ValueError("not JSON"),
+    ],
+    ids=["unreachable", "rejected", "malformed-json"],
+)
+def test_probe_that_cannot_answer_reports_not_present(error):
+    """Unreachable Ollama, a rejected request, or an unreadable body all mean
+    the model cannot be confirmed present — one conservative False."""
+    transport = FakeTagsTransport(error=error)
+
+    assert embedding_model_available("http://localhost:11434", transport=transport) is False
+
+
+def test_probe_accepts_a_bare_configured_name_resolved_to_latest():
+    """Ollama resolves a tag-less name to :latest (that is what a plain
+    `ollama pull nomic-embed-text` produces), so the probe must too —
+    otherwise Readiness reports false for a model embed requests would find."""
+    transport = FakeTagsTransport(body=tags("nomic-embed-text:latest"))
+
+    assert (
+        embedding_model_available("http://x", model="nomic-embed-text", transport=transport)
+        is True
+    )
+
+
+def test_tagged_configured_name_does_not_match_a_bare_listing():
+    """The resolution only goes one way: an explicitly tagged model is not
+    satisfied by a bare listing of the same name."""
+    transport = FakeTagsTransport(body=tags("nomic-embed-text"))
+
+    assert (
+        embedding_model_available(
+            "http://x", model="nomic-embed-text:latest", transport=transport
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        [],
+        {"models": None},
+        {"models": ["not-a-dict"]},
+        {"unexpected": True},
+    ],
+    ids=["list-body", "null-models", "non-dict-entries", "missing-models"],
+)
+def test_malformed_tags_body_reports_not_present(body):
+    transport = FakeTagsTransport(body=body)
+
+    assert embedding_model_available("http://x", transport=transport) is False

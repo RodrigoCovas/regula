@@ -22,6 +22,10 @@ DEFAULT_MODEL = "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16"
 
 _EMBED_TIMEOUT_SECONDS = 120
 
+# A model-listing probe must fail fast: Readiness polling cannot hang on the
+# embed path's generous batch timeout.
+_TAGS_TIMEOUT_SECONDS = 5
+
 
 class EmbeddingError(RuntimeError):
     """Embedding failed in a way the operator must fix before ingesting."""
@@ -33,6 +37,12 @@ class Embedder(Protocol):
 
 def _requests_transport(url: str, payload: dict) -> dict:
     response = requests.post(url, json=payload, timeout=_EMBED_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return response.json()
+
+
+def _requests_get_json(url: str) -> dict:
+    response = requests.get(url, timeout=_TAGS_TIMEOUT_SECONDS)
     response.raise_for_status()
     return response.json()
 
@@ -99,3 +109,43 @@ class OllamaEmbedder:
                     "the one used at ingestion."
                 )
         return [list(vector) for vector in embeddings]
+
+
+def _model_matches(configured: str, listed: str) -> bool:
+    """Whether a model Ollama lists satisfies a configured model name.
+
+    Mirrors Ollama's own resolution: a tag-less name resolves to ``:latest``
+    (what a plain ``ollama pull nomic-embed-text`` produces), so the probe
+    must accept it too — otherwise Readiness would report false for a model
+    embed requests would find.
+    """
+    if listed == configured:
+        return True
+    return ":" not in configured and listed == f"{configured}:latest"
+
+
+def embedding_model_available(
+    base_url: str,
+    model: str = DEFAULT_MODEL,
+    transport: Callable[[str], dict] | None = None,
+) -> bool:
+    """Whether Ollama is reachable and has ``model`` among its installed models.
+
+    Probes Ollama's /api/tags listing — the same source ``ollama list`` reads
+    — so a missing model is visible before any embedding request fails. The
+    boolean is deliberately coarse: an unreachable Ollama, a rejected request,
+    or an unreadable body all mean the model cannot be confirmed present, and
+    one conservative False covers them (the embedder's own errors name which
+    fix applies when a real embedding request hits the same gap).
+    """
+    fetch = transport or _requests_get_json
+    try:
+        body = fetch(f"{base_url.rstrip('/')}/api/tags")
+        entries = body.get("models") or []
+        return any(
+            isinstance(entry, dict)
+            and _model_matches(model, entry.get("name") or entry.get("model") or "")
+            for entry in entries
+        )
+    except Exception:
+        return False

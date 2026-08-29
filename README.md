@@ -44,6 +44,13 @@ helpful not-available response.
 curl http://localhost:8000/health
 ```
 
+Before using Live mode, check its Readiness — the provider key, embedding
+model, and ingested Corpus as three booleans:
+```bash
+curl http://localhost:8000/readiness
+# {"api_key_set":true,"embedding_model_present":true,"corpus_ingested":false}
+```
+
 6. **Stop when done:**
 ```bash
 docker compose down
@@ -100,6 +107,20 @@ Researcher, Verifier, and Proposer phases. The frontend polls
 The backend records the active workflow step in an in-memory registry with
 TTL cleanup; unknown request ids return a Not-available-shaped response.
 Single-worker uvicorn makes in-memory state safe for this use case.
+
+### Readiness endpoint
+
+`GET /readiness` reports Live-mode Readiness (see Modes above) as three
+independent booleans, each probed from real state on every call:
+
+```json
+{"api_key_set": true, "embedding_model_present": true, "corpus_ingested": true}
+```
+
+A missing prerequisite reads `false` individually — an unreachable Ollama or
+vector store counts as not-ready rather than an error, so tooling can poll
+the endpoint while the stack is coming up. `/health` stays the liveness
+probe: process-up only, never a Readiness verdict.
 
 ### Running the tests locally (no Docker)
 
