@@ -358,15 +358,19 @@ regula/
 
 ## Evaluation
 
-The deterministic demo ships with a strength-weighted eval harness
-(`backend/src/eval_harness.py`): 7 curated cases scored by weighted F1 over
-Findings, where Strength weights are strong = 3, moderate = 2, weak = 1.
-Matched Findings mis-tagged on Strength keep `weight × (1 − distance/2)` of
-their credit, and spurious Findings subtract their produced weight.
+The eval harness (`backend/src/eval_harness.py`) scores **provision coverage**
+(see `docs/adr/0010-evaluation-scores-provisions-not-statements.md`): a
+deterministic set F1 over Citation targets — provision kind + number, never
+label strings — with the expected side weighted by its Findings' Strengths
+(strong = 3, moderate = 2, weak = 1) and every off-target produced Citation
+counted against precision. Statement similarity gates no score; produced and
+expected statements ride only in the per-case audit dump for human review.
 
-Until the LLM/RAG pipeline lands, these cases act as functional tripwires
-(see `docs/adr/0001-eval-cases-are-functional-tripwires.md`): mean F1 is 1.0
-by construction, so any drop signals a regression, not poor quality.
+The Demo-mode cases act as functional tripwires (see
+`docs/adr/0001-eval-cases-are-functional-tripwires.md`): Demo production
+derives its Citations from the same locked targets its ground truth
+transcribes, so mean F1 is 1.0 by construction and any drop signals a
+regression, not poor quality.
 
 ### Measuring Live answer quality (operator only)
 
@@ -375,15 +379,19 @@ CI and needs the Live prerequisites already in place (API key plus ingested
 Corpus; see the setup section above):
 
 ```bash
-python -m backend.src.live_eval
+python -m backend.src.live_eval --output eval-report.json
 ```
 
 It runs the hand-authored ground-truth cases through `/api/analyze` in Live
-mode, scores each Answer with semantic matching (paraphrased Findings pair
-with their expectations) and citation fidelity (missed, mistargeted, or extra
-Citations cost credit), and prints per-case precision/recall plus the
-strength-weighted F1 and the aggregate mean weighted F1. Without a key or an
-ingested Corpus it refuses with the fix instead of measuring garbage.
+mode, scores each Answer with provision coverage, and prints per-case
+precision/recall plus the coverage F1 and the aggregate mean coverage F1.
+With `--output` it also writes a JSON report: per-case component scores plus
+the produced-versus-expected dump (statements, Strengths, Citation targets)
+for the human audit. Precision over provisions is pessimistic by
+construction — a produced Citation outside the hand-authored expected set is
+not necessarily wrong; review the spurious list before quoting numbers.
+Without a key or an ingested Corpus it refuses with the fix instead of
+measuring garbage.
 
 ## Deployment
 

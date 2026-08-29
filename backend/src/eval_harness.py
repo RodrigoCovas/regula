@@ -1,49 +1,27 @@
-"""Offline evaluation harness for the deterministic demo.
+"""Offline evaluation harness.
 
-Scores produced Findings against curated ground-truth scenarios using
-Strength-weighted precision, recall, and their harmonic mean (F1).
+Scoring is provision coverage (ADR-0010): a deterministic set F1 over
+Citation targets — provision kind + number via ``parse_provision`` and
+``Citation.provision_target``, never label strings — with the expected side
+weighted by its Findings' Strengths and every off-target produced target
+counted against precision. Statements are never matched: statement
+similarity left the scoring path with ADR-0010 (ADR-0001's update records
+the retirement), and survives only as diagnostic material — the per-case
+audit dump (``EvalScenarioResult.expected`` / ``.produced``) carries both
+sides' statements for the human review the Live eval CLI writes out.
 
-Matching is a per-case strategy producing expected→produced pairings; the
-Strength-penalty and spurious-subtraction mechanics below are shared by
-every matcher. The default ``verbatim_matcher`` pairs by exact statement
-equality — the Demo tripwire contract of ADR-0001. ``semantic_matcher``
-pairs paraphrases by lexical similarity (token-set cosine over stopword-
-stripped, singularized statements), one-to-one, closest pairs first at
-SEMANTIC_MATCH_THRESHOLD — step 2 of the ADR's fixed sequence, proven by
-synthetic cases until #7's hand-authored ground truths arrive.
-
-A matched Finding's credit also scales by its citation fidelity (step 3):
-an expected Citation is hit when a produced Citation targets the same
-source and structural provision (kind + number), compared via
-``parse_provision`` and ``Citation.provision_target`` — never by label
-string. Fidelity is the hit fraction of the union of both target sets, so
-missed, mistargeted, and extra produced Citations all lower it; vacuously
-1.0 when neither side names any. Demo production derives from the same
-locked targets as its ground truth, so demo fidelity is 1.0 while every
-expected target still resolves in the Corpus; one that stops resolving
-lowers the score loudly — the tripwire doing its job (see ADR-0001's
-step-3 update).
-
-Scoring interpretation: the mis-tag penalty ("a matched Finding retains
-weight x (1 - distance/2) of its credit") and the citation-fidelity scale
-apply to the same matched-Finding credit, which feeds BOTH the precision
-and recall numerators — the only reading that gives either mechanism any
-effect on the score. Spurious Findings subtract
-weight(produced strength) from the precision numerator, and pairing is
-one-to-one per the matcher: a repeated production of an already-paired
-statement adds no credit and its full weight subtracts as spurious
-leakage.
-
-Empty-expected Scenarios follow their own locked rule: they score 1.0
-only when nothing was produced; any production is spurious leakage and
-scores 0.0 across the board. Recall is never defaulted to 1.0 outside
-that explicit rule.
+Demo pinning (ADR-0001/0008): the curated cases are Demo-mode tripwires.
+Demo production derives its Citations from the same locked targets its
+ground truth transcribes, so coverage F1 is 1.0 by construction while every
+expected target still resolves in the Corpus — one that stops resolving
+lowers the score loudly. Empty-expected Scenarios follow their own locked
+rule: they score 1.0 only when nothing was produced; any production is
+spurious leakage and scores 0.0 across the board.
 """
 
 import json
-import math
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, TypedDict
 
 from .models import (
@@ -71,8 +49,6 @@ STRENGTH_WEIGHTS: Dict[Strength, int] = {
     Strength.weak: 1,
 }
 
-_STRENGTH_ORDER = [Strength.weak, Strength.moderate, Strength.strong]
-
 
 @dataclass
 class ExpectedFinding:
@@ -86,11 +62,6 @@ class ProducedFinding:
     statement: str
     strength: Strength
     citations: List[Citation] = field(default_factory=list)
-
-
-def strength_distance(a: Strength, b: Strength) -> int:
-    """Step count between two Strengths on the ordered scale weak < moderate < strong."""
-    return abs(_STRENGTH_ORDER.index(a) - _STRENGTH_ORDER.index(b))
 
 
 # Ground-truth provision label grammar per ProvisionKind. The number is the
@@ -145,162 +116,70 @@ def parse_provision(source_id: str, label: str) -> ProvisionTarget:
     )
 
 
-def citation_fidelity(expected: List[ExpectedCitation], produced: List[Citation]) -> float:
-    """Structural agreement between the expected and produced Citation targets:
-    the hit fraction of their union. A missed, mistargeted, or extra produced
-    Citation lowers fidelity; vacuously 1.0 when neither side names any."""
-    expected_targets = {
-        parse_provision(expectation["source_id"], expectation["provision"])
-        for expectation in expected
-    }
-    produced_targets = {citation.provision_target for citation in produced}
-    if not expected_targets and not produced_targets:
-        return 1.0
-    return len(expected_targets & produced_targets) / len(expected_targets | produced_targets)
+def expected_target_weights(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, int]:
+    """Weight each expected Citation target by the strongest Strength among
+    the ground-truth Findings citing it — CONTEXT.md's max-rule Citation
+    strength, applied to the expected side. A target cited by several
+    Findings enters once (set semantics); a Finding citing no target
+    contributes nothing, so an expectation that names no provision can never
+    be covered."""
+    weights: Dict[ProvisionTarget, int] = {}
+    for finding in expected:
+        weight = STRENGTH_WEIGHTS[finding.strength]
+        for citation in finding.citations:
+            target = parse_provision(citation["source_id"], citation["provision"])
+            weights[target] = max(weights.get(target, 0), weight)
+    return weights
 
 
-def _matched_finding_credit(expected: ExpectedFinding, produced: ProducedFinding) -> float:
-    """Credit a matched Finding retains after the distance-scaled mis-tag
-    penalty, further scaled by its citation fidelity."""
-    fidelity_scale = (
-        1 - strength_distance(expected.strength, produced.strength) / 2
-    ) * citation_fidelity(expected.citations, produced.citations)
-    return STRENGTH_WEIGHTS[expected.strength] * fidelity_scale
+# The human-readable provision kind for an audit-dump target string.
+_KIND_LABELS: Dict[ProvisionKind, str] = {
+    ProvisionKind.article: "Article",
+    ProvisionKind.recital: "Recital",
+    ProvisionKind.annex: "Annex",
+}
 
 
-# Similarity at or above which two statements count as the same Finding.
-# Calibrated against #7's hand-authored ground truths on the real Live
-# pipeline (#23's acceptance run): paraphrase pairs of the same provision
-# score 0.44–0.49 against the Live LLM's verbose style, junk pairs stay
-# ≤ 0.31, and the synthetic known cases sit ≥ 0.61 — 0.43 sits between the
-# junk ceiling and the lowest measured paraphrase, admitting the real
-# paraphrases with margin on every side.
-SEMANTIC_MATCH_THRESHOLD = 0.43
-
-_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
-
-# Polarity words that must agree before two statements can be the same
-# Finding: flipping one flips its meaning while barely moving token overlap.
-_NEGATORS = frozenset({"not", "no", "nor", "never", "without", "cannot"})
-
-_STOP_WORDS = frozenset(
-    """
-    a an the and or of to in on for with as by at from is are be been was were
-    that this it its their they them we you your our but if then
-    than so such can may must shall will would should do does did have has had
-    any all each other into under when where which who whom whose what whether
-    only also before after between through during above below up down out off
-    over again further once here there own same s t
-    """.split()
-)
+def format_provision_target(target: ProvisionTarget) -> str:
+    """The deterministic audit-dump form of a structural target: the source
+    and its provision kind + number — never the free-text label."""
+    return f"{target.source_id} {_KIND_LABELS[target.kind]} {target.number}"
 
 
-def _singular(word: str) -> str:
-    """Naive singular form so plural drift never blocks a lexical match."""
-    if word.endswith("ies") and len(word) > 4:
-        return word[:-3] + "y"
-    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
-        return word[:-1]
-    return word
+def coverage_scores(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[str, float]:
+    """Provision-coverage F1 (ADR-0010): set arithmetic over Citation targets.
 
+    Recall is the strength-weighted share of expected targets the produced
+    side covers: each expected target carries the weight of its strongest
+    citing Finding, and covering it anywhere in production counts in full.
+    Precision is the fraction of produced targets that hit an expected one —
+    every off-target produced Citation counts against it (pessimistic by
+    construction: the audit reviews the spurious list before numbers are
+    quoted). Produced targets form a set: repeating one earns nothing extra.
+    Nothing produced is vacuously full precision (nothing spurious) at zero
+    recall.
 
-def _content_tokens(statement: str) -> frozenset:
-    """Content tokens of a statement: lowercased, stopword-stripped, singularized."""
-    words = _TOKEN_PATTERN.findall(statement.lower())
-    return frozenset(_singular(word) for word in words if word not in _STOP_WORDS)
-
-
-def statement_similarity(a: str, b: str) -> float:
-    """Token-set cosine between two statements, gated on negation stance:
-    1.0 only for verbatim or re-inflected echoes, 0.0 when exactly one side
-    carries a negator (a polarity flip is never the same Finding), and 0.0
-    for disjoint vocabulary.
-
-    The gate is scope-free — "not only ... but also" style constructions are
-    treated as plain negation; real validation against #7's ground truths
-    will tell whether that needs refining.
-    """
-    left, right = _content_tokens(a), _content_tokens(b)
-    if not left or not right:
-        return 0.0
-    if bool(left & _NEGATORS) != bool(right & _NEGATORS):
-        return 0.0
-    return len(left & right) / math.sqrt(len(left) * len(right))
-
-
-Matcher = Callable[[List[ExpectedFinding], List[ProducedFinding]], Dict[int, int]]
-
-
-def verbatim_matcher(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[int, int]:
-    """The Demo tripwire pairing: exact statement equality."""
-    produced_by_statement = {p.statement: j for j, p in enumerate(produced)}
-    return {
-        i: produced_by_statement[e.statement]
-        for i, e in enumerate(expected)
-        if e.statement in produced_by_statement
-    }
-
-
-def semantic_matcher(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> Dict[int, int]:
-    """Pair paraphrased-but-equivalent statements one-to-one, closest pairs
-    first; ties break deterministically by position."""
-    scored = sorted(
-        (
-            (statement_similarity(e.statement, p.statement), i, j)
-            for i, e in enumerate(expected)
-            for j, p in enumerate(produced)
-        ),
-        key=lambda candidate: (-candidate[0], candidate[1], candidate[2]),
-    )
-    matches: Dict[int, int] = {}
-    taken: set[int] = set()
-    for similarity, i, j in scored:
-        if similarity >= SEMANTIC_MATCH_THRESHOLD and i not in matches and j not in taken:
-            matches[i] = j
-            taken.add(j)
-    return matches
-
-
-def score_scenario(
-    expected: List[ExpectedFinding],
-    produced: List[ProducedFinding],
-    *,
-    matcher: Optional[Matcher] = None,
-) -> Dict[str, float]:
-    """Score one eval scenario: weighted recall, weighted precision (spurious
-    Findings subtract credit by the Strength they were produced with), and
-    their harmonic mean.
-
-    Pairing comes from the matcher — verbatim statement equality by default;
-    the mis-tag penalty, the citation-fidelity scale on matched credit, and
-    spurious subtraction are the same for every matcher.
-
-    A Scenario with no expected Findings scores 1.0 only when nothing was
-    produced; any production is spurious leakage and scores 0.0.
+    The locked empty rule: no expected Findings scores 1.0 only when nothing
+    was produced; any production is spurious leakage and scores 0.0 across
+    the board. Expected Findings naming no provision can never be covered
+    and score loudly zero.
     """
     if not expected:
         if not produced:
             return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-    pairings = (matcher or verbatim_matcher)(expected, produced)
+    weights = expected_target_weights(expected)
+    expected_weight_total = sum(weights.values())
+    produced_targets = {
+        citation.provision_target for finding in produced for citation in finding.citations
+    }
 
-    expected_weight_total = sum(STRENGTH_WEIGHTS[e.strength] for e in expected)
-    produced_weight_total = sum(STRENGTH_WEIGHTS[p.strength] for p in produced)
-
-    matched_credit = sum(
-        _matched_finding_credit(expected[i], produced[j]) for i, j in pairings.items()
+    hit_weight = sum(w for target, w in weights.items() if target in produced_targets)
+    recall = hit_weight / expected_weight_total if expected_weight_total else 0.0
+    precision = (
+        len(weights.keys() & produced_targets) / len(produced_targets) if produced_targets else 1.0
     )
-    matched_produced = set(pairings.values())
-    spurious_weight = sum(
-        STRENGTH_WEIGHTS[p.strength] for j, p in enumerate(produced) if j not in matched_produced
-    )
-
-    recall = matched_credit / expected_weight_total
-    if produced_weight_total == 0:
-        precision = 1.0
-    else:
-        precision = max(0.0, matched_credit - spurious_weight) / produced_weight_total
     f1 = (
         2 * precision * recall / (precision + recall)
         if precision + recall
@@ -374,17 +253,20 @@ class EvalScenario:
     # pins routing by scenario id and ignores it; Live mode grounds the
     # Planner on it (live_workflow reads description/title).
     description: Optional[str] = None
-    # None selects the verbatim default; Live ground-truth cases pass
-    # semantic_matcher once #7's hand-authored expectations exist.
-    matcher: Optional[Matcher] = None
 
 
 @dataclass
 class EvalScenarioResult:
+    """One case's coverage scores plus its audit dump: the expected and
+    produced sides as plain data (statements, Strengths, provision targets)
+    for the human review the Live eval CLI writes out (ADR-0010)."""
+
     id: str
     precision: float
     recall: float
     f1: float
+    expected: List[dict] = field(default_factory=list)
+    produced: List[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -419,7 +301,7 @@ _CANONICAL_CASE_IDS = {"canonical-what-applies", "canonical-loan-denial", "canon
 # each question should surface: related articles cluster into one expectation,
 # ranges expand into their separate Article targets, and sub-references like
 # "point 5(b)" collapse to the Annex they refine — the structural targets
-# citation fidelity compares. Strengths follow CONTEXT.md: strong when a
+# coverage compares. Strengths follow CONTEXT.md: strong when a
 # provision names the situation outright, moderate where the claim is derived
 # or contingent on facts the Corpus cannot settle (entity status, designation).
 _HR_RECRUITMENT_EXPECTED = [
@@ -834,7 +716,6 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="A company uses an AI system to automatically rank job applicants based on their CVs and video interviews.",
         question="What legal obligations should we consider before using this system?",
         expected=_HR_RECRUITMENT_EXPECTED,
-        matcher=semantic_matcher,
     ),
     EvalScenario(
         id="live-bank-cloud-outage",
@@ -842,7 +723,6 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="A bank relies on a cloud provider for critical online banking systems. A major outage has prevented customers from accessing their accounts.",
         question="What regulatory obligations should we consider?",
         expected=_BANK_CLOUD_OUTAGE_EXPECTED,
-        matcher=semantic_matcher,
     ),
     EvalScenario(
         id="live-fintech-loan-decisions",
@@ -850,7 +730,6 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="A fintech company uses an AI system to analyse customers' income and financial history to automatically decide whether to approve their loan applications.",
         question="What regulations and obligations could apply?",
         expected=_FINTECH_LOAN_DECISIONS_EXPECTED,
-        matcher=semantic_matcher,
     ),
     EvalScenario(
         id="live-employee-monitoring",
@@ -858,7 +737,6 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="A company uses AI software to monitor employees' computer activity and automatically generate productivity scores.",
         question="Are there any legal requirements we need to consider?",
         expected=_EMPLOYEE_MONITORING_EXPECTED,
-        matcher=semantic_matcher,
     ),
     EvalScenario(
         id="live-data-breach-notification",
@@ -866,7 +744,6 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="An online store discovered that hackers accessed a database containing customers' names, email addresses and home addresses.",
         question="What legal obligations does the company have following this incident?",
         expected=_DATA_BREACH_NOTIFICATION_EXPECTED,
-        matcher=semantic_matcher,
     ),
     EvalScenario(
         id="live-insurance-health-pricing",
@@ -874,7 +751,6 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="An insurance company uses AI to analyse customers' health information and automatically calculate life insurance prices.",
         question="What regulations and compliance requirements should we consider?",
         expected=_INSURANCE_HEALTH_PRICING_EXPECTED,
-        matcher=semantic_matcher,
     ),
     EvalScenario(
         id="live-telecom-chatbot",
@@ -882,7 +758,6 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="A telecommunications company uses a generative AI chatbot to answer customer questions. Customers may provide their names, account numbers and addresses during conversations.",
         question="What legal requirements apply to this system?",
         expected=_TELECOM_CHATBOT_EXPECTED,
-        matcher=semantic_matcher,
     ),
     EvalScenario(
         id="live-ransomware-investment-firm",
@@ -890,15 +765,35 @@ _LIVE_CASE_SCENARIOS: List[EvalScenario] = [
         description="An investment firm has suffered a ransomware attack that disrupted its trading platform and affected systems containing client information.",
         question="What regulatory obligations should we consider?",
         expected=_RANSOMWARE_INVESTMENT_FIRM_EXPECTED,
-        matcher=semantic_matcher,
     ),
 ]
 
 LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
-    replace(scenario, matcher=semantic_matcher)
-    for scenario in CURATED_SCENARIOS
-    if scenario.id in _CANONICAL_CASE_IDS
+    scenario for scenario in CURATED_SCENARIOS if scenario.id in _CANONICAL_CASE_IDS
 ] + _LIVE_CASE_SCENARIOS
+
+
+# The audit-dump form of one expected Finding: the authored statement, its
+# Strength, and the ground-truth provision labels as written.
+def _expected_dump(finding: ExpectedFinding) -> dict:
+    return {
+        "statement": finding.statement,
+        "strength": finding.strength.value,
+        "citations": [f"{c['source_id']} {c['provision']}" for c in finding.citations],
+    }
+
+
+# The audit-dump form of one produced Finding: the statement as the LLM worded
+# it, its Strength, and each Citation's structural target with its quote.
+def _produced_dump(finding: ProducedFinding) -> dict:
+    return {
+        "statement": finding.statement,
+        "strength": finding.strength.value,
+        "citations": [
+            {"target": format_provision_target(c.provision_target), "quote": c.quote}
+            for c in finding.citations
+        ],
+    }
 
 
 def evaluate_scenarios(
@@ -910,8 +805,8 @@ def evaluate_scenarios(
 
     The one evaluation loop both runners share: ``respond`` answers one
     request (the Demo harness calls analyze directly, the Live runner crosses
-    HTTP), and everything after — Findings mapping, per-case scoring with the
-    case's matcher, mean F1 — happens identically for every mode. The mode is
+    HTTP), and everything after — Findings mapping, per-case coverage scoring,
+    the audit dump, mean F1 — happens identically for every mode. The mode is
     pinned per request (ADR-0008): every request carries it explicitly.
     """
     scenario_results: List[EvalScenarioResult] = []
@@ -926,8 +821,14 @@ def evaluate_scenarios(
             ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
             for f in response.answer.findings
         ]
-        result = score_scenario(scenario.expected, produced, matcher=scenario.matcher)
-        scenario_results.append(EvalScenarioResult(id=scenario.id, **result))
+        scenario_results.append(
+            EvalScenarioResult(
+                id=scenario.id,
+                **coverage_scores(scenario.expected, produced),
+                expected=[_expected_dump(f) for f in scenario.expected],
+                produced=[_produced_dump(f) for f in produced],
+            )
+        )
 
     mean_f1 = sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results)
     return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)

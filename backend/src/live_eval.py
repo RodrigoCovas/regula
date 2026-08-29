@@ -3,26 +3,36 @@
 One command measures Live-mode answer quality: it runs the curated Live
 cases (``eval_harness.LIVE_EVAL_SCENARIOS``, hand-authored ground truth)
 through the analysis endpoint in Live mode and scores each produced Answer
-with the semantic matcher plus citation fidelity — ADR-0001's steps 2 and 3
-finally judging real production. It prints per-case precision, recall, and
-weighted F1 plus the aggregate mean F1.
+with provision coverage (ADR-0010) — deterministic set F1 over Citation
+targets, strength-weighted on the expected side. It prints per-case
+coverage precision, recall, and F1 plus the aggregate mean F1.
+
+With ``--output PATH`` the command also writes a JSON artifact: the run's
+metadata, the per-case component scores, and the produced-versus-expected
+dump (statements, Strengths, Citation targets) for the human audit ADR-0010
+prescribes before numbers are quoted.
 
 The command is operator-run and never part of CI: it requires a real API key
 (``OPENROUTER_API_KEY``, exported or in ``backend/.env.local``) and an
 ingested Corpus, refusing clearly without either. Demo mode's automated
-suite is untouched: ``eval_harness.run_eval`` keeps scoring the verbatim
+suite is untouched: ``eval_harness.run_eval`` keeps scoring the Demo
 tripwires, so the tripwire property survives alongside this measurement.
 
 Run from the repository root:
 
-    python -m backend.src.live_eval
+    python -m backend.src.live_eval [--output PATH]
 
 or inside the stack:
 
-    docker compose exec backend python -m backend.src.live_eval
+    docker compose exec backend python -m backend.src.live_eval [--output PATH]
 """
 
+import argparse
+import json
 import sys
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -118,25 +128,57 @@ def run_live_eval(settings: Settings) -> EvalReport:
 
 
 def print_report(report: EvalReport) -> None:
-    """Per-case scores, then the aggregate — the operator-facing output."""
+    """Per-case coverage scores, then the aggregate — the operator-facing output."""
     print(f"Live eval: {len(report.scenarios)} case(s) through /api/analyze in Live mode")
     for result in report.scenarios:
         print(
-            f"  {result.id}: precision={result.precision:.3f} "
-            f"recall={result.recall:.3f} weighted F1={result.f1:.3f}"
+            f"  {result.id}: coverage precision={result.precision:.3f} "
+            f"recall={result.recall:.3f} F1={result.f1:.3f}"
         )
-    print(f"Aggregate mean weighted F1: {report.mean_f1:.3f}")
+    print(f"Aggregate mean coverage F1: {report.mean_f1:.3f}")
 
 
-def main() -> int:
+def report_artifact(report: EvalReport) -> dict:
+    """The JSON artifact the CLI writes: run metadata over the full report —
+    per-case coverage scores plus the produced-versus-expected dump."""
+    return {
+        "mode": Mode.live.value,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        **asdict(report),
+    }
+
+
+def write_report_artifact(report: EvalReport, path: Path) -> None:
+    """Write the artifact, creating missing parent directories on the way."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report_artifact(report), indent=2) + "\n")
+
+
+def main(argv: list | None = None) -> int:
     """The CLI entry point: refuse with exit 1 when prerequisites are missing,
-    otherwise print the report and exit 0."""
+    otherwise print the report, write the artifact when --output is given,
+    and exit 0. ``argv`` defaults to the process arguments."""
+    parser = argparse.ArgumentParser(
+        description="Run the Live eval and print per-case coverage scores.",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        default=None,
+        help="write the per-case report artifact (JSON) to this path",
+    )
+    args = parser.parse_args(argv)
+
     try:
         report = run_live_eval(load_settings())
     except (LiveEvalRefused, ConfigurationError) as error:
         print(f"Live eval refused: {error}", file=sys.stderr)
         return 1
     print_report(report)
+    if args.output is not None:
+        write_report_artifact(report, args.output)
+        print(f"Report artifact written to {args.output}")
     return 0
 
 
