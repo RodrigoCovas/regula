@@ -4,6 +4,7 @@ Backend entry point
 """
 
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional, TypedDict, Union
 import logging
 import threading
@@ -420,12 +421,22 @@ async def health():
     return {"status": "ok"}
 
 
+@dataclass
+class RunContext:
+    """Everything one analysis run carries: the request, the mode this run
+    executes in (ADR-0008), and the request-scoped providers and observation
+    the dispatch and the query log share."""
+
+    request: AnalyzeRequest
+    mode: Mode
+    llm: Llm
+    retriever: Retriever
+    observation: RequestObservation
+
+
 def _log_request(
-    request: AnalyzeRequest,
-    llm: Llm,
-    observation: RequestObservation,
+    run: RunContext,
     *,
-    mode: Mode,
     status: str,
     workflow: Optional[str],
     latency_ms: float,
@@ -438,13 +449,13 @@ def _log_request(
     append_query_record(
         settings.query_log_path,
         build_query_record(
-            mode=mode.value,
-            scenario_id=request.scenario.id,
+            mode=run.mode.value,
+            scenario_id=run.request.scenario.id,
             workflow=workflow,
             status=status,
             latency_ms=latency_ms,
-            retrieved_chunks=observation.retrieved_chunks,
-            tokens=aggregate_token_usage(llm),
+            retrieved_chunks=run.observation.retrieved_chunks,
+            tokens=aggregate_token_usage(run.llm),
             error=error,
         ),
     )
@@ -467,9 +478,8 @@ def analyze(
     """Answer a Scenario through Demo mode (canonical, deterministic) or
     Live mode (arbitrary scenarios via retrieval + LLM workflow).
 
-    Mode is a per-run choice (ADR-0008): the request carries ``mode``
-    explicitly, and a request that omits it gets the server default
-    (REGULA_MODE, defaulting to Demo).
+    Mode is a per-run choice (ADR-0008), resolved once per run by
+    ``_resolve_mode``.
 
     This endpoint accepts {scenario, question, mode} and returns a structured
     response with answer, trace, detailed_trace, and known_limitations
@@ -496,22 +506,21 @@ def analyze(
     eventual Answer or a terminal failure. Without the header, the endpoint
     retains its synchronous contract for non-UI callers.
     """
-    mode = _resolve_mode(request)
+    run = RunContext(
+        request=request,
+        mode=_resolve_mode(request),
+        llm=llm,
+        retriever=retriever,
+        observation=RequestObservation(),
+    )
 
-    if mode == Mode.live and request_id:
-        return _handle_live_ui_submission(request, request_id, mode=mode, llm=llm, retriever=retriever)
+    if run.mode == Mode.live and request_id:
+        return _handle_live_ui_submission(run, request_id)
 
     started = time.perf_counter()
-    observation = RequestObservation()
     status, workflow, error = STATUS_SUCCESS, None, None
     try:
-        response = _dispatch_analyze(
-            request,
-            mode=mode,
-            llm=llm,
-            retriever=retriever,
-            observation=observation,
-        )
+        response = _dispatch_analyze(run)
         workflow = response.trace.workflow
         return response
     except Exception as caught:
@@ -519,10 +528,7 @@ def analyze(
         raise
     finally:
         _log_request(
-            request,
-            llm,
-            observation,
-            mode=mode,
+            run,
             status=status,
             workflow=workflow,
             latency_ms=(time.perf_counter() - started) * 1000,
@@ -551,14 +557,7 @@ def _check_live_availability() -> Optional[AnalyzeResponse]:
     return None
 
 
-def _handle_live_ui_submission(
-    request: AnalyzeRequest,
-    request_id: str,
-    *,
-    mode: Mode,
-    llm: Llm,
-    retriever: Retriever,
-) -> ProgressSnapshot:
+def _handle_live_ui_submission(run: RunContext, request_id: str) -> ProgressSnapshot:
     """UI-facing Live submission: runs the analysis in a background thread
     so the POST returns promptly with a ProgressSnapshot. The analysis
     continues independently of the original connection; progress polling
@@ -568,9 +567,10 @@ def _handle_live_ui_submission(
     gate failures are recorded in the progress registry so polling
     retrieves them as a Not-available AnalyzeResponse.
 
-    The resolved ``llm`` and ``retriever`` from the request context are
-    passed to the background thread — this keeps dependency overrides (used
-    by tests) working and avoids creating duplicate connections for fakes.
+    The run's resolved ``llm`` and ``retriever`` from the request context
+    are used by the background thread — this keeps dependency overrides
+    (used by tests) working and avoids creating duplicate connections for
+    fakes.
 
     The thread is non-daemon and tracked in ``_background_threads``: the
     lifespan joins every in-flight thread on shutdown so the backend
@@ -582,7 +582,6 @@ def _handle_live_ui_submission(
     def run_in_background() -> None:
         with _background_threads_lock:
             _background_threads.add(threading.current_thread())
-        bg_observation = RequestObservation()
         bg_status, bg_workflow, bg_error = STATUS_SUCCESS, None, None
         try:
             gate_response = _check_live_availability()
@@ -592,10 +591,10 @@ def _handle_live_ui_submission(
                 return
             progress = progress_sink(request_id, registry=progress_registry)
             response = run_live_analysis(
-                request,
-                llm=llm,
-                retriever=retriever,
-                observation=bg_observation,
+                run.request,
+                llm=run.llm,
+                retriever=run.retriever,
+                observation=run.observation,
                 progress=progress,
             )
             progress_registry.complete(request_id, response)
@@ -610,10 +609,7 @@ def _handle_live_ui_submission(
             progress_registry.fail(request_id, str(error))
         finally:
             _log_request(
-                request,
-                llm,
-                bg_observation,
-                mode=mode,
+                run,
                 status=bg_status,
                 workflow=bg_workflow,
                 latency_ms=(time.perf_counter() - started) * 1000,
@@ -629,33 +625,23 @@ def _handle_live_ui_submission(
     return snapshot if snapshot is not None else ProgressSnapshot(request_id=request_id)
 
 
-def _dispatch_analyze(
-    request: AnalyzeRequest,
-    *,
-    mode: Mode,
-    llm: Llm,
-    retriever: Retriever,
-    observation: RequestObservation,
-) -> AnalyzeResponse:
-    """Mode dispatch: the served answer for one request, Demo or Live.
-
-    ``mode`` is already resolved for this run — the request's explicit
-    choice, or the server default when it omitted one (ADR-0008).
+def _dispatch_analyze(run: RunContext) -> AnalyzeResponse:
+    """Mode dispatch: the served answer for one run, Demo or Live.
 
     Progress tracking for UI-facing Live submissions (with request_id) is
     handled by ``_handle_live_ui_submission``; this path serves non-UI
     callers (synchronous, no progress) and Demo mode.
     """
-    if mode == Mode.live:
+    if run.mode == Mode.live:
         gate_response = _check_live_availability()
         if gate_response is not None:
             return gate_response
         try:
             response = run_live_analysis(
-                request,
-                llm=llm,
-                retriever=retriever,
-                observation=observation,
+                run.request,
+                llm=run.llm,
+                retriever=run.retriever,
+                observation=run.observation,
             )
             return response
         except LlmUnreachableError as error:
@@ -665,7 +651,7 @@ def _dispatch_analyze(
             # malforming an answer — still surfaces as a server error.
             return unreachable_llm_response(error)
 
-    scenario = request.scenario
+    scenario = run.request.scenario
 
     # Trigger the deterministic demo ONLY on exact scenario.id == "spanish-fintech-startup-uses-9e165169"
     # No keyword-heuristic routing — it silently degrades which is forbidden
@@ -677,7 +663,7 @@ def _dispatch_analyze(
         citations = result["citations"]
         retrieved_passages = result["retrieved_passages"]
         tool_calls = result["tool_calls"]
-        observation.retrieved_chunks = len(retrieved_passages)
+        run.observation.retrieved_chunks = len(retrieved_passages)
         actions = DEMO_ACTIONS
 
         # Verifier pass: the curated anticipated-but-unsupported claims match

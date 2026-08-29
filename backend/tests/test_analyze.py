@@ -15,7 +15,7 @@ from src.llm import LlmError, LlmUnreachableError
 from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import app
 
-from conftest import boot_live_with_fakes, install_fake_pipeline
+from conftest import boot_live_with_fakes, install_fake_pipeline, poll_progress
 from fakes import FakeRetriever, make_offline_llm
 
 client = TestClient(app)
@@ -540,13 +540,14 @@ def test_demo_mode_never_touches_the_store_even_when_it_cannot_be_reached(monkey
 # --- Per-run mode: analysis requests carry mode explicitly (ADR-0008, issue #44) ---
 
 
-def post_mode(client, mode=None, request_id=None):
-    """POST the canonical Scenario with an explicit ``mode`` (or none, to
-    exercise the server default) and an optional progress request id."""
+def post_mode(client, mode=None, request_id=None, scenario_id="spanish-fintech-startup-uses-9e165169"):
+    """POST a Scenario with an explicit ``mode`` (or none, to exercise the
+    server default) and an optional progress request id. ``scenario_id``
+    defaults to the canonical demo id; pass a derived id to pin down ADR-0005."""
     from src.main import REQUEST_ID_HEADER
 
     payload = {
-        "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup."},
+        "scenario": {"id": scenario_id, "description": "A Spanish fintech startup."},
         "question": "What regulations apply?",
     }
     if mode is not None:
@@ -571,6 +572,15 @@ def assert_demo_answered(data):
         f["statement"] != "Creditworthiness evaluation is a high-risk use case."
         for f in data["answer"]["findings"]
     )
+
+
+def assert_missing_key_guidance(data):
+    """The missing-key Not-available response names the exact variable and the
+    documented key home — the recovery guidance ADR-0008 asks for."""
+    actions = data["answer"]["actions"]
+    assert any("OPENROUTER_API_KEY" in a for a in actions), actions
+    assert any(".env.local" in a for a in actions), actions
+    assert "key" in data["trace"]["summary"].lower()
 
 
 def test_request_with_explicit_live_mode_overrides_a_demo_server_default(monkeypatch):
@@ -611,6 +621,21 @@ def test_invalid_explicit_mode_is_a_client_error_never_a_crash(monkeypatch):
     assert resp.status_code == 422
 
 
+def test_explicit_demo_mode_still_serves_only_the_exact_canonical_scenario(monkeypatch):
+    """ADR-0005 unchanged under per-run mode: a request carrying mode='demo'
+    with a derived id gets the not-available reply naming the canonical id —
+    never demo content, never keyword routing."""
+    with boot_with_env(monkeypatch) as client:
+        resp = post_mode(client, mode="demo", scenario_id="spanish-fintech-demo")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["answer"]["findings"] == []
+    assert data["answer"]["citations"] == []
+    assert data["trace"]["workflow"] == "noop"
+    actions = data["answer"]["actions"]
+    assert any("spanish-fintech-startup-uses-9e165169" in a for a in actions), actions
+
+
 def test_keyless_boot_serves_demo_and_a_live_request_answers_not_available(monkeypatch):
     """ADR-0008: with default configuration and no provider key the backend
     boots and serves Demo; a Live request surfaces the missing key as a
@@ -629,10 +654,7 @@ def test_keyless_boot_serves_demo_and_a_live_request_answers_not_available(monke
     assert live_resp.status_code == 200
     data = live_resp.json()
     assert_not_available_shape(data)
-    actions = data["answer"]["actions"]
-    assert any("OPENROUTER_API_KEY" in a for a in actions), actions
-    assert any(".env.local" in a for a in actions), actions
-    assert "key" in data["trace"]["summary"].lower()
+    assert_missing_key_guidance(data)
     # The pipeline must never have run: the reply is not the faked Live Answer.
     assert data["answer"]["findings"] == []
 
@@ -641,8 +663,6 @@ def test_keyless_live_ui_submission_polls_into_the_not_available_response(monkey
     """The decoupled UI path surfaces the same Readiness gap: a keyless Live
     submission registers in the progress registry and completes with the
     missing-key Not-available response for polling clients."""
-    import time
-
     with boot_with_env(monkeypatch) as client:
         patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
         install_fake_pipeline(make_offline_llm(), FakeRetriever())
@@ -652,14 +672,7 @@ def test_keyless_live_ui_submission_polls_into_the_not_available_response(monkey
         assert snapshot["request_id"] == "keyless-ui"
         assert "answer" not in snapshot, "POST should return a ProgressSnapshot"
 
-        data = snapshot
-        end = time.monotonic() + 5.0
-        while time.monotonic() < end:
-            data = client.get("/api/progress/keyless-ui").json()
-            if "answer" in data:
-                break
-            time.sleep(0.05)
+        data = poll_progress(client, "keyless-ui", lambda d: "answer" in d)
 
     assert_not_available_shape(data)
-    actions = data["answer"]["actions"]
-    assert any("OPENROUTER_API_KEY" in a for a in actions), actions
+    assert_missing_key_guidance(data)

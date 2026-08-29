@@ -93,10 +93,11 @@ def run_live_eval(settings: Settings) -> EvalReport:
 
     client = TestClient(main.app)
     app_settings = main.settings
-    # Rebuild through the constructor instead of model_copy: update= bypasses
-    # pydantic validation, and the settings handed to the request path must
-    # obey the same rules as one built from the environment.
-    main.settings = Settings(**settings.model_dump())
+    # Point the app's request path at the operator's settings for the
+    # duration: the app's import-time snapshot can be stale (tests re-patch
+    # the environment), and the run must measure the configured deployment —
+    # key, store, model — not whatever the app happened to boot with.
+    main.settings = settings
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
         response = client.post("/api/analyze", json=request.model_dump())

@@ -28,7 +28,7 @@ import pytest
 from src.main import REQUEST_ID_HEADER
 from src.progress import ProgressRegistry
 
-from conftest import boot_live_with_fakes
+from conftest import boot_live_with_fakes, poll_progress
 from fakes import FakeRetriever, make_offline_llm
 
 
@@ -63,10 +63,6 @@ def post_canonical(client, request_id=None):
             "question": "What regulations apply?",
         },
     )
-
-
-def get_progress(client, request_id):
-    return client.get(f"/api/progress/{request_id}")
 
 
 class GatedLlm:
@@ -143,13 +139,7 @@ def test_background_analysis_completes_and_is_visible_through_polling(monkeypatc
 
     gated.release()
 
-    end = time.monotonic() + 10.0
-    while time.monotonic() < end:
-        progress_resp = get_progress(live_client, "bg-complete")
-        data = progress_resp.json()
-        if "answer" in data:
-            break
-        time.sleep(0.05)
+    data = poll_progress(live_client, "bg-complete", lambda d: "answer" in d, timeout=10.0)
 
     assert "answer" in data, "analysis did not complete in background"
     assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"
@@ -172,13 +162,7 @@ def test_background_failure_is_visible_through_polling(monkeypatch):
         assert post_data["request_id"] == "bg-failed"
         assert isinstance(post_data["transitions"], list)
 
-        end = time.monotonic() + 5.0
-        while time.monotonic() < end:
-            progress_resp = get_progress(live_client, "bg-failed")
-            data = progress_resp.json()
-            if data.get("error"):
-                break
-            time.sleep(0.05)
+        data = poll_progress(live_client, "bg-failed", lambda d: d.get("error"))
 
     assert data["request_id"] == "bg-failed"
     assert isinstance(data.get("error"), str)
@@ -208,13 +192,7 @@ def test_availability_gate_failure_registers_progress_for_polling(monkeypatch):
         post_data = resp.json()
         assert post_data["request_id"] == "gate-failed"
 
-        end = time.monotonic() + 5.0
-        while time.monotonic() < end:
-            progress_resp = get_progress(live_client, "gate-failed")
-            data = progress_resp.json()
-            if "answer" in data:
-                break
-            time.sleep(0.05)
+        data = poll_progress(live_client, "gate-failed", lambda d: "answer" in d)
     assert "answer" in data
     assert data["trace"]["workflow"] == "not-available"
 
@@ -243,13 +221,7 @@ def test_submission_survives_client_disconnect_simulation(monkeypatch):
         with poll_client:
             gated.release()
 
-            end = time.monotonic() + 10.0
-            while time.monotonic() < end:
-                progress_resp = poll_client.get("/api/progress/disconnect-run")
-                data = progress_resp.json()
-                if "answer" in data:
-                    break
-                time.sleep(0.05)
+            data = poll_progress(poll_client, "disconnect-run", lambda d: "answer" in d, timeout=10.0)
 
         assert "answer" in data, "analysis did not complete after submitting client disconnected"
         assert data["trace"]["workflow"] == "planner -> researcher -> verifier -> proposer"

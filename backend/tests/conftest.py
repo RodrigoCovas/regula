@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 from tempfile import mkdtemp
 
@@ -94,6 +95,20 @@ def install_fake_pipeline(llm, retriever):
 
     app.dependency_overrides[get_llm] = lambda: llm
     app.dependency_overrides[get_retriever] = lambda: retriever
+
+
+def poll_progress(client, request_id, ready, timeout=5.0):
+    """Poll GET /api/progress/{request_id} until ``ready(data)`` holds, then
+    return the last data seen — the shared shape behind every "the background
+    thread reached its terminal state" assertion."""
+    end = time.monotonic() + timeout
+    data: dict = {}
+    while time.monotonic() < end:
+        data = client.get(f"/api/progress/{request_id}").json()
+        if ready(data):
+            break
+        time.sleep(0.05)
+    return data
 
 
 def boot_live_with_fakes(monkeypatch, llm, retriever, chunk_count=42, raise_server_exceptions=True):
