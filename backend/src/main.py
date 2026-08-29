@@ -431,8 +431,9 @@ def readiness() -> Readiness:
 
     A liveness probe this is not: /health keeps answering process-up only,
     while Readiness can be false on a perfectly healthy process that lacks a
-    prerequisite. Unreachable Ollama or store reads as not-ready, never a
-    server error — an outage is a Readiness gap, not a crash.
+    prerequisite. The endpoint always answers 200 — the booleans are the
+    verdict — and an unreachable Ollama or store reads as not-ready, never a
+    server error: an outage is a Readiness gap, not a crash.
     """
     return live_readiness(settings)
 

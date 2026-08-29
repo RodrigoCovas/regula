@@ -35,16 +35,18 @@ class Embedder(Protocol):
     def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
 
 
-def _requests_transport(url: str, payload: dict) -> dict:
-    response = requests.post(url, json=payload, timeout=_EMBED_TIMEOUT_SECONDS)
+def _checked_json(response: requests.Response) -> dict:
+    """The shared tail of every Ollama transport: 4xx/5xx raise, then parse."""
     response.raise_for_status()
     return response.json()
+
+
+def _requests_transport(url: str, payload: dict) -> dict:
+    return _checked_json(requests.post(url, json=payload, timeout=_EMBED_TIMEOUT_SECONDS))
 
 
 def _requests_get_json(url: str) -> dict:
-    response = requests.get(url, timeout=_TAGS_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    return response.json()
+    return _checked_json(requests.get(url, timeout=_TAGS_TIMEOUT_SECONDS))
 
 
 class OllamaEmbedder:
@@ -142,10 +144,6 @@ def embedding_model_available(
     try:
         body = fetch(f"{base_url.rstrip('/')}/api/tags")
         entries = body.get("models") or []
-        return any(
-            isinstance(entry, dict)
-            and _model_matches(model, entry.get("name") or entry.get("model") or "")
-            for entry in entries
-        )
+        return any(_model_matches(model, entry.get("name") or "") for entry in entries)
     except Exception:
         return False

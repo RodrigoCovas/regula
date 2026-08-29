@@ -15,7 +15,7 @@ from src.llm import LlmError, LlmUnreachableError
 from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import app
 
-from conftest import boot_live_with_fakes, install_fake_pipeline, poll_progress
+from conftest import boot_live_with_fakes, boot_with_env, install_fake_pipeline, poll_progress
 from fakes import FakeRetriever, make_offline_llm
 
 client = TestClient(app)
@@ -209,15 +209,6 @@ def test_exactly_one_target_citation_invariant():
             citation.get("annex_number") is not None,
         ]
         assert sum(targets) == 1, f"Citation must target exactly one provision: {citation}"
-
-
-def boot_with_env(monkeypatch, raise_server_exceptions=True, **env):
-    """Start the app through its real lifecycle with the given environment."""
-    monkeypatch.delenv("REGULA_MODE", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def boot_live(monkeypatch, **overrides):

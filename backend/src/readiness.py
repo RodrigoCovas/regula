@@ -23,8 +23,8 @@ def live_readiness(settings: Settings) -> Readiness:
 
     The store probe reuses the availability module's short-lived connection,
     so an ingestion that lands after boot is visible on the next call. Any
-    store failure reads as not-ingested — a pollable status endpoint never
-    turns a Readiness gap into a server error.
+    store failure reads as not-ingested: a Readiness check reports, it never
+    errors — pollers need no special handling for a stack still coming up.
     """
     try:
         corpus_ingested = not availability.vector_store_is_empty(settings.database_url)

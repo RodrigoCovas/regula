@@ -80,6 +80,18 @@ def _hermetic_store_probe(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _hermetic_embedding_probe(monkeypatch):
+    """The readiness check's embedding probe never reaches for a real Ollama
+    unless a test replaces it explicitly — the store probe's sibling."""
+    import src.readiness as readiness
+
+    monkeypatch.setattr(
+        readiness, "embedding_model_available", lambda base_url, model: True
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_live_dependency_overrides():
     """The FastAPI app object is module-global; dependency overrides installed
     for one Live-mode test must never leak into another."""
@@ -95,6 +107,22 @@ def install_fake_pipeline(llm, retriever):
 
     app.dependency_overrides[get_llm] = lambda: llm
     app.dependency_overrides[get_retriever] = lambda: retriever
+
+
+def boot_with_env(monkeypatch, raise_server_exceptions=True, **env):
+    """Start the app through its real lifecycle with the given environment.
+
+    The preamble every lifespan-boot test shares: scrub the two state-bearing
+    variables first so a test only sees the environment it asked for."""
+    monkeypatch.delenv("REGULA_MODE", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    from fastapi.testclient import TestClient
+
+    import src.main as main
+
+    return TestClient(main.app, raise_server_exceptions=raise_server_exceptions)
 
 
 def poll_progress(client, request_id, ready, timeout=5.0):
@@ -114,15 +142,14 @@ def poll_progress(client, request_id, ready, timeout=5.0):
 def boot_live_with_fakes(monkeypatch, llm, retriever, chunk_count=42, raise_server_exceptions=True):
     """The hermetic Live-mode preamble: ingested store probe + fakes at
     the composition root. Returns a TestClient to enter."""
-    monkeypatch.setenv("REGULA_MODE", "live")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     import src.availability as availability
 
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: chunk_count)
     install_fake_pipeline(llm, retriever)
-    from fastapi.testclient import TestClient
-
-    import src.main as main
-
-    return TestClient(main.app, raise_server_exceptions=raise_server_exceptions)
+    return boot_with_env(
+        monkeypatch,
+        raise_server_exceptions=raise_server_exceptions,
+        REGULA_MODE="live",
+        OPENROUTER_API_KEY="sk-or-test",
+    )
 
