@@ -25,11 +25,11 @@ from .availability import (
     unreachable_store_response,
     vector_store_is_empty,
 )
-from .config import ConfigurationError, load_settings
+from .config import ConfigurationError, chat_client, load_settings
 from .corpus import load_documents
 from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
-from .llm import Llm, LlmUnreachableError, OpenRouterClient
+from .llm import Llm, LlmUnreachableError
 from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Mode, ProvisionTarget, Readiness, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, answer_citations, quote_snippet
 from .progress import ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
@@ -459,12 +459,10 @@ def get_llm() -> Llm:
     """The structured-completion client, pointed at the configured provider.
 
     ADR-0009: model, base URL, and key come from the environment with the
-    Solar Pro 4 / OpenRouter defaults; deployments differ only by configuration.
+    Solar Pro 4 / OpenRouter defaults; deployments differ only by
+    configuration.
     """
-    key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
-    return OpenRouterClient(
-        api_key=key, model=settings.llm_model, base_url=settings.llm_base_url
-    )
+    return chat_client(settings)
 
 
 def get_retriever() -> Iterator[Retriever]:

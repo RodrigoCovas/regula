@@ -1,18 +1,30 @@
 """Offline evaluation harness.
 
-Scoring is provision coverage (ADR-0010): a deterministic set F1 over
-Citation targets — provision kind + number via ``parse_provision`` and
-``Citation.provision_target``, never label strings — with the expected side
-weighted by its Findings' Strengths and every off-target produced target
-counted against precision. This is the first of ADR-0010's three
-never-blended components; summary fidelity and strength agreement follow
-with the judge (#50) — the Summarizer stage itself now ships (issue #47).
+Scoring is the three never-blended components of ADR-0010, reported
+separately per case and in aggregate:
+
+1. Provision coverage — a deterministic set F1 over Citation targets
+   (provision kind + number via ``parse_provision`` and
+   ``Citation.provision_target``, never label strings), with the expected
+   side weighted by its Findings' Strengths and every off-target produced
+   target counted against precision.
+2. Summary fidelity — the strict rubric judge (``eval_judge.SummaryFidelityJudge``,
+   same configured provider, one batched call per case, schema-validated
+   verdict) compares provision-aligned expected and produced Provision
+   relevance; a contradiction forces the floor score. The component is
+   measured only where ground truth summarizes a provision (#51 authors the
+   labels) and a judge is supplied; a cited provision the Summarizer left
+   bare scores the floor deterministically, with no judge call.
+3. Strength agreement — max-rule Citation strength compared on both sides
+   over the targets both cite, reported at small weight: it grades only the
+   Strength labels the workflow assigned, never what the Answer claims.
+
 Statements are never matched: statement similarity left the scoring path
-with ADR-0010
-(ADR-0001's updates record the retirement as deletion), and survives only
-as diagnostic material — the per-case audit dump
+with ADR-0010 (ADR-0001's updates record the retirement as deletion), and
+survives only as diagnostic material — the per-case audit dump
 (``EvalScenarioResult.expected`` / ``.produced``) carries both sides'
-statements for the human review the Live eval CLI writes out.
+statements and relevance summaries for the human review the Live eval CLI
+writes out.
 
 Demo pinning (ADR-0001/0008): the curated cases are Demo-mode tripwires.
 Demo production derives its Citations from the same locked targets its
@@ -26,8 +38,9 @@ spurious leakage and scores 0.0 across the board.
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, TypedDict
+from typing import Callable, Dict, Iterable, List, NotRequired, Optional, TypedDict
 
+from .eval_judge import FIDELITY_FLOOR, RelevancePair, SummaryJudge
 from .models import (
     PROVISION_NUMBER_FIELDS,
     AnalyzeRequest,
@@ -44,10 +57,13 @@ from .models import (
 
 
 class ExpectedCitation(TypedDict):
-    """Ground-truth reference to one provision: the document and its official provision label."""
+    """Ground-truth reference to one provision: the document and its official
+    provision label, plus — once #51 authors them — the hand-written
+    relevance summary the fidelity judge compares against."""
 
     source_id: str
     provision: str
+    relevance: NotRequired[str]
 
 STRENGTH_WEIGHTS: Dict[Strength, int] = {
     Strength.strong: 3,
@@ -78,21 +94,30 @@ class CoverageScores(TypedDict):
     f1: float
 
 
+class ExpectedCitationDump(TypedDict):
+    """One expected Citation's audit-dump entry: the ground-truth label as
+    written, plus the authored relevance summary when #51 has written one."""
+
+    label: str
+    relevance: Optional[str]
+
+
 class ExpectedFindingDump(TypedDict):
     """One expected Finding's audit-dump entry: the authored statement, its
     Strength, and the ground-truth provision labels as written."""
 
     statement: str
     strength: str
-    citations: List[str]
+    citations: List[ExpectedCitationDump]
 
 
 class ProducedCitationDump(TypedDict):
-    """One produced Citation's audit-dump entry: the structural target and
-    the quoted evidence, if any."""
+    """One produced Citation's audit-dump entry: the structural target, the
+    quoted evidence if any, and the Provision relevance the Answer carries."""
 
     target: str
     quote: Optional[str]
+    relevance: Optional[str]
 
 
 class ProducedFindingDump(TypedDict):
@@ -156,6 +181,18 @@ def parse_provision(source_id: str, label: str) -> ProvisionTarget:
     )
 
 
+def expected_target_strengths(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, Strength]:
+    """The expected side's Citation strength under the max-rule (CONTEXT.md):
+    per expected Citation target, the strongest Strength among the
+    ground-truth Findings citing it — the expected half the strength-agreement
+    component (#50) compares, and the source of coverage's strength weights."""
+    return max_rule_strengths(
+        (parse_provision(citation["source_id"], citation["provision"]), finding.strength)
+        for finding in expected
+        for citation in finding.citations
+    )
+
+
 def expected_target_weights(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, int]:
     """Weight each expected Citation target by the strongest Strength among
     the ground-truth Findings citing it — CONTEXT.md's max-rule Citation
@@ -164,12 +201,33 @@ def expected_target_weights(expected: List[ExpectedFinding]) -> Dict[ProvisionTa
     Findings enters once (set semantics); a Finding citing no target
     contributes nothing, so an expectation that names no provision can never
     be covered."""
-    strengths = max_rule_strengths(
-        (parse_provision(citation["source_id"], citation["provision"]), finding.strength)
-        for finding in expected
-        for citation in finding.citations
-    )
-    return {target: STRENGTH_WEIGHTS[strength] for target, strength in strengths.items()}
+    return {
+        target: STRENGTH_WEIGHTS[strength]
+        for target, strength in expected_target_strengths(expected).items()
+    }
+
+
+def expected_relevance_summaries(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, str]:
+    """The ground-truth Provision relevance summaries, keyed by the structural
+    target each label parses to. Only targets #51's hand-authored summaries
+    cover take part in summary fidelity; two Findings citing one target must
+    agree on its summary — a conflicting pair is an authoring bug that fails
+    loudly instead of silently last-wins."""
+    summaries: Dict[ProvisionTarget, str] = {}
+    for finding in expected:
+        for citation in finding.citations:
+            relevance = citation.get("relevance")
+            if not relevance:
+                continue
+            target = parse_provision(citation["source_id"], citation["provision"])
+            existing = summaries.get(target)
+            if existing is not None and existing != relevance:
+                raise ValueError(
+                    f"Conflicting ground-truth relevance summaries for "
+                    f"{format_provision_target(target)}"
+                )
+            summaries[target] = relevance
+    return summaries
 
 
 def produced_target_strengths(produced: List[ProducedFinding]) -> Dict[ProvisionTarget, Strength]:
@@ -178,6 +236,27 @@ def produced_target_strengths(produced: List[ProducedFinding]) -> Dict[Provision
     Strength among the produced Findings citing it — the produced half the
     strength-agreement component (#50) compares against ground truth."""
     return max_rule_strengths(iter_target_strength_pairs(produced))
+
+
+def strength_agreement(
+    expected_strengths: Dict[ProvisionTarget, Strength],
+    produced_strengths: Dict[ProvisionTarget, Strength],
+) -> Optional[float]:
+    """Strength agreement (ADR-0010): over the targets both sides cite — the
+    provision-aligned comparison — the share whose max-rule Citation strength
+    matches exactly, whatever the direction of a mismatch. No shared target:
+    nothing to compare, so no number (coverage recall already flags the total
+    miss).
+
+    The component is reported and aggregated on its own — never blended into
+    the others — and is meant to be *read* at small weight: it grades only
+    the Strength labels the workflow assigned, never the substance the other
+    two components carry.
+    """
+    shared = expected_strengths.keys() & produced_strengths.keys()
+    if not shared:
+        return None
+    return sum(expected_strengths[target] == produced_strengths[target] for target in shared) / len(shared)
 
 
 # The human-readable provision kind for an audit-dump target string.
@@ -305,9 +384,16 @@ class EvalScenario:
 
 @dataclass
 class EvalScenarioResult:
-    """One case's coverage scores plus its audit dump: the expected and
-    produced sides as plain data (statements, Strengths, provision targets)
-    for the human review the Live eval CLI writes out (ADR-0010)."""
+    """One case's three component scores plus its audit dump.
+
+    Coverage (precision/recall/F1), summary fidelity, and strength agreement
+    are separate numbers (ADR-0010) — nothing blends them. A component reads
+    ``None`` where it measured nothing: no authored relevance summaries or no
+    judge for fidelity, no provision both sides cite for strength agreement.
+    The expected/produced dumps carry both sides as plain data (statements,
+    Strengths, provision targets, relevance summaries) for the human review
+    the Live eval CLI writes out.
+    """
 
     id: str
     precision: float
@@ -315,12 +401,19 @@ class EvalScenarioResult:
     f1: float
     expected: List[ExpectedFindingDump]
     produced: List[ProducedFindingDump]
+    summary_fidelity: Optional[float] = None
+    strength_agreement: Optional[float] = None
 
 
 @dataclass
 class EvalReport:
+    """The aggregate half of the report: one mean per component, over the
+    cases where that component measured — never a blended overall score."""
+
     scenarios: List[EvalScenarioResult]
     mean_f1: float
+    mean_summary_fidelity: Optional[float] = None
+    mean_strength_agreement: Optional[float] = None
 
 
 CURATED_SCENARIOS: List[EvalScenario] = [
@@ -822,40 +915,101 @@ LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
 
 
 # The audit-dump form of one expected Finding: the authored statement, its
-# Strength, and the ground-truth provision labels as written.
+# Strength, and the ground-truth provision labels as written, each with its
+# authored relevance summary when one exists.
 def _expected_dump(finding: ExpectedFinding) -> ExpectedFindingDump:
     return {
         "statement": finding.statement,
         "strength": finding.strength.value,
-        "citations": [f"{c['source_id']} {c['provision']}" for c in finding.citations],
+        "citations": [
+            {"label": f"{c['source_id']} {c['provision']}", "relevance": c.get("relevance")}
+            for c in finding.citations
+        ],
     }
 
 
 # The audit-dump form of one produced Finding: the statement as the LLM worded
-# it, its Strength, and each Citation's structural target with its quote.
-def _produced_dump(finding: ProducedFinding) -> ProducedFindingDump:
+# it, its Strength, and each Citation's structural target with its quote and
+# the Answer's Provision relevance for that provision.
+def _produced_dump(finding: ProducedFinding, relevance: Dict[ProvisionTarget, str]) -> ProducedFindingDump:
     return {
         "statement": finding.statement,
         "strength": finding.strength.value,
         "citations": [
-            {"target": format_provision_target(c.provision_target), "quote": c.quote}
+            {
+                "target": format_provision_target(c.provision_target),
+                "quote": c.quote,
+                "relevance": relevance.get(c.provision_target),
+            }
             for c in finding.citations
         ],
     }
+
+
+def _mean(scores: Iterable[Optional[float]]) -> Optional[float]:
+    """The mean over the scores that measured — ``None`` only when none did."""
+    measured = [score for score in scores if score is not None]
+    return sum(measured) / len(measured) if measured else None
+
+
+def _summary_fidelity(
+    scenario: EvalScenario,
+    answer_relevance: Dict[ProvisionTarget, Optional[str]],
+    judge: SummaryJudge,
+) -> Optional[float]:
+    """One case's summary fidelity (ADR-0010): the strict rubric judge over
+    provision-aligned expected and produced Provision relevance.
+
+    Ground truth must summarize at least one cited provision for the
+    component to measure at all (#51 authors those labels). Pairs align by
+    structural target, one per provision: a target the Answer cites bare —
+    ground truth summarizes it, the Summarizer shipped nothing — floors its
+    share of the score deterministically, with no judge call; a target
+    either side never touches is coverage's business, never a fidelity pair.
+    """
+    expected_summaries = expected_relevance_summaries(scenario.expected)
+    if not expected_summaries:
+        return None
+    pairs: List[RelevancePair] = []
+    floored_count = 0
+    for target, expected_relevance in expected_summaries.items():
+        if target not in answer_relevance:
+            continue
+        produced_relevance = answer_relevance[target]
+        if not produced_relevance:
+            # A provision the Answer cites without a relevance statement
+            # is infidelitous by construction — the deterministic floor,
+            # with nothing for a judge to compare.
+            floored_count += 1
+            continue
+        pairs.append(RelevancePair(
+            ref=f"P{len(pairs) + 1}",
+            provision=format_provision_target(target),
+            expected=expected_relevance,
+            produced=produced_relevance,
+        ))
+    if not pairs and not floored_count:
+        return None
+    scores = judge.compare(pairs) if pairs else {}
+    return (sum(scores.values()) + FIDELITY_FLOOR * floored_count) / (len(scores) + floored_count)
 
 
 def evaluate_scenarios(
     scenarios: List[EvalScenario],
     respond: Callable[[AnalyzeRequest], AnalyzeResponse],
     mode: Mode,
+    judge: Optional[SummaryJudge] = None,
 ) -> EvalReport:
     """Run each Scenario through ``respond`` and score the produced Findings.
 
     The one evaluation loop both runners share: ``respond`` answers one
     request (the Demo harness calls analyze directly, the Live runner crosses
-    HTTP), and everything after — Findings mapping, per-case coverage scoring,
-    the audit dump, mean F1 — happens identically for every mode. The mode is
-    pinned per request (ADR-0008): every request carries it explicitly.
+    HTTP), and everything after — Findings mapping, the three per-case
+    component scores, the audit dump, the per-component aggregate means —
+    happens identically for every mode. The mode is pinned per request
+    (ADR-0008): every request carries it explicitly. Summary fidelity runs
+    only where a judge is supplied (the Demo tripwires run judgeless); the
+    fidelity judge is called at most once per case (ADR-0010).
     """
     scenario_results: List[EvalScenarioResult] = []
     for scenario in scenarios:
@@ -869,23 +1023,41 @@ def evaluate_scenarios(
             ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
             for f in response.answer.findings
         ]
+        answer_citations_list = list(response.answer.citations)
+        answer_relevance = {citation.provision_target: citation.relevance for citation in answer_citations_list}
+        fidelity = (
+            _summary_fidelity(scenario, answer_relevance, judge)
+            if judge is not None
+            else None
+        )
         scenario_results.append(
             EvalScenarioResult(
                 id=scenario.id,
                 **coverage_scores(scenario.expected, produced),
                 expected=[_expected_dump(f) for f in scenario.expected],
-                produced=[_produced_dump(f) for f in produced],
+                produced=[_produced_dump(f, {t: r for t, r in answer_relevance.items() if r}) for f in produced],
+                summary_fidelity=fidelity,
+                strength_agreement=strength_agreement(
+                    expected_target_strengths(scenario.expected),
+                    produced_target_strengths(produced),
+                ),
             )
         )
 
-    mean_f1 = sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results)
-    return EvalReport(scenarios=scenario_results, mean_f1=mean_f1)
+    return EvalReport(
+        scenarios=scenario_results,
+        mean_f1=sum(scenario_result.f1 for scenario_result in scenario_results) / len(scenario_results),
+        mean_summary_fidelity=_mean(result.summary_fidelity for result in scenario_results),
+        mean_strength_agreement=_mean(result.strength_agreement for result in scenario_results),
+    )
 
 
 def run_eval() -> EvalReport:
     """Run every curated scenario against the analyze workflow and score the produced Findings.
 
-    Drives the app's analyze entry point directly — no HTTP.
+    Drives the app's analyze entry point directly — no HTTP, and judgeless:
+    the Demo tripwires run in CI without a provider, so summary fidelity
+    reports unmeasured there while coverage and strength agreement score.
     Per ADR-0001 the curated cases are Demo-mode tripwires, so the harness
     pins Demo mode per request (ADR-0008) regardless of how the app booted.
     """

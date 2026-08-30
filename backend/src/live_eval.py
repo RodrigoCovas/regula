@@ -3,17 +3,23 @@
 One command measures Live-mode answer quality: it runs the curated Live
 cases (``eval_harness.LIVE_EVAL_SCENARIOS``, hand-authored ground truth)
 through the analysis endpoint in Live mode and scores each produced Answer
-with provision coverage (ADR-0010) — deterministic set F1 over Citation
-targets, strength-weighted on the expected side. It prints per-case
-coverage precision, recall, and F1 plus the aggregate mean F1. (The
-coverage component is the first of ADR-0010's three; summary fidelity and
-strength agreement follow with the judge, #50 — the Summarizer stage itself
-now ships, issue #47.)
+with the three never-blended components of ADR-0010: provision coverage
+(deterministic set F1 over Citation targets, strength-weighted on the
+expected side), summary fidelity (the strict rubric judge of
+``eval_judge``, one batched call per case, schema-validated verdicts), and
+strength agreement (max-rule Citation strength on both sides, read at small
+weight). It prints all three per case plus the aggregate means.
+
+Summary fidelity measures only where the ground truth summarizes a cited
+provision (#51 authors those labels); elsewhere it reports unmeasured, and
+the judge is never woken for nothing. The judge is the configured provider
+itself (ADR-0009): if it cannot be reached — or a reply fails the verdict
+schema — the run aborts with the detail, never scoring silence.
 
 With ``--output PATH`` the command also writes a JSON artifact: the run's
 metadata, the per-case component scores, and the produced-versus-expected
-dump (statements, Strengths, Citation targets) for the human audit ADR-0010
-prescribes before numbers are quoted.
+dump (statements, Strengths, Citation targets, relevance summaries) for the
+human audit ADR-0010 prescribes before numbers are quoted.
 
 The command is operator-run and never part of CI: it requires a real API key
 (``OPENROUTER_API_KEY``, exported or in ``backend/.env.local``) and an
@@ -36,6 +42,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List, Optional
 
 from fastapi.testclient import TestClient
 
@@ -47,8 +54,10 @@ from .availability import (
     UNREACHABLE_STORE_ERRORS,
     vector_store_is_empty,
 )
-from .config import ConfigurationError, Settings, load_settings
-from .eval_harness import LIVE_EVAL_SCENARIOS, EvalReport, evaluate_scenarios
+from .config import ConfigurationError, Settings, chat_client, load_settings
+from .eval_harness import LIVE_EVAL_SCENARIOS, EvalReport, EvalScenario, evaluate_scenarios
+from .eval_judge import SummaryFidelityJudge, SummaryJudge
+from .llm import LlmError
 from .models import AnalyzeRequest, AnalyzeResponse, Mode
 
 
@@ -84,7 +93,17 @@ def ensure_runnable(settings: Settings) -> None:
         )
 
 
-def run_live_eval(settings: Settings) -> EvalReport:
+def build_judge(settings: Settings) -> SummaryFidelityJudge:
+    """The fidelity judge wired to the configured provider (ADR-0009), through
+    the one client recipe the workflow itself runs on."""
+    return SummaryFidelityJudge(chat_client(settings))
+
+
+def run_live_eval(
+    settings: Settings,
+    judge: Optional[SummaryJudge] = None,
+    scenarios: Optional[List[EvalScenario]] = None,
+) -> EvalReport:
     """Run every curated Live case through /api/analyze in Live mode and score it.
 
     Pins Live mode per request (ADR-0008) regardless of how the app booted —
@@ -95,6 +114,11 @@ def run_live_eval(settings: Settings) -> EvalReport:
     provider fakes installed at the composition root (the test seam) are
     honoured and every request appends its observability record like any
     other.
+
+    The fidelity judge defaults to the configured provider (``build_judge``);
+    tests script the seam by passing one. A judge failure — an unreachable
+    provider, a verdict that fails its schema — aborts the run: infrastructure
+    failure is never measured quality.
 
     A Not-available response mid-run means the ground shifted under the run
     (the store emptied, an outage began): it is infrastructure failure, never
@@ -125,25 +149,41 @@ def run_live_eval(settings: Settings) -> EvalReport:
         return analyzed
 
     try:
-        return evaluate_scenarios(LIVE_EVAL_SCENARIOS, respond, mode=Mode.live)
+        return evaluate_scenarios(
+            scenarios if scenarios is not None else LIVE_EVAL_SCENARIOS,
+            respond,
+            mode=Mode.live,
+            judge=judge if judge is not None else build_judge(settings),
+        )
     finally:
         main.settings = app_settings
 
 
+def _fmt(score: Optional[float]) -> str:
+    """Three decimals for a measured score, ``n/a`` for one that is not —
+    an unmeasured component must never dress up as a zero."""
+    return f"{score:.3f}" if score is not None else "n/a"
+
+
 def print_report(report: EvalReport) -> None:
-    """Per-case coverage scores, then the aggregate — the operator-facing output."""
+    """Per-case component scores, then the aggregates — the operator-facing
+    output. Three components, three means, never blended (ADR-0010)."""
     print(f"Live eval: {len(report.scenarios)} case(s) through /api/analyze in Live mode")
     for result in report.scenarios:
         print(
             f"  {result.id}: coverage precision={result.precision:.3f} "
-            f"recall={result.recall:.3f} F1={result.f1:.3f}"
+            f"recall={result.recall:.3f} F1={result.f1:.3f} | "
+            f"summary fidelity={_fmt(result.summary_fidelity)} | "
+            f"strength agreement={_fmt(result.strength_agreement)}"
         )
     print(f"Aggregate mean coverage F1: {report.mean_f1:.3f}")
+    print(f"Aggregate mean summary fidelity: {_fmt(report.mean_summary_fidelity)}")
+    print(f"Aggregate mean strength agreement: {_fmt(report.mean_strength_agreement)}")
 
 
 def report_artifact(report: EvalReport) -> dict:
     """The JSON artifact the CLI writes: run metadata over the full report —
-    per-case coverage scores plus the produced-versus-expected dump."""
+    per-case component scores plus the produced-versus-expected dump."""
     return {
         "mode": Mode.live.value,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -158,11 +198,12 @@ def write_report_artifact(report: EvalReport, path: Path) -> None:
 
 
 def main(argv: list | None = None) -> int:
-    """The CLI entry point: refuse with exit 1 when prerequisites are missing,
+    """The CLI entry point: refuse with exit 1 when prerequisites are missing
+    or the judge fails (an unreachable provider, an invalid verdict),
     otherwise print the report, write the artifact when --output is given,
     and exit 0. ``argv`` defaults to the process arguments."""
     parser = argparse.ArgumentParser(
-        description="Run the Live eval and print per-case coverage scores.",
+        description="Run the Live eval and print per-case component scores.",
     )
     parser.add_argument(
         "--output",
@@ -177,6 +218,9 @@ def main(argv: list | None = None) -> int:
         report = run_live_eval(load_settings())
     except (LiveEvalRefused, ConfigurationError) as error:
         print(f"Live eval refused: {error}", file=sys.stderr)
+        return 1
+    except LlmError as error:
+        print(f"Live eval aborted: the summary-fidelity judge failed — {error}", file=sys.stderr)
         return 1
     print_report(report)
     if args.output is not None:

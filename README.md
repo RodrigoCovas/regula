@@ -364,15 +364,28 @@ regula/
 
 ## Evaluation
 
-The eval harness (`backend/src/eval_harness.py`) scores **provision coverage**
-(see `docs/adr/0010-evaluation-scores-provisions-not-statements.md`): a
-deterministic set F1 over Citation targets — provision kind + number, never
-label strings — with the expected side weighted by its Findings' Strengths
-(strong = 3, moderate = 2, weak = 1) and every off-target produced Citation
-counted against precision. This is the first of ADR-0010's three reported
-components; summary fidelity and strength agreement arrive with the
-Summarizer stage. Statement similarity gates no score; produced and
-expected statements ride only in the per-case audit dump for human review.
+The eval harness (`backend/src/eval_harness.py`) scores the three
+never-blended components of ADR-0010
+(`docs/adr/0010-evaluation-scores-provisions-not-statements.md`), reported
+separately per case and in aggregate:
+
+- **Provision coverage** — a deterministic set F1 over Citation targets —
+  provision kind + number, never label strings — with the expected side
+  weighted by its Findings' Strengths (strong = 3, moderate = 2, weak = 1)
+  and every off-target produced Citation counted against precision.
+- **Summary fidelity** — a strict rubric judge (same configured provider,
+  one batched call per case, schema-validated verdict) compares
+  provision-aligned expected and produced Provision relevance; a
+  contradiction between the two forces the floor score. Ground-truth
+  relevance summaries are hand-authored per case, so the component reads
+  `n/a` where labels are not yet written.
+- **Strength agreement** — max-rule Citation strength compared on both
+  sides over the provisions both sides cite. It is reported as its own
+  number and read at small weight: it grades only the Strength labels the
+  workflow assigned, while coverage and fidelity grade the substance.
+
+Statement similarity gates no score; produced and expected statements ride
+only in the per-case audit dump for human review.
 
 The Demo-mode cases act as functional tripwires (see
 `docs/adr/0001-eval-cases-are-functional-tripwires.md`): Demo production
@@ -391,15 +404,17 @@ python -m backend.src.live_eval --output eval-report.json
 ```
 
 It runs the hand-authored ground-truth cases through `/api/analyze` in Live
-mode, scores each Answer with provision coverage, and prints per-case
-precision/recall plus the coverage F1 and the aggregate mean coverage F1.
-With `--output` it also writes a JSON report: per-case component scores plus
-the produced-versus-expected dump (statements, Strengths, Citation targets)
-for the human audit. Precision over provisions is pessimistic by
-construction — a produced Citation outside the hand-authored expected set is
-not necessarily wrong; review the spurious list before quoting numbers.
-Without a key or an ingested Corpus it refuses with the fix instead of
-measuring garbage.
+mode, scores each Answer with the three components, and prints per-case
+coverage, summary fidelity, and strength agreement plus the aggregate mean
+of each. The judge runs on the same configured provider as the workflow; if
+it cannot be reached — or a verdict fails its schema — the run aborts with
+the fix instead of scoring silence. With `--output` it also writes a JSON
+report: per-case component scores plus the produced-versus-expected dump
+(statements, Strengths, Citation targets, relevance summaries) for the
+human audit. Precision over provisions is pessimistic by construction — a
+produced Citation outside the hand-authored expected set is not necessarily
+wrong; review the spurious list before quoting numbers. Without a key or an
+ingested Corpus it refuses with the fix instead of measuring garbage.
 
 ## Deployment
 

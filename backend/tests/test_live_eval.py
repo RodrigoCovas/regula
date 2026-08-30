@@ -20,15 +20,19 @@ from src.eval_harness import (
     LIVE_EVAL_SCENARIOS,
     STRENGTH_WEIGHTS,
     EvalReport,
+    EvalScenario,
     EvalScenarioResult,
+    ExpectedFinding,
     expected_target_weights,
 )
+from src.eval_judge import PairVerdict
+from src.llm import LlmError, LlmUnreachableError, OpenRouterClient
 from src.live_eval import LiveEvalRefused, main, report_artifact, run_live_eval
-from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
+from src.live_workflow import DraftClaim, DraftClaims, Plan, ProvisionSummary, ResearchTarget, Summaries, Verdict, Verdicts
 from src.models import Mode, ProvisionKind, Strength
 
 from conftest import install_fake_pipeline
-from fakes import FakeRetriever, ScriptedLlm, make_chunk
+from fakes import FakeRetriever, ScriptedJudge, ScriptedLlm, make_chunk
 
 
 def live_settings(query_log_path) -> Settings:
@@ -198,22 +202,200 @@ def test_not_available_mid_run_aborts_instead_of_scoring_zeros(monkeypatch, quer
         run_live_eval(live_settings(query_log_path))
 
 
+# --- The judge components (ADR-0010, issue #50) ---
+
+
+def _on_target_llm_with_summaries() -> ScriptedLlm:
+    """The on-target pipeline plus the Summarizer's reply: one grounded
+    relevance statement per cited provision (P1: Article 6, P2: Annex III)."""
+    return ScriptedLlm(
+        plan=Plan(targets=[ResearchTarget(query="creditworthiness evaluation high-risk")]),
+        claims=DraftClaims(claims=[DraftClaim(
+            statement="AI systems that evaluate the creditworthiness of natural persons are high-risk.",
+            evidence_refs=["E1", "E2"],
+        )]),
+        verdicts=Verdicts(verdicts=[
+            Verdict(
+                statement="AI systems that evaluate the creditworthiness of natural persons are high-risk.",
+                supported=True,
+                strength=Strength.strong,
+                evidence_refs=["E1", "E2"],
+            )
+        ]),
+        summaries=Summaries(summaries=[
+            ProvisionSummary(ref="P1", relevance="produced relevance for Article 6"),
+            ProvisionSummary(ref="P2", relevance="produced relevance for Annex III"),
+        ]),
+    )
+
+
+def _comparable_case() -> EvalScenario:
+    """A Live case whose ground truth summarizes the provisions it cites —
+    the shape #51 will author; here it is test data, never shipped labels."""
+    return EvalScenario(
+        id="judged-case",
+        scenario_id="some-live-scenario",
+        description="A company uses an AI system to score loan applicants.",
+        question="What applies?",
+        expected=[ExpectedFinding(
+            statement="expected statement",
+            strength=Strength.strong,
+            citations=[
+                {"source_id": "ai-act", "provision": "Article 6", "relevance": "expected relevance for Article 6"},
+                {"source_id": "ai-act", "provision": "Annex III point 5(b)", "relevance": "expected relevance for Annex III"},
+            ],
+        )],
+    )
+
+
+def test_summary_fidelity_reaches_the_report_through_a_scripted_judge(ingested_store, query_log_path):
+    judge = ScriptedJudge({
+        "P1": PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False),
+        "P2": PairVerdict(ref="P2", same_role=True, same_direction=True, contradiction=True),
+    })
+    install_fake_pipeline(_on_target_llm_with_summaries(), _on_target_retriever())
+
+    report = run_live_eval(live_settings(query_log_path), judge=judge, scenarios=[_comparable_case()])
+
+    # One batched judge call for the case; both aligned pairs took part, and
+    # the contradiction floored its half of the mean.
+    assert len(judge.calls) == 1
+    assert [pair.ref for pair in judge.calls[0]] == ["P1", "P2"]
+    assert report.scenarios[0].summary_fidelity == pytest.approx((1.0 + 0.0) / 2)
+    # The strength components ride the same case: max-rule on both sides.
+    assert report.scenarios[0].strength_agreement == 1.0
+    assert report.mean_summary_fidelity == pytest.approx(0.5)
+    assert report.mean_strength_agreement == 1.0
+
+
+def test_the_default_judge_is_built_from_the_configured_provider(monkeypatch, ingested_store, query_log_path):
+    """ADR-0009: the judge reads the same environment configuration as the
+    workflow — model, base URL, and the unwrapped key — through the one
+    chat_client recipe both share."""
+    import src.config as config
+
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    captured: dict = {}
+    real_client = OpenRouterClient
+
+    def recording_client(*args, **kwargs):
+        captured.update(kwargs)
+        captured["args"] = args
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(config, "OpenRouterClient", recording_client)
+    settings = live_settings(query_log_path)
+    run_live_eval(settings, scenarios=[EvalScenario(
+        id="probe", scenario_id="probe-scenario", question="What applies?", expected=[],
+    )])
+    assert captured["api_key"] == "sk-or-test"
+    assert captured["model"] == settings.llm_model
+    assert captured["base_url"] == settings.llm_base_url
+
+
+def test_main_aborts_clearly_when_the_judge_cannot_be_reached(monkeypatch, capsys, tmp_path):
+    """An unreachable judge is infrastructure failure, never measured zeros:
+    the run aborts with the provider detail and writes no artifact."""
+    import src.availability as availability
+    import src.live_eval as live_eval
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    install_fake_pipeline(_on_target_llm_with_summaries(), _on_target_retriever())
+    monkeypatch.setattr(live_eval, "LIVE_EVAL_SCENARIOS", [_comparable_case()])
+
+    class UnreachableClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def complete(self, *args, **kwargs):
+            raise LlmUnreachableError("Could not reach the LLM provider at https://openrouter.ai: refused")
+
+    import src.config as config
+
+    monkeypatch.setattr(config, "OpenRouterClient", UnreachableClient)
+    out_path = tmp_path / "live-eval.json"
+
+    exit_code = main(["--output", str(out_path)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "judge" in err.lower()
+    assert "Could not reach the LLM provider" in err
+    assert not out_path.exists()
+
+
+def test_main_aborts_clearly_when_the_judge_reply_cannot_be_trusted(monkeypatch, capsys, tmp_path):
+    """A schema-invalid or mis-keyed judge verdict aborts the run too — a
+    verdict that cannot be validated must never dress silence as a score."""
+    import src.availability as availability
+    import src.live_eval as live_eval
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    install_fake_pipeline(_on_target_llm_with_summaries(), _on_target_retriever())
+    monkeypatch.setattr(live_eval, "LIVE_EVAL_SCENARIOS", [_comparable_case()])
+
+    class MisbehavingJudge:
+        def __init__(self, llm):
+            pass
+
+        def compare(self, pairs):
+            raise LlmError("The judge returned no verdict for ref(s) ['P1']")
+
+    monkeypatch.setattr(live_eval, "SummaryFidelityJudge", MisbehavingJudge)
+
+    exit_code = main([])
+
+    assert exit_code == 1
+    assert "judge" in capsys.readouterr().err.lower()
+
+
+def test_main_prints_all_three_components_with_their_aggregates(monkeypatch, capsys):
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    exit_code = main([])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "coverage precision" in out
+    assert "summary fidelity" in out
+    assert "strength agreement" in out
+    assert "mean coverage" in out.lower()
+    assert "mean summary fidelity" in out.lower()
+    assert "mean strength agreement" in out.lower()
+    # No judge and no authored summaries: the unmeasured component reads as
+    # n/a, never as a fake zero.
+    assert "n/a" in out
+
+
 # --- The operator CLI ---
 
 
 def test_report_artifact_shape_at_the_pure_seam():
     """The CLI's JSON artifact is a pure function of the report: run metadata
-    over the per-case scores plus the produced-versus-expected dump."""
+    over the per-case component scores plus the produced-versus-expected dump."""
     report = EvalReport(
         scenarios=[EvalScenarioResult(
             id="case",
             precision=1.0,
             recall=0.5,
             f1=0.666666,
-            expected=[{"statement": "expected", "strength": "strong", "citations": ["gdpr Article 22"]}],
-            produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None}]}],
+            expected=[{"statement": "expected", "strength": "strong", "citations": [{"label": "gdpr Article 22", "relevance": "expected relevance"}]}],
+            produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None, "relevance": "produced relevance"}]}],
+            summary_fidelity=0.75,
+            strength_agreement=1.0,
         )],
         mean_f1=0.666666,
+        mean_summary_fidelity=0.75,
+        mean_strength_agreement=1.0,
     )
 
     artifact = report_artifact(report)
@@ -221,8 +403,13 @@ def test_report_artifact_shape_at_the_pure_seam():
     assert artifact["mode"] == "live"
     assert artifact["generated_at"]
     assert artifact["mean_f1"] == pytest.approx(0.666666)
+    assert artifact["mean_summary_fidelity"] == pytest.approx(0.75)
+    assert artifact["mean_strength_agreement"] == pytest.approx(1.0)
     (case,) = artifact["scenarios"]
-    assert set(case) == {"id", "precision", "recall", "f1", "expected", "produced"}
+    assert set(case) == {
+        "id", "precision", "recall", "f1", "expected", "produced",
+        "summary_fidelity", "strength_agreement",
+    }
 
 
 def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):
@@ -244,7 +431,7 @@ def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):
 
 
 def test_main_writes_the_report_artifact_when_given_an_output_path(monkeypatch, capsys, tmp_path):
-    """--output lands as JSON: the run's metadata, per-case coverage scores,
+    """--output lands as JSON: the run's metadata, per-case component scores,
     and the produced-versus-expected dump — everything the audit quotes."""
     import src.availability as availability
 
@@ -266,11 +453,24 @@ def test_main_writes_the_report_artifact_when_given_an_output_path(monkeypatch, 
     )
     first = artifact["scenarios"][0]
     assert first["id"] == LIVE_EVAL_SCENARIOS[0].id
-    assert set(first) == {"id", "precision", "recall", "f1", "expected", "produced"}
+    assert set(first) == {
+        "id", "precision", "recall", "f1", "expected", "produced",
+        "summary_fidelity", "strength_agreement",
+    }
     assert first["expected"] and first["produced"]
+    # No judge ran and #51 has not authored the relevance labels yet: the
+    # fidelity component reports unmeasured, never a fake zero.
+    assert first["summary_fidelity"] is None
+    assert artifact["mean_summary_fidelity"] is None
     # Both dump sides speak provisions: authored labels vs structural targets.
-    assert all("gdpr" in c or "ai-act" in c or "dora" in c for c in first["expected"][0]["citations"])
+    assert all(
+        "gdpr" in citation["label"] or "ai-act" in citation["label"] or "dora" in citation["label"]
+        for case in artifact["scenarios"]
+        for entry in case["expected"]
+        for citation in entry["citations"]
+    )
     assert all("target" in c for c in first["produced"][0]["citations"])
+    assert all("relevance" in c for c in first["produced"][0]["citations"])
 
 
 def test_refusal_writes_no_artifact(monkeypatch, capsys, tmp_path):

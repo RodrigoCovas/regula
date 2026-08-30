@@ -6,6 +6,7 @@ embedder, search-store, and scored-hit fakes also drive a real
 ``VectorRetriever`` over canned search results (#18).
 """
 
+from src.eval_judge import JudgeVerdict, PairVerdict, RelevancePair, pair_fidelity
 from src.llm import Llm
 from src.live_workflow import (
     ActionProposal,
@@ -165,6 +166,7 @@ class ScriptedLlm:
         verdicts: Verdicts | None = None,
         proposals: ActionProposals | None = None,
         summaries: Summaries | None = None,
+        judge_reply: JudgeVerdict | None = None,
         usage: dict | None = None,
     ):
         self.plan = plan or Plan(targets=[ResearchTarget(query="creditworthiness evaluation")])
@@ -172,6 +174,7 @@ class ScriptedLlm:
         self.verdicts = verdicts or Verdicts(verdicts=[])
         self.proposals = proposals or ActionProposals(proposals=[])
         self.summaries = summaries or Summaries(summaries=[])
+        self.judge_reply = judge_reply or JudgeVerdict(verdicts=[])
         self._canned_usage = usage
         self.calls: list[tuple[str, str, type]] = []
         self.usage: list[dict] = []
@@ -186,12 +189,27 @@ class ScriptedLlm:
             Verdicts: self.verdicts,
             ActionProposals: self.proposals,
             Summaries: self.summaries,
+            JudgeVerdict: self.judge_reply,
         }[schema]  # type: ignore[index]
         return canned.model_copy(deep=True)
 
 
 def grounded_verdict(statement: str, strength: Strength, refs: list[str]) -> Verdict:
     return Verdict(statement=statement, supported=True, strength=strength, evidence_refs=refs)
+
+
+class ScriptedJudge:
+    """Scripts the summary-fidelity judge seam (parent spec, seam 2): canned
+    pair verdicts scored through the real rubric derivation, every compared
+    pair list recorded for the batched-call assertions."""
+
+    def __init__(self, verdicts: dict[str, PairVerdict]):
+        self._verdicts = verdicts
+        self.calls: list[list[RelevancePair]] = []
+
+    def compare(self, pairs: list[RelevancePair]) -> dict[str, float]:
+        self.calls.append(list(pairs))
+        return {pair.ref: pair_fidelity(self._verdicts[pair.ref]) for pair in pairs}
 
 
 def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:

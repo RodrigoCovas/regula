@@ -1,16 +1,24 @@
 """Suite-level pins for the eval harness: the Demo tripwire, the
 per-request mode contract, and the audit dump that rides each case's
 result. The scoring arithmetic itself is covered at the pure seam in
-test_provision_coverage.py (ADR-0010)."""
+test_provision_coverage.py, the rubric judge in test_eval_judge.py
+(ADR-0010); here the three components meet the evaluation loop — scripted
+judge in, per-case and aggregate numbers out, never blended."""
 
 from src.eval_harness import (
     CURATED_SCENARIOS,
     EvalScenario,
+    ExpectedCitation,
     ExpectedFinding,
     evaluate_scenarios,
     run_eval,
 )
-from src.models import AnalyzeResponse, Answer, Citation, Finding, Mode, Strength, Trace
+from src.eval_judge import PairVerdict
+from src.models import AnalyzeResponse, Answer, Citation, Finding, Mode, ProvisionTarget, Strength, Trace, answer_citations
+
+import pytest
+
+from fakes import ScriptedJudge
 
 
 def test_curated_scenario_count_within_spec():
@@ -23,6 +31,23 @@ def test_deterministic_demo_scores_perfect_on_all_curated_scenarios():
     for scenario in report.scenarios:
         assert scenario.f1 == 1.0, f"scenario {scenario.id} scored {scenario.f1}"
     assert report.mean_f1 == 1.0
+
+
+def test_demo_report_keeps_the_components_separate():
+    """The Demo tripwire runs judgeless (no provider in CI), so summary
+    fidelity is unmeasured there — while strength agreement, which needs no
+    judge, reads perfectly on every producing case: the locked demo
+    strengths mirror ground truth. Non-producing cases share no target with
+    their empty expectation, so the component is unmeasured there."""
+    report = run_eval()
+    for scenario in report.scenarios:
+        assert scenario.summary_fidelity is None
+        if scenario.id.startswith("canonical"):
+            assert scenario.strength_agreement == 1.0
+        else:
+            assert scenario.strength_agreement is None
+    assert report.mean_summary_fidelity is None
+    assert report.mean_strength_agreement == 1.0
 
 
 def test_eval_pins_demo_mode_per_request_even_when_app_boots_live(monkeypatch):
@@ -79,10 +104,14 @@ def test_scenario_description_and_mode_reach_the_analysis_request():
 # --- The audit dump ---
 
 
-def _respond_with(*findings: Finding):
+def _respond_with(*findings: Finding, relevance_by_target=None):
     def respond(_request):
         return AnalyzeResponse(
-            answer=Answer(findings=list(findings), actions=[], citations=[]),
+            answer=Answer(
+                findings=list(findings),
+                actions=[],
+                citations=answer_citations(list(findings), relevance_by_target),
+            ),
             trace=Trace(workflow="fake", summary="canned"),
         )
 
@@ -91,8 +120,9 @@ def _respond_with(*findings: Finding):
 
 def test_per_case_result_carries_the_produced_versus_expected_dump():
     """The report rides the diagnostic material for the human audit: both
-    sides' statements and Strengths, the authored labels on the expected side,
-    and each produced Citation's structural target with its quote."""
+    sides' statements and Strengths, the authored labels on the expected side
+    with any authored relevance, and each produced Citation's structural
+    target with its quote and its Provision relevance."""
     scenario = EvalScenario(
         id="case",
         scenario_id="some-scenario",
@@ -100,16 +130,26 @@ def test_per_case_result_carries_the_produced_versus_expected_dump():
         expected=[ExpectedFinding(
             statement="expected statement",
             strength=Strength.strong,
-            citations=[{"source_id": "gdpr", "provision": "Recital 71"}],
+            citations=[{
+                "source_id": "gdpr",
+                "provision": "Recital 71",
+                "relevance": "Recital 71 frames the profiling the loan scoring performs.",
+            }],
         )],
     )
     report = evaluate_scenarios(
         [scenario],
-        _respond_with(Finding(
-            statement="produced wording",
-            strength=Strength.weak,
-            citations=[Citation.model_validate({"source_id": "gdpr", "recital_number": 71, "quote": "snip"})],
-        )),
+        _respond_with(
+            Finding(
+                statement="produced wording",
+                strength=Strength.weak,
+                citations=[Citation.model_validate({"source_id": "gdpr", "recital_number": 71, "quote": "snip"})],
+            ),
+            relevance_by_target={
+                _target(71, kind="recital"):
+                    "produced relevance",
+            },
+        ),
         mode=Mode.demo,
     )
 
@@ -121,10 +161,297 @@ def test_per_case_result_carries_the_produced_versus_expected_dump():
     assert result.expected == [{
         "statement": "expected statement",
         "strength": "strong",
-        "citations": ["gdpr Recital 71"],
+        "citations": [{
+            "label": "gdpr Recital 71",
+            "relevance": "Recital 71 frames the profiling the loan scoring performs.",
+        }],
     }]
     assert result.produced == [{
         "statement": "produced wording",
         "strength": "weak",
-        "citations": [{"target": "gdpr Recital 71", "quote": "snip"}],
+        "citations": [{"target": "gdpr Recital 71", "quote": "snip", "relevance": "produced relevance"}],
     }]
+
+
+# --- The three components at the evaluation loop (ADR-0010, issue #50) ---
+
+
+def _target(number: int, kind: str = "article", source_id: str = "gdpr") -> ProvisionTarget:
+    return Citation.model_validate({"source_id": source_id, f"{kind}_number": number}).provision_target
+
+
+def _expected_finding(label: str, relevance: str | None = None, strength: Strength = Strength.strong):
+    citation: ExpectedCitation = {"source_id": "gdpr", "provision": label}
+    if relevance is not None:
+        citation["relevance"] = relevance
+    return ExpectedFinding(statement=f"expected: {label}", strength=strength, citations=[citation])
+
+
+def _produced_finding(number: int, strength: Strength = Strength.strong, source_id: str = "gdpr", kind: str = "article"):
+    return Finding(
+        statement=f"produced: {source_id} {kind} {number}",
+        strength=strength,
+        citations=[Citation.model_validate({"source_id": source_id, f"{kind}_number": number})],
+    )
+
+
+FULL_AGREEMENT = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False)
+ROLE_MISMATCH = PairVerdict(ref="P1", same_role=False, same_direction=True, contradiction=False)
+POLARITY_FLIP = PairVerdict(ref="P1", same_role=True, same_direction=False, contradiction=False)
+CONTRADICTION = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=True)
+
+
+def test_the_judge_scores_one_batched_pair_per_aligned_provision():
+    """Expected and produced relevance align by provision target; the judge
+    reads one pair per shared target with both statements verbatim."""
+    target22 = _target(22)
+    judge = ScriptedJudge({"P1": FULL_AGREEMENT})
+    evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            relevance_by_target={target22: "produced relevance"},
+        ),
+        mode=Mode.demo,
+        judge=judge,
+    )
+    (call,) = judge.calls
+    (pair,) = call
+    assert pair.ref == "P1"
+    assert pair.provision == "gdpr Article 22"
+    assert pair.expected == "expected relevance"
+    assert pair.produced == "produced relevance"
+
+
+@pytest.mark.parametrize("verdict,expected_fidelity", [
+    (FULL_AGREEMENT, 1.0),
+    (ROLE_MISMATCH, 0.5),
+    (POLARITY_FLIP, 0.5),
+    (CONTRADICTION, 0.0),
+])
+def test_rubric_edges_land_in_the_case_score(verdict, expected_fidelity):
+    """The rubric edges the acceptance criteria name, end to end through the
+    evaluation loop: full agreement, role mismatch, polarity flip, and the
+    contradiction floor."""
+    target22 = _target(22)
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            relevance_by_target={target22: "produced relevance"},
+        ),
+        mode=Mode.demo,
+        judge=ScriptedJudge({"P1": verdict}),
+    )
+    assert report.scenarios[0].summary_fidelity == expected_fidelity
+
+
+def test_summary_fidelity_means_over_all_judged_pairs():
+    target22 = _target(22)
+    target25 = _target(25)
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[
+                _expected_finding("Article 22", relevance="expected one"),
+                _expected_finding("Article 25", relevance="expected two"),
+            ],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            _produced_finding(25),
+            relevance_by_target={target22: "produced one", target25: "produced two"},
+        ),
+        mode=Mode.demo,
+        judge=ScriptedJudge({
+            "P1": PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False),
+            "P2": PairVerdict(ref="P2", same_role=True, same_direction=True, contradiction=True),
+        }),
+    )
+    assert report.scenarios[0].summary_fidelity == pytest.approx(0.5)
+
+
+def test_a_cited_provision_without_a_summary_scores_zero_without_a_judge_call():
+    """Ground truth summarizes a provision the Answer cites but the
+    Summarizer left bare: maximally infidelitous, and nothing for a judge to
+    compare — the zero is deterministic application code."""
+    judge = ScriptedJudge({})
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(_produced_finding(22)),
+        mode=Mode.demo,
+        judge=judge,
+    )
+    assert report.scenarios[0].summary_fidelity == 0.0
+    assert judge.calls == []
+
+
+def test_summary_fidelity_is_unmeasured_without_expected_summaries():
+    """No authored relevance (the state until #51 lands) — no fidelity number,
+    and the judge is never woken for nothing."""
+    judge = ScriptedJudge({})
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22")],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            relevance_by_target={
+                _target(22): "produced",
+            },
+        ),
+        mode=Mode.demo,
+        judge=judge,
+    )
+    assert report.scenarios[0].summary_fidelity is None
+    assert judge.calls == []
+
+
+def test_summary_fidelity_is_unmeasured_without_a_judge():
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            relevance_by_target={
+                _target(22): "produced",
+            },
+        ),
+        mode=Mode.demo,
+    )
+    assert report.scenarios[0].summary_fidelity is None
+
+
+def test_fidelity_pairs_only_provisions_both_sides_touch():
+    """An off-target produced citation is coverage's pessimism, never a
+    fidelity pair; an expected target the Answer never cites is a coverage
+    miss, not a fidelity one."""
+    target22 = _target(22)
+    judge = ScriptedJudge({"P1": FULL_AGREEMENT})
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[
+                _expected_finding("Article 22", relevance="expected one"),
+                _expected_finding("Article 25", relevance="never produced"),
+            ],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            _produced_finding(99),
+            relevance_by_target={target22: "produced one"},
+        ),
+        mode=Mode.demo,
+        judge=judge,
+    )
+    (call,) = judge.calls
+    assert [pair.ref for pair in call] == ["P1"]
+    assert report.scenarios[0].summary_fidelity == 1.0
+
+
+def test_strength_agreement_rides_every_case_and_aggregates_separately():
+    expected = [
+        _expected_finding("Article 22", strength=Strength.strong),
+        _expected_finding("Article 25", strength=Strength.weak),
+    ]
+    report = evaluate_scenarios(
+        [EvalScenario(id="case", scenario_id="s", question="What applies?", expected=expected)],
+        _respond_with(
+            _produced_finding(22, strength=Strength.strong),
+            _produced_finding(25, strength=Strength.moderate),
+        ),
+        mode=Mode.demo,
+    )
+    # Article 22 agrees (strong/strong); Article 25 disagrees (weak/moderate).
+    assert report.scenarios[0].strength_agreement == pytest.approx(0.5)
+    assert report.mean_strength_agreement == pytest.approx(0.5)
+
+
+def test_the_report_carries_the_components_separately_and_never_blends_them():
+    """ADR-0010: three per-case numbers, three aggregates — no field blends
+    them into one opaque score."""
+    import dataclasses
+
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            relevance_by_target={
+                _target(22): "produced",
+            },
+        ),
+        mode=Mode.demo,
+        judge=ScriptedJudge({"P1": FULL_AGREEMENT}),
+    )
+    assert set(f.name for f in dataclasses.fields(report)) == {
+        "scenarios", "mean_f1", "mean_summary_fidelity", "mean_strength_agreement",
+    }
+    assert set(f.name for f in dataclasses.fields(report.scenarios[0])) == {
+        "id", "precision", "recall", "f1", "expected", "produced",
+        "summary_fidelity", "strength_agreement",
+    }
+    assert report.mean_f1 == 1.0
+    assert report.mean_summary_fidelity == 1.0
+    assert report.mean_strength_agreement == 1.0
+
+
+def test_aggregate_component_means_skip_unmeasured_cases():
+    """A mean over the cases where a component was measured; a component
+    measured nowhere aggregates to no number, never a fake zero."""
+    target22 = _target(22)
+    report = evaluate_scenarios(
+        [
+            EvalScenario(
+                id="measured",
+                scenario_id="s",
+                question="What applies?",
+                expected=[_expected_finding("Article 22", relevance="expected relevance")],
+            ),
+            EvalScenario(
+                id="unmeasured",
+                scenario_id="s2",
+                question="What applies?",
+                expected=[_expected_finding("Article 22")],
+            ),
+        ],
+        _respond_with(
+            _produced_finding(22),
+            relevance_by_target={target22: "produced"},
+        ),
+        mode=Mode.demo,
+        judge=ScriptedJudge({"P1": FULL_AGREEMENT}),
+    )
+    assert report.scenarios[0].summary_fidelity == 1.0
+    assert report.scenarios[1].summary_fidelity is None
+    assert report.mean_summary_fidelity == 1.0

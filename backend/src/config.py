@@ -21,7 +21,7 @@ from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
 
 from .embedder import DEFAULT_MODEL as DEFAULT_EMBEDDING_MODEL
-from .llm import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL
+from .llm import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL, OpenRouterClient
 from .models import Mode
 from .query_log import DEFAULT_QUERY_LOG_PATH
 
@@ -79,6 +79,23 @@ def load_settings() -> Settings:
     except ValidationError as exc:
         raise ConfigurationError(f"Invalid configuration (check REGULA_MODE): {exc}") from exc
     return settings
+
+
+def chat_client(settings: Settings) -> OpenRouterClient:
+    """The chat-completions client wired to the configured provider (ADR-0009).
+
+    The one recipe both consumers share — the workflow's composition root and
+    the eval's fidelity judge — so model, base URL, and the unwrapped key can
+    never disagree between the pipeline that answers and the judge that
+    scores it.
+    """
+    return OpenRouterClient(
+        api_key=(
+            settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
+        ),
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
 
 
 def source_local_env() -> None:

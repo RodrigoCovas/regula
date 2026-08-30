@@ -5,7 +5,10 @@ number, never label strings. Recall is strength-weighted on the expected
 side; precision counts off-target produced targets against itself. Statement
 similarity gates nothing: produced-versus-expected statements ride only in
 the per-case audit dump (its shape is pinned with the harness suite in
-test_eval_harness.py).
+test_eval_harness.py). The file also pins the pure halves of the two
+remaining components (issue #50): strength agreement — max-rule Citation
+strength compared on both sides — and the expected-relevance collection the
+summary-fidelity judge reads.
 """
 
 import pytest
@@ -15,10 +18,13 @@ from src.eval_harness import (
     ExpectedFinding,
     ProducedFinding,
     coverage_scores,
+    expected_relevance_summaries,
+    expected_target_strengths,
     expected_target_weights,
     format_provision_target,
     parse_provision,
     produced_target_strengths,
+    strength_agreement,
 )
 from src.models import Citation, ProvisionKind, ProvisionTarget, Strength
 
@@ -178,6 +184,142 @@ def test_expected_and_produced_max_rule_meet_in_one_implementation():
     ])
     assert expected_weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.strong]}
     assert produced_strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
+
+
+# --- Strength agreement (ADR-0010, issue #50) ---
+
+
+def test_expected_target_strengths_follow_the_max_rule():
+    """The expected half of the comparison: per expected target, the
+    strongest Strength among the ground-truth Findings citing it."""
+    strengths = expected_target_strengths([
+        _expected(Strength.weak, "Article 6"),
+        _expected(Strength.strong, "Article 6"),
+    ])
+    assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
+
+
+def test_strength_agreement_compares_both_sides_per_shared_target():
+    """Provision-aligned comparison: a target both sides cite agrees when the
+    max-rule strengths match, whatever those strengths are."""
+    expected = expected_target_strengths([_expected(Strength.moderate, "Article 6")])
+    produced = produced_target_strengths([_produced(Strength.moderate, _article(6))])
+    assert strength_agreement(expected, produced) == 1.0
+
+
+def test_strength_agreement_means_over_the_shared_targets():
+    expected = expected_target_strengths([
+        _expected(Strength.strong, "Article 6"),
+        _expected(Strength.weak, "Article 3"),
+    ])
+    produced = produced_target_strengths([
+        _produced(Strength.strong, _article(6)),
+        _produced(Strength.weak, _article(3)),
+        _produced(Strength.strong, _article(99)),
+    ])
+    # Article 99 is off-target: coverage precision's business, never this
+    # component's — only targets both sides cite take part.
+    assert strength_agreement(expected, produced) == 1.0
+
+    produced = produced_target_strengths([
+        _produced(Strength.weak, _article(6)),
+        _produced(Strength.weak, _article(3)),
+    ])
+    assert strength_agreement(expected, produced) == 0.5
+
+
+def test_strength_disagreement_counts_whatever_the_direction():
+    """strong-vs-moderate disagrees exactly as moderate-vs-strong does: the
+    component grades the labels, not who was generous."""
+    expected_strong = expected_target_strengths([_expected(Strength.strong, "Article 6")])
+    expected_moderate = expected_target_strengths([_expected(Strength.moderate, "Article 6")])
+    produced_strong = produced_target_strengths([_produced(Strength.strong, _article(6))])
+    produced_moderate = produced_target_strengths([_produced(Strength.moderate, _article(6))])
+    assert strength_agreement(expected_strong, produced_moderate) == 0.0
+    assert strength_agreement(expected_moderate, produced_strong) == 0.0
+
+
+def test_no_shared_target_leaves_strength_agreement_unmeasured():
+    """Nothing to compare — the component reports no number rather than a
+    fake one; coverage recall already flags the total miss."""
+    expected = expected_target_strengths([_expected(Strength.strong, "Article 6")])
+    produced = produced_target_strengths([_produced(Strength.strong, _article(99))])
+    assert strength_agreement(expected, produced) is None
+
+
+def test_strength_agreement_reads_the_same_max_rule_as_coverage_weights():
+    """One max-rule implementation backs both: the strengths the agreement
+    compares and the weights coverage recalls by come from the same map."""
+    expected = [_expected(Strength.weak, "Article 6"), _expected(Strength.strong, "Article 6")]
+    strengths = expected_target_strengths(expected)
+    weights = expected_target_weights(expected)
+    assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
+    assert weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.strong]}
+
+
+# --- The expected relevance summaries the judge reads (ADR-0010, issue #50) ---
+
+
+def test_expected_relevance_summaries_key_by_parsed_target():
+    expected = [
+        ExpectedFinding(
+            statement="expected finding",
+            strength=Strength.strong,
+            citations=[{
+                "source_id": "gdpr",
+                "provision": "Article 22",
+                "relevance": "Article 22 restricts the solely automated loan decision.",
+            }],
+        ),
+    ]
+    summaries = expected_relevance_summaries(expected)
+    assert summaries == {
+        ProvisionTarget("gdpr", ProvisionKind.article, 22): "Article 22 restricts the solely automated loan decision.",
+    }
+
+
+def test_expected_citations_without_relevance_are_ignored():
+    """The judge only compares provisions ground truth actually summarizes —
+    labels are authored once, in #51, and never required by the scorer."""
+    expected = [_expected(Strength.strong, "Article 6")]
+    assert expected_relevance_summaries(expected) == {}
+
+
+def test_conflicting_ground_truth_summaries_fail_loudly():
+    """Two expected Findings citing one target with different summaries is an
+    authoring bug: it must never be silently last-wins."""
+    expected = [
+        ExpectedFinding(
+            statement="first",
+            strength=Strength.strong,
+            citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "one story"}],
+        ),
+        ExpectedFinding(
+            statement="second",
+            strength=Strength.moderate,
+            citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "another story"}],
+        ),
+    ]
+    with pytest.raises(ValueError, match="Article 6"):
+        expected_relevance_summaries(expected)
+
+
+def test_identical_duplicate_summaries_deduplicate():
+    expected = [
+        ExpectedFinding(
+            statement="first",
+            strength=Strength.strong,
+            citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "same story"}],
+        ),
+        ExpectedFinding(
+            statement="second",
+            strength=Strength.moderate,
+            citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "same story"}],
+        ),
+    ]
+    assert expected_relevance_summaries(expected) == {
+        ProvisionTarget("ai-act", ProvisionKind.article, 6): "same story",
+    }
 
 
 # --- Coverage arithmetic ---
