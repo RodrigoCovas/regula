@@ -37,8 +37,19 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # In-stack endpoints: the backend container talks to its compose
+      # siblings, so these stay pinned to the service names.
       DATABASE_URL: postgresql://regula:regula@postgres:5432/regula
       OLLAMA_API_URL: http://ollama:11434
+      # Provider configuration (ADR-0009), forwarded from the operator's
+      # environment or the root .env file (see .env.example). The :- defaults
+      # mirror the backend's built-in defaults; the key defaults to an empty
+      # string, which the backend reads as "no key configured".
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-upstage/solar-pro4}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16}
+      REGULA_MODE: ${REGULA_MODE:-demo}
     depends_on:
       postgres:
         condition: service_healthy

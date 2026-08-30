@@ -1,0 +1,18 @@
+# Keep docker build contexts lean and secret-free: the backend image builds
+# from the repository root, so without this file every `docker compose build`
+# uploads the whole tree — node_modules included — to the daemon.
+.git
+.env
+.env.*
+backend/.env.local
+frontend/.env.local
+frontend/node_modules
+frontend/.next
+frontend/tsconfig.tsbuildinfo
+node_modules
+logs/
+data/embeddings/
+.pytest_cache/
+.mypy_cache/
+__pycache__/
+*.pyc

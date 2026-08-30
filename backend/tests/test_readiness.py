@@ -61,6 +61,18 @@ def test_missing_provider_key_reports_api_key_unset_alone(monkeypatch):
     assert data["corpus_ingested"] is True
 
 
+def test_empty_string_provider_key_reads_unset(monkeypatch):
+    """Compose forwards OPENROUTER_API_KEY into the container even when the
+    operator's env file omits it — as an empty string. Readiness must read
+    that as unset: the checklist names the key, never a phantom key."""
+    patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+    with boot_with_env(monkeypatch, OPENROUTER_API_KEY="") as client:
+        data = client.get("/readiness").json()
+    assert data["api_key_set"] is False
+    assert data["embedding_model_present"] is True
+    assert data["corpus_ingested"] is True
+
+
 def test_missing_embedding_model_reports_it_individually(monkeypatch):
     """An unavailable embedding model (Ollama down or model not pulled) shows
     up as exactly that boolean — never as a server error or a blanket false."""

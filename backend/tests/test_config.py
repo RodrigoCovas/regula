@@ -11,6 +11,7 @@ embedder).
 """
 
 import pytest
+from pathlib import Path
 
 from src.config import ConfigurationError, load_settings
 from src.models import Mode
@@ -40,6 +41,18 @@ def test_live_mode_without_api_key_still_loads_key_gap_surfaces_per_request(monk
     settings = load_settings()
     assert settings.regula_mode == Mode.live
     assert settings.openrouter_api_key is None
+
+
+def test_empty_api_key_env_value_reads_as_not_configured(monkeypatch):
+    """An empty-string key reads as no key (the truthiness contract every
+    consumer — Readiness, the Live gates, the client builder — relies on).
+
+    Docker Compose forwards the provider key by always setting the variable
+    in the container, so an env file that omits it delivers OPENROUTER_API_KEY=''
+    — which must read as unset, not as a configured-but-blank key."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    settings = load_settings()
+    assert not settings.openrouter_api_key
 
 
 def test_invalid_mode_value_raises_configuration_error_not_silent_demo(monkeypatch):
@@ -147,6 +160,26 @@ def test_embedding_model_selected_via_env_var(monkeypatch):
     monkeypatch.setenv("EMBEDDING_MODEL", "nomic-embed-text")
     settings = load_settings()
     assert settings.embedding_model == "nomic-embed-text"
+
+
+# --- Compose forwards the provider configuration (issue #49) --------------------
+
+
+def test_compose_defaults_mirror_the_backend_builtins():
+    """docker-compose.yml substitutes the provider variables with `:-`
+    defaults for a first-time cloner who sets none of them — those literals
+    must equal the backend's built-in defaults so the two can never drift.
+    DATABASE_URL and OLLAMA_API_URL are deliberately absent: inside the stack
+    they stay pinned to the compose service names."""
+    from src.embedder import DEFAULT_MODEL as EMBEDDING_DEFAULT
+    from src.llm import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL
+
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text()
+    assert f"OPENROUTER_API_KEY: ${{OPENROUTER_API_KEY:-}}" in compose
+    assert f"LLM_MODEL: ${{LLM_MODEL:-{DEFAULT_LLM_MODEL}}}" in compose
+    assert f"LLM_BASE_URL: ${{LLM_BASE_URL:-{DEFAULT_LLM_BASE_URL}}}" in compose
+    assert f"EMBEDDING_MODEL: ${{EMBEDDING_MODEL:-{EMBEDDING_DEFAULT}}}" in compose
+    assert "REGULA_MODE: ${REGULA_MODE:-demo}" in compose
 
 
 # --- .env.local loading (the documented configuration home) -------------------

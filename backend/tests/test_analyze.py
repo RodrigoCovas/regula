@@ -759,6 +759,25 @@ def test_keyless_boot_serves_demo_and_a_live_request_answers_not_available(monke
     assert data["answer"]["findings"] == []
 
 
+def test_live_request_with_empty_string_key_answers_not_available(monkeypatch):
+    """The compose path forwards OPENROUTER_API_KEY even when the operator's
+    env file omits it — as an empty string. A Live request then surfaces the
+    same missing-key Readiness gap as a truly unset key: the Not-available
+    response with recovery guidance, never a provider error."""
+    with boot_with_env(monkeypatch, OPENROUTER_API_KEY="") as client:
+        patch_stored_chunk_count(monkeypatch, lambda _database_url: 42)
+        install_fake_pipeline(make_offline_llm(), FakeRetriever())
+
+        live_resp = post_mode(client, mode="live")
+
+    assert live_resp.status_code == 200
+    data = live_resp.json()
+    assert_not_available_shape(data)
+    assert_missing_key_guidance(data)
+    # The pipeline must never have run: the reply is not the faked Live Answer.
+    assert data["answer"]["findings"] == []
+
+
 def test_keyless_live_ui_submission_polls_into_the_not_available_response(monkeypatch):
     """The decoupled UI path surfaces the same Readiness gap: a keyless Live
     submission registers in the progress registry and completes with the
