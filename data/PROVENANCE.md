@@ -31,6 +31,24 @@ the corpus level per locked decision Q8 (issue #1).
 the Live eval's expected citations (issue #51). Each scenario entry lists the
 provisions an answer should cite, each with the relevance summary the
 summary-fidelity judge compares against. It is independent of pipeline output
-(#7 precedent) and is transcribed verbatim into `backend/src/eval_harness.py`,
-where `test_live_eval.py::test_shipped_ground_truth_transcribes_the_operators_citations_file`
-pins the transcription.
+(#7 precedent): every relevance string is transcribed into
+`backend/src/eval_harness.py` text-verbatim — the pinning test
+(`test_live_eval.py::test_shipped_ground_truth_transcribes_the_operators_citations_file`)
+compares each case's contents against this file regardless of order, so any
+drift fails loudly.
+
+The Findings grouping those citations are hand-authored once in the harness
+under the same #7 precedent — never derived from or validated against pipeline
+output, so the eval can disagree with the code. Authoring conventions:
+
+- Related articles cluster into one expectation (one Finding statement, one
+  Strength); ranges expand into their separate Article targets; sub-references
+  like "point 5(b)" collapse to the Annex they refine — the structural targets
+  coverage compares.
+- Each provision is cited by exactly one Finding per scenario: its relevance
+  summary is authored once, matching the one-summary-per-provision shape
+  `expected_relevance_summaries` enforces.
+- Strengths follow CONTEXT.md: strong when a provision names the situation
+  outright, moderate where the claim is derived or contingent on facts the
+  Corpus cannot settle (entity status, designation), weak where provisions
+  only supply framing.

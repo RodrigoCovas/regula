@@ -448,13 +448,9 @@ CURATED_SCENARIOS: List[EvalScenario] = [
 # data/regulations/citations.json (#51), and the Findings grouping those
 # citations are hand-authored per case under the #7 precedent — statements and
 # Strengths written once, never derived from or validated against pipeline
-# output, so the eval can disagree with the code. Related articles cluster
-# into one expectation, ranges expand into their separate Article targets, and
-# sub-references like "point 5(b)" collapse to the Annex they refine — the
-# structural targets coverage compares. Strengths follow CONTEXT.md: strong
-# when a provision names the situation outright, moderate where the claim is
-# derived or contingent on facts the Corpus cannot settle (entity status,
-# designation), weak where provisions only supply framing.
+# output, so the eval can disagree with the code. The authoring conventions
+# (clustering, range expansion, sub-reference collapse, the Strength rubric)
+# live with the ground-truth record in data/PROVENANCE.md.
 _RETAILER_BREACH_EXPECTED = [
     ExpectedFinding(
         statement="Confirmed unauthorized access to a database of customers' names, email addresses, postal addresses and order information is a personal data breach in its own right - the download question feeds the risk assessment, not the breach's existence.",

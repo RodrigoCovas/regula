@@ -58,21 +58,24 @@ def ingested_store(monkeypatch):
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
 
 
+# The one Finding the on-target pipeline produces, shared by every scripted
+# variant: wording is irrelevant to coverage scoring (ADR-0010), so it need
+# not mirror the expectation's text.
+_ON_TARGET_STATEMENT = (
+    "The company must notify the supervisory authority of the breach "
+    "within seventy-two hours and inform affected customers where they "
+    "face a high risk."
+)
+
+
 def _on_target_llm() -> ScriptedLlm:
     """One strong Finding citing exactly the provisions its ground truth
-    names. Wording is irrelevant to coverage scoring (ADR-0010), so the
-    statement differs from the expectation's — an audit would still pair
-    them by eye through the dump."""
-    statement = (
-        "The company must notify the supervisory authority of the breach "
-        "within seventy-two hours and inform affected customers where they "
-        "face a high risk."
-    )
+    names — an audit would still pair it by eye through the dump."""
     return ScriptedLlm(
         plan=Plan(targets=[ResearchTarget(query="breach notification duties")]),
-        claims=DraftClaims(claims=[DraftClaim(statement=statement, evidence_refs=["E1", "E2"])]),
+        claims=DraftClaims(claims=[DraftClaim(statement=_ON_TARGET_STATEMENT, evidence_refs=["E1", "E2"])]),
         verdicts=Verdicts(verdicts=[
-            Verdict(statement=statement, supported=True, strength=Strength.strong, evidence_refs=["E1", "E2"])
+            Verdict(statement=_ON_TARGET_STATEMENT, supported=True, strength=Strength.strong, evidence_refs=["E1", "E2"])
         ]),
     )
 
@@ -167,7 +170,12 @@ def test_shipped_ground_truth_transcribes_the_operators_citations_file():
     authored file stays the record and any transcription drift fails here
     instead of silently changing the judge's ground truth. Cases pair with
     scenario keys by order — the file numbers its scenarios the same way
-    (scenario_1 first) — and a reorder or mismatch fails loudly."""
+    (scenario_1 first) — and a reorder or mismatch fails loudly.
+
+    The projection is deliberately spelled out here instead of reusing a
+    harness shape: the pin must not share an implementation with the ground
+    truth it pins, or it could drift in step with the code it should
+    contradict."""
     citations = json.loads((ROOT / "data" / "regulations" / "citations.json").read_text())
     assert len(LIVE_EVAL_SCENARIOS) == len(citations), "one case per citations.json scenario"
 
@@ -243,20 +251,15 @@ def test_not_available_mid_run_aborts_instead_of_scoring_zeros(monkeypatch, quer
 def _on_target_llm_with_summaries() -> ScriptedLlm:
     """The on-target pipeline plus the Summarizer's reply: one grounded
     relevance statement per cited provision (P1: Article 33, P2: Article 34)."""
-    statement = (
-        "The company must notify the supervisory authority of the breach "
-        "within seventy-two hours and inform affected customers where they "
-        "face a high risk."
-    )
     return ScriptedLlm(
         plan=Plan(targets=[ResearchTarget(query="breach notification duties")]),
         claims=DraftClaims(claims=[DraftClaim(
-            statement=statement,
+            statement=_ON_TARGET_STATEMENT,
             evidence_refs=["E1", "E2"],
         )]),
         verdicts=Verdicts(verdicts=[
             Verdict(
-                statement=statement,
+                statement=_ON_TARGET_STATEMENT,
                 supported=True,
                 strength=Strength.strong,
                 evidence_refs=["E1", "E2"],
