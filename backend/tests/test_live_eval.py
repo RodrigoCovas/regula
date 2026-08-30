@@ -25,14 +25,20 @@ from src.eval_harness import (
     ExpectedFinding,
     expected_target_weights,
 )
-from src.eval_judge import PairVerdict
 from src.llm import LlmError, LlmUnreachableError, OpenRouterClient
 from src.live_eval import LiveEvalRefused, main, report_artifact, run_live_eval
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ProvisionSummary, ResearchTarget, Summaries, Verdict, Verdicts
 from src.models import Mode, ProvisionKind, Strength
 
 from conftest import install_fake_pipeline
-from fakes import FakeRetriever, ScriptedJudge, ScriptedLlm, make_chunk
+from fakes import (
+    CONTRADICTION_VERDICT,
+    FULL_AGREEMENT_VERDICT,
+    FakeRetriever,
+    ScriptedJudge,
+    ScriptedLlm,
+    make_chunk,
+)
 
 
 def live_settings(query_log_path) -> Settings:
@@ -250,8 +256,8 @@ def _comparable_case() -> EvalScenario:
 
 def test_summary_fidelity_reaches_the_report_through_a_scripted_judge(ingested_store, query_log_path):
     judge = ScriptedJudge({
-        "P1": PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False),
-        "P2": PairVerdict(ref="P2", same_role=True, same_direction=True, contradiction=True),
+        "P1": FULL_AGREEMENT_VERDICT,
+        "P2": CONTRADICTION_VERDICT.model_copy(update={"ref": "P2"}),
     })
     install_fake_pipeline(_on_target_llm_with_summaries(), _on_target_retriever())
 

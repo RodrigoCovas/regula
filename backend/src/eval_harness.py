@@ -273,7 +273,11 @@ def format_provision_target(target: ProvisionTarget) -> str:
     return f"{target.source_id} {_KIND_LABELS[target.kind]} {target.number}"
 
 
-def coverage_scores(expected: List[ExpectedFinding], produced: List[ProducedFinding]) -> CoverageScores:
+def coverage_scores(
+    expected: List[ExpectedFinding],
+    produced: List[ProducedFinding],
+    expected_strengths: Optional[Dict[ProvisionTarget, Strength]] = None,
+) -> CoverageScores:
     """Provision-coverage F1 (ADR-0010): set arithmetic over Citation targets.
 
     Recall is the strength-weighted share of expected targets the produced
@@ -290,13 +294,22 @@ def coverage_scores(expected: List[ExpectedFinding], produced: List[ProducedFind
     was produced; any production is spurious leakage and scores 0.0 across
     the board. Expected Findings naming no provision can never be covered
     and score loudly zero.
+
+    ``expected_strengths`` lets the evaluation loop pass the max-rule map it
+    already computed for strength agreement, so the expected side's
+    strengths are derived once per case, never twice.
     """
     if not expected:
         if not produced:
             return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-    weights = expected_target_weights(expected)
+    strengths = (
+        expected_strengths
+        if expected_strengths is not None
+        else expected_target_strengths(expected)
+    )
+    weights = {target: STRENGTH_WEIGHTS[strength] for target, strength in strengths.items()}
     expected_weight_total = sum(weights.values())
     produced_targets = {
         citation.provision_target for finding in produced for citation in finding.citations
@@ -930,8 +943,12 @@ def _expected_dump(finding: ExpectedFinding) -> ExpectedFindingDump:
 
 # The audit-dump form of one produced Finding: the statement as the LLM worded
 # it, its Strength, and each Citation's structural target with its quote and
-# the Answer's Provision relevance for that provision.
-def _produced_dump(finding: ProducedFinding, relevance: Dict[ProvisionTarget, str]) -> ProducedFindingDump:
+# the Answer's Provision relevance for that provision (``None`` where the
+# Summarizer shipped nothing).
+def _produced_dump(
+    finding: ProducedFinding,
+    answer_relevance: Dict[ProvisionTarget, Optional[str]],
+) -> ProducedFindingDump:
     return {
         "statement": finding.statement,
         "strength": finding.strength.value,
@@ -939,7 +956,7 @@ def _produced_dump(finding: ProducedFinding, relevance: Dict[ProvisionTarget, st
             {
                 "target": format_provision_target(c.provision_target),
                 "quote": c.quote,
-                "relevance": relevance.get(c.provision_target),
+                "relevance": answer_relevance.get(c.provision_target),
             }
             for c in finding.citations
         ],
@@ -1025,6 +1042,7 @@ def evaluate_scenarios(
         ]
         answer_citations_list = list(response.answer.citations)
         answer_relevance = {citation.provision_target: citation.relevance for citation in answer_citations_list}
+        expected_strengths = expected_target_strengths(scenario.expected)
         fidelity = (
             _summary_fidelity(scenario, answer_relevance, judge)
             if judge is not None
@@ -1033,12 +1051,12 @@ def evaluate_scenarios(
         scenario_results.append(
             EvalScenarioResult(
                 id=scenario.id,
-                **coverage_scores(scenario.expected, produced),
+                **coverage_scores(scenario.expected, produced, expected_strengths),
                 expected=[_expected_dump(f) for f in scenario.expected],
-                produced=[_produced_dump(f, {t: r for t, r in answer_relevance.items() if r}) for f in produced],
+                produced=[_produced_dump(f, answer_relevance) for f in produced],
                 summary_fidelity=fidelity,
                 strength_agreement=strength_agreement(
-                    expected_target_strengths(scenario.expected),
+                    expected_strengths,
                     produced_target_strengths(produced),
                 ),
             )

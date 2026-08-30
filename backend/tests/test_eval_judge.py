@@ -10,7 +10,6 @@ only classifies, so run-to-run variance is bounded by the verdict schema.
 import pytest
 
 from src.eval_judge import (
-    FIDELITY_FLOOR,
     JudgeVerdict,
     PairVerdict,
     RelevancePair,
@@ -18,6 +17,14 @@ from src.eval_judge import (
     pair_fidelity,
 )
 from src.llm import LlmError, LlmUnreachableError
+
+from fakes import (
+    CONTRADICTION_VERDICT,
+    FULL_AGREEMENT_VERDICT,
+    POLARITY_FLIP_VERDICT,
+    ROLE_MISMATCH_VERDICT,
+    ScriptedJudgeLlm,
+)
 
 
 def _pair(ref: str = "P1") -> RelevancePair:
@@ -33,39 +40,31 @@ def _pair(ref: str = "P1") -> RelevancePair:
 
 
 def test_full_agreement_scores_one():
-    verdict = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False)
-    assert pair_fidelity(verdict) == 1.0
+    assert pair_fidelity(FULL_AGREEMENT_VERDICT) == 1.0
 
 
 def test_role_mismatch_scores_half():
     """The produced statement states the right obligation direction but plays
     the wrong role — half the rubric's two dimensions hold."""
-    verdict = PairVerdict(ref="P1", same_role=False, same_direction=True, contradiction=False)
-    assert pair_fidelity(verdict) == 0.5
+    assert pair_fidelity(ROLE_MISMATCH_VERDICT) == 0.5
 
 
 def test_polarity_flip_scores_half():
     """The produced statement explains the provision's role in the Answer but
     flips the obligation direction — the other rubric dimension alone."""
-    verdict = PairVerdict(ref="P1", same_role=True, same_direction=False, contradiction=False)
-    assert pair_fidelity(verdict) == 0.5
+    assert pair_fidelity(POLARITY_FLIP_VERDICT) == 0.5
 
 
 def test_both_dimensions_mismatched_score_the_floor():
     verdict = PairVerdict(ref="P1", same_role=False, same_direction=False, contradiction=False)
-    assert pair_fidelity(verdict) == FIDELITY_FLOOR
+    assert pair_fidelity(verdict) == 0.0
 
 
 def test_contradiction_forces_the_floor_even_when_both_dimensions_hold():
     """A contradiction is worse than a mismatched dimension: it overrides any
     would-be score, so an opposite statement can never ride a role/direction
     technicality."""
-    verdict = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=True)
-    assert pair_fidelity(verdict) == FIDELITY_FLOOR
-
-
-def test_the_floor_is_zero():
-    assert FIDELITY_FLOOR == 0.0
+    assert pair_fidelity(CONTRADICTION_VERDICT) == 0.0
 
 
 # --- The judge over the provider: one batched call, schema-validated verdicts ---
@@ -78,10 +77,8 @@ def _judge_reply(**verdicts: PairVerdict) -> JudgeVerdict:
 def test_the_judge_makes_one_batched_call_for_all_pairs():
     """One call per case carries every pair: the judge never makes a
     per-pair request (ADR-0010)."""
-    from fakes import ScriptedLlm
-
-    llm = ScriptedLlm(judge_reply=_judge_reply(
-        P1=PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False),
+    llm = ScriptedJudgeLlm(_judge_reply(
+        P1=FULL_AGREEMENT_VERDICT,
         P2=PairVerdict(ref="P2", same_role=True, same_direction=True, contradiction=False),
     ))
     judge = SummaryFidelityJudge(llm)
@@ -103,42 +100,34 @@ def test_the_judge_makes_one_batched_call_for_all_pairs():
 def test_the_judge_scores_verdicts_through_the_rubric():
     """The judge derives each pair's score with the same rubric the pure
     seam pins: contradiction floors, mismatch halves, agreement ones."""
-    from fakes import ScriptedLlm
-
-    llm = ScriptedLlm(judge_reply=_judge_reply(
-        P1=PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False),
-        P2=PairVerdict(ref="P2", same_role=True, same_direction=True, contradiction=True),
+    llm = ScriptedJudgeLlm(_judge_reply(
+        P1=FULL_AGREEMENT_VERDICT,
+        P2=CONTRADICTION_VERDICT.model_copy(update={"ref": "P2"}),
     ))
     scores = SummaryFidelityJudge(llm).compare([_pair("P1"), _pair("P2")])
     assert scores == {"P1": 1.0, "P2": 0.0}
 
 
 def test_the_judge_demands_exactly_one_verdict_per_pair():
-    from fakes import ScriptedLlm
-
-    llm = ScriptedLlm(judge_reply=_judge_reply(
-        P1=PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False),
-        P1b=PairVerdict(ref="P1", same_role=False, same_direction=False, contradiction=False),
+    llm = ScriptedJudgeLlm(_judge_reply(
+        P1=FULL_AGREEMENT_VERDICT,
+        P1b=ROLE_MISMATCH_VERDICT,
     ))
     with pytest.raises(LlmError, match="P1"):
         SummaryFidelityJudge(llm).compare([_pair("P1")])
 
 
 def test_the_judge_rejects_a_verdict_for_an_unknown_ref():
-    from fakes import ScriptedLlm
-
-    llm = ScriptedLlm(judge_reply=_judge_reply(
-        P9=PairVerdict(ref="P9", same_role=True, same_direction=True, contradiction=False),
+    llm = ScriptedJudgeLlm(_judge_reply(
+        P9=FULL_AGREEMENT_VERDICT.model_copy(update={"ref": "P9"}),
     ))
     with pytest.raises(LlmError, match="P9"):
         SummaryFidelityJudge(llm).compare([_pair("P1")])
 
 
 def test_the_judge_rejects_a_reply_that_skips_a_pair():
-    from fakes import ScriptedLlm
-
-    llm = ScriptedLlm(judge_reply=_judge_reply(
-        P2=PairVerdict(ref="P2", same_role=True, same_direction=True, contradiction=False),
+    llm = ScriptedJudgeLlm(_judge_reply(
+        P2=FULL_AGREEMENT_VERDICT.model_copy(update={"ref": "P2"}),
     ))
     with pytest.raises(LlmError, match="P1"):
         SummaryFidelityJudge(llm).compare([_pair("P1"), _pair("P2")])
@@ -146,9 +135,7 @@ def test_the_judge_rejects_a_reply_that_skips_a_pair():
 
 def test_the_judge_calls_nothing_over_an_empty_pair_list():
     """No comparable pairs — nothing to judge, no provider call to waste."""
-    from fakes import ScriptedLlm
-
-    llm = ScriptedLlm(judge_reply=_judge_reply())
+    llm = ScriptedJudgeLlm(_judge_reply())
     assert SummaryFidelityJudge(llm).compare([]) == {}
     assert llm.calls == []
 

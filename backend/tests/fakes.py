@@ -8,8 +8,7 @@ embedder, search-store, and scored-hit fakes also drive a real
 
 from src.eval_judge import JudgeVerdict, PairVerdict, RelevancePair, pair_fidelity
 from src.llm import Llm
-from src.live_workflow import (
-    ActionProposal,
+from src.live_workflow import (    ActionProposal,
     ActionProposals,
     DraftClaim,
     DraftClaims,
@@ -166,7 +165,6 @@ class ScriptedLlm:
         verdicts: Verdicts | None = None,
         proposals: ActionProposals | None = None,
         summaries: Summaries | None = None,
-        judge_reply: JudgeVerdict | None = None,
         usage: dict | None = None,
     ):
         self.plan = plan or Plan(targets=[ResearchTarget(query="creditworthiness evaluation")])
@@ -174,7 +172,6 @@ class ScriptedLlm:
         self.verdicts = verdicts or Verdicts(verdicts=[])
         self.proposals = proposals or ActionProposals(proposals=[])
         self.summaries = summaries or Summaries(summaries=[])
-        self.judge_reply = judge_reply or JudgeVerdict(verdicts=[])
         self._canned_usage = usage
         self.calls: list[tuple[str, str, type]] = []
         self.usage: list[dict] = []
@@ -189,9 +186,23 @@ class ScriptedLlm:
             Verdicts: self.verdicts,
             ActionProposals: self.proposals,
             Summaries: self.summaries,
-            JudgeVerdict: self.judge_reply,
         }[schema]  # type: ignore[index]
         return canned.model_copy(deep=True)
+
+
+class ScriptedJudgeLlm:
+    """The judge's provider seam, kept apart from the pipeline fake: the
+    fidelity judge is a second LLM (ADR-0010) with its own schema, so it gets
+    its own scripted completion — one canned ``JudgeVerdict`` reply, calls
+    recorded for the batched-call and rubric-prompt assertions."""
+
+    def __init__(self, reply: JudgeVerdict):
+        self.reply = reply
+        self.calls: list[tuple[str, str, type]] = []
+
+    def complete(self, system: str, user: str, schema: type):
+        self.calls.append((system, user, schema))
+        return self.reply.model_copy(deep=True)
 
 
 def grounded_verdict(statement: str, strength: Strength, refs: list[str]) -> Verdict:
@@ -210,6 +221,15 @@ class ScriptedJudge:
     def compare(self, pairs: list[RelevancePair]) -> dict[str, float]:
         self.calls.append(list(pairs))
         return {pair.ref: pair_fidelity(self._verdicts[pair.ref]) for pair in pairs}
+
+
+# The four rubric edges (issue #50) as canned P1 verdicts, shared by every
+# suite that scripts the judge. A pair with another reference needs its own
+# verdict — the ref inside travels with the verdict, so these serve P1 only.
+FULL_AGREEMENT_VERDICT = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False)
+ROLE_MISMATCH_VERDICT = PairVerdict(ref="P1", same_role=False, same_direction=True, contradiction=False)
+POLARITY_FLIP_VERDICT = PairVerdict(ref="P1", same_role=True, same_direction=False, contradiction=False)
+CONTRADICTION_VERDICT = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=True)
 
 
 def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
@@ -281,3 +301,4 @@ def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
 
 assert isinstance(FakeRetriever([]), Retriever)
 assert isinstance(ScriptedLlm(), Llm)
+assert isinstance(ScriptedJudgeLlm(JudgeVerdict(verdicts=[])), Llm)

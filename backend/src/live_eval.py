@@ -93,12 +93,6 @@ def ensure_runnable(settings: Settings) -> None:
         )
 
 
-def build_judge(settings: Settings) -> SummaryFidelityJudge:
-    """The fidelity judge wired to the configured provider (ADR-0009), through
-    the one client recipe the workflow itself runs on."""
-    return SummaryFidelityJudge(chat_client(settings))
-
-
 def run_live_eval(
     settings: Settings,
     judge: Optional[SummaryJudge] = None,
@@ -115,10 +109,11 @@ def run_live_eval(
     honoured and every request appends its observability record like any
     other.
 
-    The fidelity judge defaults to the configured provider (``build_judge``);
-    tests script the seam by passing one. A judge failure — an unreachable
-    provider, a verdict that fails its schema — aborts the run: infrastructure
-    failure is never measured quality.
+    The fidelity judge defaults to the configured provider (ADR-0009) through
+    the one ``chat_client`` recipe the workflow itself runs on; tests script
+    the seam by passing one. A judge failure — an unreachable provider, a
+    verdict that fails its schema — aborts the run: infrastructure failure is
+    never measured quality.
 
     A Not-available response mid-run means the ground shifted under the run
     (the store emptied, an outage began): it is infrastructure failure, never
@@ -153,7 +148,7 @@ def run_live_eval(
             scenarios if scenarios is not None else LIVE_EVAL_SCENARIOS,
             respond,
             mode=Mode.live,
-            judge=judge if judge is not None else build_judge(settings),
+            judge=judge if judge is not None else SummaryFidelityJudge(chat_client(settings)),
         )
     finally:
         main.settings = app_settings

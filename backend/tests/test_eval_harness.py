@@ -13,12 +13,17 @@ from src.eval_harness import (
     evaluate_scenarios,
     run_eval,
 )
-from src.eval_judge import PairVerdict
 from src.models import AnalyzeResponse, Answer, Citation, Finding, Mode, ProvisionTarget, Strength, Trace, answer_citations
 
 import pytest
 
-from fakes import ScriptedJudge
+from fakes import (
+    CONTRADICTION_VERDICT,
+    FULL_AGREEMENT_VERDICT,
+    POLARITY_FLIP_VERDICT,
+    ROLE_MISMATCH_VERDICT,
+    ScriptedJudge,
+)
 
 
 def test_curated_scenario_count_within_spec():
@@ -195,17 +200,11 @@ def _produced_finding(number: int, strength: Strength = Strength.strong, source_
     )
 
 
-FULL_AGREEMENT = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False)
-ROLE_MISMATCH = PairVerdict(ref="P1", same_role=False, same_direction=True, contradiction=False)
-POLARITY_FLIP = PairVerdict(ref="P1", same_role=True, same_direction=False, contradiction=False)
-CONTRADICTION = PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=True)
-
-
 def test_the_judge_scores_one_batched_pair_per_aligned_provision():
     """Expected and produced relevance align by provision target; the judge
     reads one pair per shared target with both statements verbatim."""
     target22 = _target(22)
-    judge = ScriptedJudge({"P1": FULL_AGREEMENT})
+    judge = ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT})
     evaluate_scenarios(
         [EvalScenario(
             id="case",
@@ -229,10 +228,10 @@ def test_the_judge_scores_one_batched_pair_per_aligned_provision():
 
 
 @pytest.mark.parametrize("verdict,expected_fidelity", [
-    (FULL_AGREEMENT, 1.0),
-    (ROLE_MISMATCH, 0.5),
-    (POLARITY_FLIP, 0.5),
-    (CONTRADICTION, 0.0),
+    (FULL_AGREEMENT_VERDICT, 1.0),
+    (ROLE_MISMATCH_VERDICT, 0.5),
+    (POLARITY_FLIP_VERDICT, 0.5),
+    (CONTRADICTION_VERDICT, 0.0),
 ])
 def test_rubric_edges_land_in_the_case_score(verdict, expected_fidelity):
     """The rubric edges the acceptance criteria name, end to end through the
@@ -276,8 +275,8 @@ def test_summary_fidelity_means_over_all_judged_pairs():
         ),
         mode=Mode.demo,
         judge=ScriptedJudge({
-            "P1": PairVerdict(ref="P1", same_role=True, same_direction=True, contradiction=False),
-            "P2": PairVerdict(ref="P2", same_role=True, same_direction=True, contradiction=True),
+            "P1": FULL_AGREEMENT_VERDICT,
+            "P2": CONTRADICTION_VERDICT.model_copy(update={"ref": "P2"}),
         }),
     )
     assert report.scenarios[0].summary_fidelity == pytest.approx(0.5)
@@ -351,7 +350,7 @@ def test_fidelity_pairs_only_provisions_both_sides_touch():
     fidelity pair; an expected target the Answer never cites is a coverage
     miss, not a fidelity one."""
     target22 = _target(22)
-    judge = ScriptedJudge({"P1": FULL_AGREEMENT})
+    judge = ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT})
     report = evaluate_scenarios(
         [EvalScenario(
             id="case",
@@ -412,7 +411,7 @@ def test_the_report_carries_the_components_separately_and_never_blends_them():
             },
         ),
         mode=Mode.demo,
-        judge=ScriptedJudge({"P1": FULL_AGREEMENT}),
+        judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),
     )
     assert set(f.name for f in dataclasses.fields(report)) == {
         "scenarios", "mean_f1", "mean_summary_fidelity", "mean_strength_agreement",
@@ -450,7 +449,7 @@ def test_aggregate_component_means_skip_unmeasured_cases():
             relevance_by_target={target22: "produced"},
         ),
         mode=Mode.demo,
-        judge=ScriptedJudge({"P1": FULL_AGREEMENT}),
+        judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),
     )
     assert report.scenarios[0].summary_fidelity == 1.0
     assert report.scenarios[1].summary_fidelity is None
