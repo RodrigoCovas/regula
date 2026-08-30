@@ -10,8 +10,9 @@ expected side), summary fidelity (the strict rubric judge of
 strength agreement (max-rule Citation strength on both sides, read at small
 weight). It prints all three per case plus the aggregate means.
 
-Summary fidelity measures only where the ground truth summarizes a cited
-provision (#51 authors those labels); elsewhere it reports unmeasured, and
+Summary fidelity measures where the ground truth summarizes a cited
+provision (the labels #51 authored, one per cited provision); elsewhere it
+reports unmeasured, and
 the judge is never woken for nothing. The judge is the configured provider
 itself (ADR-0009): if it cannot be reached — or a reply fails the verdict
 schema — the run aborts with the detail, never scoring silence.

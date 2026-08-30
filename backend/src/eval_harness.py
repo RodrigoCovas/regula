@@ -12,9 +12,10 @@ separately per case and in aggregate:
    same configured provider, one batched call per case, schema-validated
    verdict) compares provision-aligned expected and produced Provision
    relevance; a contradiction forces the floor score. The component is
-   measured only where ground truth summarizes a provision (#51 authors the
-   labels) and a judge is supplied; a cited provision the Summarizer left
-   bare scores the floor deterministically, with no judge call.
+   measured where ground truth summarizes a provision (the labels #51
+   authored for the Live cases) and a judge is supplied; a cited provision
+   the Summarizer left bare scores the floor deterministically, with no
+   judge call.
 3. Strength agreement — max-rule Citation strength compared on both sides
    over the targets both cite, reported at small weight: it grades only the
    Strength labels the workflow assigned, never what the Answer claims.
@@ -58,8 +59,8 @@ from .models import (
 
 class ExpectedCitation(TypedDict):
     """Ground-truth reference to one provision: the document and its official
-    provision label, plus — once #51 authors them — the hand-written
-    relevance summary the fidelity judge compares against."""
+    provision label, plus the hand-written relevance summary the fidelity
+    judge compares against (authored in #51)."""
 
     source_id: str
     provision: str
@@ -439,492 +440,1360 @@ CURATED_SCENARIOS: List[EvalScenario] = [
     EvalScenario(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
 ]
 
-# The Live-quality cases (#20): the operator CLI's case list (backend/src/live_eval.py),
-# assembled from two sources and never part of CI.
-#
-# First, the canonical Demo cases whose expectations mean something against
-# Live mode, where the workflow answers every question. Their non-canonical
-# siblings stay Demo-only tripwires: they pin canonical-id routing, which Live
-# mode deliberately has no notion of, so their empty expectations would score
-# 0 by construction and measure nothing.
-_CANONICAL_CASE_IDS = {"canonical-what-applies", "canonical-loan-denial", "canonical-spanish-question"}
+# The Live-quality cases (#20, #51): the operator CLI's case list
+# (backend/src/live_eval.py), never part of CI. Each case describes its own
+# Scenario (the description grounds the Live Planner; Demo would refuse these
+# ids as unknown). Ground truth is hand-authored: every cited provision's
+# relevance summary is transcribed verbatim from the operator's
+# data/regulations/citations.json (#51), and the Findings grouping those
+# citations are hand-authored per case under the #7 precedent — statements and
+# Strengths written once, never derived from or validated against pipeline
+# output, so the eval can disagree with the code. Related articles cluster
+# into one expectation, ranges expand into their separate Article targets, and
+# sub-references like "point 5(b)" collapse to the Annex they refine — the
+# structural targets coverage compares. Strengths follow CONTEXT.md: strong
+# when a provision names the situation outright, moderate where the claim is
+# derived or contingent on facts the Corpus cannot settle (entity status,
+# designation), weak where provisions only supply framing.
+_RETAILER_BREACH_EXPECTED = [
+    ExpectedFinding(
+        statement="Confirmed unauthorized access to a database of customers' names, email addresses, postal addresses and order information is a personal data breach in its own right - the download question feeds the risk assessment, not the breach's existence.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(12) makes the confirmed unauthorized access itself a personal data breach, so the notification analysis stands on the breach's existence while the download question feeds the risk assessment, and Article 4(1) confirms the accessed names, addresses, and order data are personal data."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The retailer must notify the competent supervisory authority of the breach within 72 hours of becoming aware of the intrusion, phasing in information while the exfiltration investigation continues and documenting the breach so the authority can verify it.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 33",
+             "relevance": "Article 33 drives the core response: the retailer must notify the supervisory authority within 72 hours of becoming aware of the intrusion, subject to the low-risk exception, while Article 33(3)-(5) supply the content, the phased-information mechanism for the ongoing exfiltration investigation, and the documentation the authority can verify."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Affected customers must be told about the breach promptly where the exposed contact and order data are likely to result in a high risk to them, unless the data were encrypted or subsequent measures remove the risk.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 34",
+             "relevance": "Article 34 obliges the retailer to promptly communicate the breach to affected customers where the exposed contact and order data create high risk, with Article 34(3)'s encryption and subsequent-measures conditions providing the recognized routes to lifting that communication duty."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The compromised customer data must have been secured with measures proportionate to the risk, including against unauthorized access, with the ability to restore availability and access - and the incident tests whether they were adequate.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 32",
+             "relevance": "Article 32 obliges the retailer to implement encryption, availability, restoration, and testing measures proportionate to the risk, with Article 32(2) expressly listing unauthorized access among the risks to assess, framing both the incident's cause and its remediation."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The processing must respect the integrity and confidentiality principle, the retailer must be able to demonstrate compliance through documented measures, and its processing records must document the security measures the breached safeguards are assessed against.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5(1)(f)'s integrity-and-confidentiality principle grounds the retailer's duty to keep the compromised customer data secure and frames the post-incident hardening of its database protections."},
+            {"source_id": "gdpr", "provision": "Article 24",
+             "relevance": "Article 24 obliges the retailer to implement and demonstrate measures that keep processing compliant, framing the remediation and accountability follow-up the breach response must include."},
+            {"source_id": "gdpr", "provision": "Article 30",
+             "relevance": "Article 30(1)(g) requires the retailer's processing records to document its security measures, the baseline against which the breached safeguards are assessed."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Where the database sits with a processor, that provider must assist the retailer in responding to the breach and meeting its security obligations.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 28",
+             "relevance": "Article 28(3)(f) requires a hosting provider operating the database to assist the retailer in responding to the breach and meeting its security obligations, which matters where the database sits with a processor."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The notification goes to the competent Member State supervisory authority, with the lead-authority mechanism streamlining cross-border customer bases to a single authority.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 55",
+             "relevance": "Article 55 identifies the Member State supervisory authority that receives the retailer's breach notification."},
+            {"source_id": "gdpr", "provision": "Article 56",
+             "relevance": "Article 56 designates the lead supervisory authority where the retailer's cross-border customer base engages authorities in several Member States, streamlining the notification to a single authority."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="DORA's incident regime covers financial entities only, so an online retailer's breach response stays a GDPR matter.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2's financial-entity list marks DORA's perimeter, which keeps an online retailer's breach response a GDPR matter for this scenario."},
+        ],
+    ),
+]
 
-# Second, operator-authored live-only cases, each describing its own Scenario
-# (the description grounds the Live Planner; Demo would refuse these ids as
-# unknown). Ground truth is hand-authored per regulation from the provisions
-# each question should surface: related articles cluster into one expectation,
-# ranges expand into their separate Article targets, and sub-references like
-# "point 5(b)" collapse to the Annex they refine — the structural targets
-# coverage compares. Strengths follow CONTEXT.md: strong when a
-# provision names the situation outright, moderate where the claim is derived
-# or contingent on facts the Corpus cannot settle (entity status, designation).
-_HR_RECRUITMENT_EXPECTED = [
+_AI_RECRUITMENT_SCREENING_EXPECTED = [
     ExpectedFinding(
-        statement="Ranking job applicants by CVs and video interviews is high-risk under the AI Act, because recruitment and candidate evaluation are named high-risk uses, so the full high-risk obligations apply.",
+        statement="Screening applicants' CVs and recorded video interviews to score and prioritize them is a high-risk AI use under the AI Act - recruitment and candidate evaluation are named high-risk areas - and the AI Act's duties apply alongside the GDPR.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 4(a)"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Annex 3",
+             "relevance": "Annex III point 4(a) lists recruitment screening and candidate evaluation as a high-risk use area, which brings the CV- and video-scoring system within the Chapter III compliance regime."},
+            {"source_id": "ai-act", "provision": "Article 6",
+             "relevance": "Article 6(2) classifies the recruitment system as high-risk, and the profiling carve-out in Article 6(3) keeps that status because candidate scoring is profiling, locking in the Chapter III deployer obligations."},
+            {"source_id": "ai-act", "provision": "Article 2",
+             "relevance": "Article 2(7) confirms the AI Act runs alongside the GDPR, so the company must satisfy both regimes' duties for the screening system simultaneously."},
+        ],
     ),
     ExpectedFinding(
-        statement="The system's provider must meet the high-risk requirements before market placement: accountability for compliance, risk management, training-data governance, technical documentation, record-keeping, transparency to the deployer, designed human oversight, and accuracy, robustness and cybersecurity.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(8, 16)],
+        statement="The AI Act's definitions fix the company's role as deployer, confirm the scoring is profiling, and frame the emotion-recognition boundary check for the video analysis.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 3",
+             "relevance": "Article 3 supplies the decisive definitions for this deployment: deployer fixes the company's role, profiling sustains the high-risk classification, and emotion recognition system frames the Article 5 boundary check for the video analysis."},
+        ],
     ),
     ExpectedFinding(
-        statement="As deployer, the company must operate the system per the provider's instructions, assign competent human oversight, and keep automatically generated logs for at least six months.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
+        statement="Automated evaluation of applicants' performance is profiling under the GDPR, which anchors both the DPIA trigger and the AI Act's profiling-based classification.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(4) defines automated evaluation of performance at work as profiling, which anchors both the DPIA trigger and the AI Act's profiling-based high-risk classification for the screening system."},
+        ],
     ),
     ExpectedFinding(
-        statement="Depending on the company's status, a fundamental rights impact assessment may be required before first use, with its results notified to the market surveillance authority.",
+        statement="If the video-interview analysis infers emotions, that workplace emotion inference is prohibited under the AI Act and carries the prohibited-practice fines, so the company must verify the system's capabilities before use.",
         strength=Strength.moderate,
-        citations=[{"source_id": "ai-act", "provision": "Article 27"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 5",
+             "relevance": "Article 5(1)(f) prohibits workplace emotion inference, so the company must verify whether the video-interview analysis infers emotions, since such a capability would bring the use within the prohibition."},
+            {"source_id": "ai-act", "provision": "Article 99",
+             "relevance": "Article 99's fines for prohibited practices attach to workplace emotion inference, which sharpens the pre-deployment verification of the video analysis."},
+        ],
     ),
     ExpectedFinding(
-        statement="Staff operating the system need sufficient AI literacy, an obligation the AI Act places on providers and deployers alike.",
+        statement="As deployer, the company must run the screener per the provider's instructions, assign competent human oversight, keep at least six months of logs, ensure representative input data, inform candidates that AI scoring is applied, and make sure its recruiters and operators have sufficient AI literacy.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 26",
+             "relevance": "Article 26 obliges the company as deployer to run the screener per the provider's instructions, assign competent human oversight, keep at least six months of logs, ensure representative input data, and inform candidates that AI scoring is applied to them."},
+            {"source_id": "ai-act", "provision": "Article 4",
+             "relevance": "Article 4 obliges the company to ensure its recruiters and system operators have sufficient AI literacy to interpret and oversee the candidate scores properly."},
+        ],
     ),
     ExpectedFinding(
-        statement="Processing applicants' CVs and interview recordings needs a lawful basis under the GDPR, applied with the lawfulness, fairness, transparency, purpose-limitation and data-minimisation principles.",
+        statement="The provider owes instructions describing the screener's capabilities, accuracy and limits, oversight by design, and the conformity assessment, CE marking and EU-database registration markers the company verifies before adopting the system.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 13",
+             "relevance": "Article 13 obliges the provider to deliver instructions describing the screener's capabilities, accuracy, and limits, which the company needs to operate the system per instructions and to brief candidates accurately."},
+            {"source_id": "ai-act", "provision": "Article 14",
+             "relevance": "Article 14's oversight design of automation-bias awareness and the ability to disregard outputs defines what the company's assigned human overseers must implement as recruiters rely on the scores."},
+            {"source_id": "ai-act", "provision": "Article 16",
+             "relevance": "Article 16's provider duties of conformity assessment, CE marking, and registration are the compliance markers the company verifies when selecting the screening system."},
+            {"source_id": "ai-act", "provision": "Article 43",
+             "relevance": "Article 43(2) sets the internal-control conformity assessment for Annex III employment systems, the procedure the provider must complete before the company deploys the screener."},
+            {"source_id": "ai-act", "provision": "Article 49",
+             "relevance": "Article 49(1) requires the provider's EU-database registration of the high-risk screener, a checkpoint the company can verify before adoption."},
+        ],
     ),
     ExpectedFinding(
-        statement="To the extent application data reveals special categories such as biometric or belief-related information, GDPR restrictions on processing such data apply.",
+        statement="After deployment the provider keeps monitoring the screener's real-world performance, and the company informs the provider of serious incidents and anomalies through the deployer duty.",
         strength=Strength.moderate,
-        citations=[{"source_id": "gdpr", "provision": "Article 9"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 72",
+             "relevance": "Article 72 obliges the provider to keep monitoring the screener's real-world performance after deployment, giving the company a channel for reporting anomalies it observes."},
+            {"source_id": "ai-act", "provision": "Article 73",
+             "relevance": "Article 73's serious-incident reporting route applies where the screener causes an incident within the Article 3(49) definition, reached through the company's duty to inform the provider under Article 26(5)."},
+        ],
     ),
     ExpectedFinding(
-        statement="Applicants must receive transparent information about how their application data is processed.",
+        statement="Candidates adversely affected by score-based decisions have a right to clear explanations of the AI system's role in the prioritisation.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 86",
+             "relevance": "Article 86 gives candidates adversely affected by score-based decisions a right to clear explanations of the AI system's role, so the company must be able to explain how the score shaped interview prioritisation."},
+        ],
     ),
     ExpectedFinding(
-        statement="Automated applicant ranking is decision-making based solely on automated processing with legal effects, so GDPR restrictions apply, and any authorised route still requires safeguards such as human intervention and contest rights.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+        statement="The fundamental-rights impact assessment is confined to public bodies and specified deployers, so this private employer's pre-use assessment runs through the GDPR DPIA instead.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 27",
+             "relevance": "Article 27 confines the fundamental-rights impact assessment to public bodies, public-service providers, and Annex III 5(b)-(c) deployers, so the private employer's required pre-use assessment for recruitment scoring runs through the GDPR DPIA."},
+        ],
     ),
     ExpectedFinding(
-        statement="The company must embed data protection by design and by default into the recruitment processing.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+        statement="The high-risk deployer duties for the recruitment system apply from 2 August 2026.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 113",
+             "relevance": "Article 113(2) fixes 2 August 2026 as the application date, confirming the high-risk deployer duties for the recruitment system are in force at the time of use."},
+        ],
     ),
     ExpectedFinding(
-        statement="Applicant data held by the screening system requires appropriate technical and organisational security measures.",
+        statement="Collecting and scoring CVs and video interviews needs a lawful basis, with the processing kept fair, transparent and minimised to the recruitment purpose, and consent - where used - easy to withdraw.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5's fairness, transparency, and minimisation principles govern the collection and scoring of CVs and video interviews, requiring the recording and analysis to stay proportionate to the recruitment purpose."},
+            {"source_id": "gdpr", "provision": "Article 6",
+             "relevance": "Article 6(1) requires a lawful basis, plausibly legitimate interests or consent, before the company processes applicant CVs and interview recordings through the AI screener."},
+        ],
     ),
     ExpectedFinding(
-        statement="Systematic and extensive automated evaluation of applicants triggers a data protection impact assessment before processing starts.",
+        statement="Where consent serves as the processing basis, applicants can withdraw it as easily as they gave it.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 7",
+             "relevance": "Article 7(3) guarantees applicants easy withdrawal of consent, which the company must honour where consent serves as the processing basis."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Applicants must be told at collection that an AI system scores their materials, with meaningful information about the scoring's logic and envisaged consequences, covering data obtained from other sources too, and can access information about the automated decision-making's logic.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 13",
+             "relevance": "Article 13(2)(f) obliges the company to tell applicants at collection that an AI system scores their materials, with meaningful information about the scoring's logic and envisaged consequences."},
+            {"source_id": "gdpr", "provision": "Article 14",
+             "relevance": "Article 14 extends the information duties to applicant data obtained from other sources, completing transparency coverage across the screening pipeline."},
+            {"source_id": "gdpr", "provision": "Article 15",
+             "relevance": "Article 15(1)(h) lets applicants access information about the automated decision-making and its logic, reinforcing the explanation capability the company must maintain."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Where interview prioritisation becomes effectively solely automated, the GDPR safeguards - human intervention, expressing a point of view, and contesting the decision - must be available to candidates.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 22",
+             "relevance": "Article 22 engages where interview prioritisation becomes effectively solely automated, in which case its safeguards of human intervention, expressing a point of view, and contesting must be available to candidates."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The systematic profiling-based evaluation of all applicants makes a DPIA mandatory before the screening goes live, with prior consultation where high residual risk remains.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 35",
+             "relevance": "Article 35(3)(a) makes a DPIA mandatory for this systematic profiling-based evaluation of all applicants, so the assessment must be completed before the screening goes live."},
+            {"source_id": "gdpr", "provision": "Article 36",
+             "relevance": "Article 36 requires prior consultation with the supervisory authority where the DPIA shows high residual risk, defining the escalation path for this deployment."},
+        ],
     ),
 ]
 
 _BANK_CLOUD_OUTAGE_EXPECTED = [
     ExpectedFinding(
-        statement="As a financial entity, the bank must run an ICT incident-management process able to detect, manage and notify ICT-related incidents such as this outage.",
-        strength=Strength.strong,
-        citations=[{"source_id": "dora", "provision": "Article 17"}],
-    ),
-    ExpectedFinding(
-        statement="The outage must be classified against DORA's criteria for major ICT-related incidents and reported to the competent authority within the mandated deadlines, using the prescribed reporting content.",
+        statement="As a credit institution the bank falls within DORA, and the cloud failure is an ICT-related incident affecting a critical function supplied by an ICT third-party service provider, with the response scaled to the bank's size and risk profile.",
         strength=Strength.strong,
         citations=[
-            {"source_id": "dora", "provision": "Article 18"},
-            {"source_id": "dora", "provision": "Article 19"},
-            {"source_id": "dora", "provision": "Article 20"},
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2(1)(a) brings the bank within DORA as a credit institution, engaging the ICT incident-management and third-party regimes that govern the outage response."},
+            {"source_id": "dora", "provision": "Article 3",
+             "relevance": "Article 3's definitions of ICT-related incident, major incident, ICT third-party service provider, and critical or important function establish that the cloud failure is an ICT incident affecting a critical function supplied by an external provider."},
+            {"source_id": "dora", "provision": "Article 4",
+             "relevance": "Article 4 scales the bank's incident-response and third-party obligations to its size and risk profile, the proportionality lens applied across the analysis."},
         ],
     ),
     ExpectedFinding(
-        statement="If designated for it, the bank also faces threat-led penetration testing of its ICT systems at least every three years.",
-        strength=Strength.moderate,
-        citations=[{"source_id": "dora", "provision": "Article 24"}, {"source_id": "dora", "provision": "Article 25"}],
-    ),
-    ExpectedFinding(
-        statement="The cloud arrangement belongs in the bank's register of information on ICT third-party service providers, and a designated critical provider falls under EU-level oversight.",
-        strength=Strength.moderate,
+        statement="The bank must run the outage through its ICT incident-management process, classify it by clients affected, duration, data losses, service criticality and economic impact and, once classified major, submit initial, intermediate and final reports within the harmonised time limits while promptly informing affected clients about the incident and mitigation measures.",
+        strength=Strength.strong,
         citations=[
-            {"source_id": "dora", "provision": "Article 28"},
-            {"source_id": "dora", "provision": "Article 29"},
-            {"source_id": "dora", "provision": "Article 30"},
+            {"source_id": "dora", "provision": "Article 17",
+             "relevance": "Article 17 obliges the bank to run the outage through its ICT incident-management process of detection, management, notification, escalation to senior management, and response procedures for timely restoration."},
+            {"source_id": "dora", "provision": "Article 18",
+             "relevance": "Article 18(1) requires the bank to classify the outage by clients affected, duration, data losses, service criticality, and economic impact, which determines whether the major-incident reporting duty is triggered."},
+            {"source_id": "dora", "provision": "Article 19",
+             "relevance": "Article 19 obliges the bank, once the outage is classified major, to submit initial, intermediate, and final reports to the competent authority and to promptly inform affected clients about the incident and mitigation measures."},
+            {"source_id": "dora", "provision": "Article 20",
+             "relevance": "Article 20 tasks the ESAs with the harmonised reporting templates and time limits, the source of the deadlines the bank's incident reports must follow."},
+            {"source_id": "dora", "provision": "Article 21",
+             "relevance": "Article 21's centralisation roadmap streamlines the reporting channel through which the bank submits its incident notifications."},
         ],
     ),
-]
-
-_FINTECH_LOAN_DECISIONS_EXPECTED = [
     ExpectedFinding(
-        statement="AI systems that evaluate the creditworthiness of natural persons or establish credit scores are high-risk under the AI Act, so the full high-risk obligations apply.",
+        statement="The bank must activate business continuity plans that prioritise resuming the critical online-banking function - plans that cover functions outsourced to the cloud provider - and restore from backups and restoration capabilities.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 5(b)"}],
+        citations=[
+            {"source_id": "dora", "provision": "Article 11",
+             "relevance": "Article 11 obliges the bank to activate ICT business continuity and response plans that prioritise resumption of the critical online-banking function, and Article 11(4) requires those plans to cover functions outsourced through ICT third-party providers like the cloud host."},
+            {"source_id": "dora", "provision": "Article 12",
+             "relevance": "Article 12's backup and restoration duties frame the recovery actions the bank invokes to bring online banking back within acceptable downtime."},
+        ],
     ),
     ExpectedFinding(
-        statement="The system's provider must meet the high-risk requirements: accountability for compliance, risk management, data governance, technical documentation, record-keeping, transparency, designed human oversight, and accuracy, robustness and cybersecurity.",
+        statement="The major incident triggers a review of the ICT risk-management framework and a post-incident review of the outage's causes and the response's effectiveness, with a communication strategy framing what clients and stakeholders are told.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(9, 16)],
+        citations=[
+            {"source_id": "dora", "provision": "Article 6",
+             "relevance": "Article 6(5) makes a major incident a mandatory trigger for reviewing the bank's ICT risk-management framework, alongside the recovery itself."},
+            {"source_id": "dora", "provision": "Article 13",
+             "relevance": "Article 13(2) requires a post-incident review of the outage's causes and of the effectiveness of the bank's response once the incident has disrupted core activities."},
+            {"source_id": "dora", "provision": "Article 14",
+             "relevance": "Article 14's communication-strategy duty frames how the bank informs clients and stakeholders about the outage, complementing the specific client-notification duty in Article 19(3)."},
+        ],
     ),
     ExpectedFinding(
-        statement="As deployer, the company must use the system per instructions, assign human oversight, keep generated logs at least six months, and inform applicants that they are subject to a high-risk AI system.",
+        statement="The bank stays fully responsible for DORA compliance despite the provider's failure; its dependence on a single cloud provider requires concentration-risk analysis and substitutability considerations, and the contract must secure incident assistance, notification of material developments and tested contingency plans, with audit, termination and exit-strategy levers.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
+        citations=[
+            {"source_id": "dora", "provision": "Article 28",
+             "relevance": "Article 28 keeps the bank fully responsible for DORA compliance despite the cloud provider's failure and supplies the audit, termination, and exit-strategy levers for the provider relationship going forward."},
+            {"source_id": "dora", "provision": "Article 29",
+             "relevance": "Article 29's concentration-risk duties apply because the bank depends on a single cloud provider for critical online banking, requiring substitutability analysis and consideration of alternative solutions."},
+            {"source_id": "dora", "provision": "Article 30",
+             "relevance": "Article 30 requires the cloud contract to secure incident assistance, notification of material developments, and tested contingency plans from the provider, the provisions the bank invokes during and after the outage."},
+        ],
     ),
     ExpectedFinding(
-        statement="Staff operating the loan-decisioning system need sufficient AI literacy.",
+        statement="Client personal data must remain protected and available: the bank owes security measures and timely restoration of access after the technical incident under the GDPR's integrity and confidentiality baseline.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 32",
+             "relevance": "Article 32(1)(b)-(c) obliges the bank to ensure availability of its processing systems and timely restoration of access to client personal data after the technical incident, running in parallel with DORA's recovery duties."},
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5(1)(f)'s integrity-and-confidentiality principle grounds the bank's ongoing duty to protect client personal data processed through the disrupted systems."},
+        ],
     ),
     ExpectedFinding(
-        statement="Processing customers' income and financial history needs a lawful basis under the GDPR, applied with the lawfulness, fairness, transparency, purpose-limitation and data-minimisation principles.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
-    ),
-    ExpectedFinding(
-        statement="Applicants must receive transparent information about the automated processing of their financial data.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
-    ),
-    ExpectedFinding(
-        statement="Applicants keep access rights to their data and the right to object to processing grounded in legitimate interests.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 15"}, {"source_id": "gdpr", "provision": "Article 21"}],
-    ),
-    ExpectedFinding(
-        statement="Automated loan approval is a solely automated decision with legal effects, restricted by the GDPR, and even the contract-necessity route requires human intervention and contest rights.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
-    ),
-    ExpectedFinding(
-        statement="Data protection by design and by default must be embedded in the credit-decisioning processing.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
-    ),
-    ExpectedFinding(
-        statement="Credit scoring is a systematic, extensive automated evaluation on which decisions with legal effects rest, so a data protection impact assessment is required beforehand.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
-    ),
-    ExpectedFinding(
-        statement="Only if the fintech is itself a DORA-covered financial entity do DORA's governance and ICT risk-management duties apply.",
-        strength=Strength.moderate,
-        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(5, 12)],
-    ),
-    ExpectedFinding(
-        statement="On that same condition, its ICT third-party arrangements belong in DORA's register of information, and designated critical providers face EU-level oversight.",
+        statement="If the outage investigation reveals a personal data breach, the 72-hour supervisory-authority notification and, where customers face high risk, the communication duty come into play alongside the DORA reporting.",
         strength=Strength.moderate,
         citations=[
-            {"source_id": "dora", "provision": "Article 28"},
-            {"source_id": "dora", "provision": "Article 29"},
-            {"source_id": "dora", "provision": "Article 30"},
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(12) frames the assessment of whether the outage also involved a personal data breach, which turns on whether client data were destroyed, lost, altered, disclosed, or accessed."},
+            {"source_id": "gdpr", "provision": "Article 33",
+             "relevance": "Article 33's 72-hour notification duty becomes live where the outage investigation reveals a personal data breach, an obligation the bank must keep in view alongside its DORA reporting."},
+            {"source_id": "gdpr", "provision": "Article 34",
+             "relevance": "Article 34's communication duty attaches where the incident creates high risk to customers, complementing the DORA client notification for affected online-banking users."},
         ],
     ),
 ]
 
-_EMPLOYEE_MONITORING_EXPECTED = [
+_EMPLOYEE_PRODUCTIVITY_MONITORING_EXPECTED = [
     ExpectedFinding(
-        statement="Monitoring employees' computer activity and scoring their performance is high-risk under the AI Act, since worker monitoring and evaluation are named high-risk uses.",
+        statement="Continuously recording employees' computer activity and generating individual productivity scores is high-risk under the AI Act - AI that monitors and evaluates workers' performance and behaviour - with the AI Act running alongside the GDPR.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 4(b)"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Annex 3",
+             "relevance": "Annex III point 4(b) classifies AI that monitors and evaluates workers' performance and behaviour as high-risk, bringing the productivity-scoring system within the Chapter III regime."},
+            {"source_id": "ai-act", "provision": "Article 6",
+             "relevance": "Article 6(2) makes the monitoring system high-risk, and the profiling carve-out in Article 6(3) confirms the classification because the score evaluates employees."},
+            {"source_id": "ai-act", "provision": "Article 2",
+             "relevance": "Article 2(7) confirms the AI Act runs alongside the GDPR, so the employer must satisfy both the AI Act deployer duties and the GDPR employment rules for the monitoring system."},
+        ],
     ),
     ExpectedFinding(
-        statement="Should the software infer workers' emotions, that practice is prohibited in the workplace under the AI Act, save narrow safety and medical exceptions.",
+        statement="Automated evaluation of performance at work is profiling, which anchors the GDPR's automated-decision and DPIA analyses and sustains the high-risk classification.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(4) expressly covers automated evaluation of performance at work, confirming the productivity score is profiling and anchoring the Article 22 and Article 35 analyses for the monitoring system."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="As deployer, the employer must inform workers' representatives and affected workers before workplace use, run the system per the provider's instructions under competent oversight, keep at least six months of logs, and tell employees when the score feeds decisions affecting them.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 26",
+             "relevance": "Article 26 obliges the employer to inform workers' representatives and affected workers before workplace use, to run the system per instructions under competent oversight, to keep at least six months of logs, and to tell employees when the score feeds decisions."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The oversight design - automation-bias awareness and the ability to disregard outputs - defines what the employer's assigned overseers must implement as managers use the scores.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 14",
+             "relevance": "Article 14's oversight measures of automation-bias awareness and the ability to disregard outputs define what the employer's assigned overseers must implement as managers use the scores."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The employer must verify the provider's instructions describing capabilities and limits and the compliance markers of conformity assessment, CE marking and EU-database registration before adopting the system.",
         strength=Strength.moderate,
-        citations=[{"source_id": "ai-act", "provision": "Article 5(1)(f)"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 13",
+             "relevance": "Article 13 obliges the provider to deliver instructions describing the system's capabilities and limits, which the employer needs to configure oversight of the scoring properly."},
+            {"source_id": "ai-act", "provision": "Article 16",
+             "relevance": "Article 16's provider duties define the compliance markers of conformity assessment, CE marking, and registration, which the employer verifies when adopting the monitoring system."},
+            {"source_id": "ai-act", "provision": "Article 49",
+             "relevance": "Article 49(1) requires the provider's EU-database registration of the monitoring system, a checkpoint the employer verifies before adoption."},
+        ],
     ),
     ExpectedFinding(
-        statement="The system's provider must satisfy the high-risk requirements: risk management, data governance, technical documentation, record-keeping, transparency, designed human oversight, and accuracy, robustness and cybersecurity.",
+        statement="Staff operating the monitoring and managers using the scores need sufficient AI literacy.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(9, 16)],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 4",
+             "relevance": "Article 4 obliges the employer to ensure that the staff operating the monitoring and the managers using the scores have sufficient AI literacy."},
+        ],
     ),
     ExpectedFinding(
-        statement="As deployer, the company must follow provider instructions, ensure competent human oversight of the system's use, and keep automatically generated logs.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
-    ),
-    ExpectedFinding(
-        statement="Staff operating the monitoring software need sufficient AI literacy.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
-    ),
-    ExpectedFinding(
-        statement="Monitoring employee activity needs a lawful basis under the GDPR, exercised consistently with the core data-protection principles.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
-    ),
-    ExpectedFinding(
-        statement="Employees must be informed transparently about the monitoring of their work activity.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
-    ),
-    ExpectedFinding(
-        statement="Where monitored activity reveals special-category data, GDPR restrictions on processing it come into play.",
+        statement="Should the productivity system infer workers' emotions, that workplace emotion inference is prohibited under the AI Act, so the employer must check the system's capabilities against this boundary.",
         strength=Strength.moderate,
-        citations=[{"source_id": "gdpr", "provision": "Article 9"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 5",
+             "relevance": "Article 5(1)(f) prohibits workplace emotion inference, so the employer must check the productivity system's capabilities against this boundary before deployment."},
+        ],
     ),
     ExpectedFinding(
-        statement="Productivity scores feeding decisions with significant effects on workers fall under GDPR restrictions on solely automated decision-making, with the accompanying safeguards.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+        statement="The AI Act's definitions of deployer and profiling fix the employer's role and confirm the scoring is profiling, sustaining the high-risk classification.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 3",
+             "relevance": "Article 3's definitions of deployer and profiling fix the employer's role and confirm the scoring is profiling, which sustains the high-risk classification."},
+        ],
     ),
     ExpectedFinding(
-        statement="Employee monitoring must incorporate data protection by design and by default.",
+        statement="Employees adversely affected by score-based decisions have a right to explanations of the AI system's role in performance evaluations.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 86",
+             "relevance": "Article 86 gives employees adversely affected by score-based decisions a right to explanations of the AI system's role, which the employer must deliver in performance evaluations."},
+        ],
     ),
     ExpectedFinding(
-        statement="Systematic monitoring and evaluation of employees calls for a data protection impact assessment.",
+        statement="After deployment the provider keeps reviewing real-world performance, and the employer informs the provider of serious incidents through the reporting channel.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 72",
+             "relevance": "Article 72 keeps the provider reviewing the system's real-world performance after deployment, complementing the employer's own monitoring duty for anomalies."},
+            {"source_id": "ai-act", "provision": "Article 73",
+             "relevance": "Article 73's serious-incident reporting route applies where the scoring system causes an incident, reached through the employer's duty to inform the provider."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The fundamental-rights impact assessment is confined to public bodies and specified deployers, so the employer's pre-use assessment runs through the GDPR DPIA.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 27",
+             "relevance": "Article 27 confines the fundamental-rights impact assessment to public bodies, public-service providers, and Annex III 5(b)-(c) deployers, so the employer's pre-use assessment runs through the GDPR DPIA."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The monitoring needs a lawful basis - with employee consent under close scrutiny given the employment relationship's imbalance - exercised consistently with the fairness, transparency and minimisation principles.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 6",
+             "relevance": "Article 6(1) requires a lawful basis for the monitoring, with legitimate interests demanding a balancing against employees' rights and consent carrying the free-given burden set by Article 7(4)."},
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5's fairness, transparency, minimisation, and storage-limitation principles directly constrain continuous recording of applications, websites, and time worked, requiring the monitoring to be scoped to the narrowest set serving its purpose."},
+            {"source_id": "gdpr", "provision": "Article 7",
+             "relevance": "Article 7(4) directs close scrutiny of employee consent given the employment relationship's imbalance, shaping whether consent can carry the monitoring's lawfulness."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Recorded websites and applications can reveal health, religious, or union-affiliation data, which the GDPR restricts to defined gateways such as explicit consent.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 9",
+             "relevance": "Article 9 governs the risk that recorded websites and applications reveal health, religious, or union-affiliation data, so the monitoring design must route any such data through a gateway like explicit consent."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Employees must be informed of the monitoring's purposes, legal basis, retention and rights - including meaningful information about the productivity score's logic - in concise, accessible form, and can access information about the automated scoring's logic.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 13",
+             "relevance": "Article 13 obliges the employer to inform employees of the monitoring's purposes, legal basis, retention, and rights, including meaningful information about the productivity score's automated logic and consequences."},
+            {"source_id": "gdpr", "provision": "Article 12",
+             "relevance": "Article 12 sets the concise, accessible form in which employees receive the monitoring information and the handling of their rights requests."},
+            {"source_id": "gdpr", "provision": "Article 15",
+             "relevance": "Article 15(1)(h) lets employees access information about the automated scoring's logic, reinforcing the transparency owed over the productivity evaluation."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Where a performance evaluation effectively rests solely on the score, the GDPR safeguards - human intervention, expressing a point of view, and contesting - protect the employee.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 22",
+             "relevance": "Article 22 engages where a performance evaluation effectively rests solely on the score, in which case its safeguards of human intervention, expressing a point of view, and contesting protect the employee."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Systematic automated evaluation of employees makes a DPIA mandatory before deployment, with prior consultation where high residual risk remains.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 35",
+             "relevance": "Article 35(3)(a) makes a DPIA mandatory before deploying the monitoring, since systematic automated evaluation of employees is its paradigm high-risk processing."},
+            {"source_id": "gdpr", "provision": "Article 36",
+             "relevance": "Article 36 requires prior consultation with the supervisory authority where the DPIA leaves high residual risk, defining the escalation step for this deployment."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Regular, systematic, large-scale monitoring as a core activity makes DPO designation mandatory for the employer.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 37",
+             "relevance": "Article 37(1)(b) makes DPO designation mandatory where the monitoring is regular, systematic, and large-scale and forms a core activity, a threshold the employer must assess."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Member States may layer specific workplace-monitoring safeguards over the GDPR baseline, which the employer must check.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 88",
+             "relevance": "Article 88 authorises national rules on employee-data processing with specific safeguards for workplace monitoring, so the employer must layer Member State requirements over the GDPR baseline."},
+        ],
     ),
 ]
 
-_DATA_BREACH_NOTIFICATION_EXPECTED = [
+_TELECOM_GENAI_CHATBOT_EXPECTED = [
     ExpectedFinding(
-        statement="Unauthorised access to customers' personal data is a personal data breach in the GDPR's sense, engaging the integrity and confidentiality principle.",
+        statement="Customers interacting with the chatbot must be told they are dealing with an AI system by the time of first interaction, and the chatbot's generated text outputs carry the machine-readable marking duty.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 50",
+             "relevance": "Article 50(1) requires that customers be told they are interacting with an AI system by the time of first interaction, and Article 50(2)'s machine-readable marking duty covers the chatbot's generated text outputs."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="A customer-service question-answering chatbot sits in the transparency tier rather than the high-risk regime, with the telecom as a Union deployer owing AI Act duties alongside the GDPR, and the provider/deployer definitions and the generative engine's general-purpose AI model analysis determining who bears which duty.",
         strength=Strength.moderate,
-        citations=[{"source_id": "gdpr", "provision": "Article 4(12)"}, {"source_id": "gdpr", "provision": "Article 5(1)(f)"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Annex 3",
+             "relevance": "Annex III lists the AI use areas subject to the high-risk regime, and a customer-service question-answering chatbot sits in the transparency tier instead, which routes the deployment to the Article 50 duties."},
+            {"source_id": "ai-act", "provision": "Article 2",
+             "relevance": "Article 2(1)(b) and 2(7) establish that the telecom, as a Union deployer, owes AI Act duties that run alongside its GDPR obligations for the chatbot."},
+            {"source_id": "ai-act", "provision": "Article 3",
+             "relevance": "Article 3's provider and deployer definitions determine whether the telecom or its vendor bears the Article 50 transparency duty, and Article 3(63) frames the general-purpose AI model analysis for the generative engine."},
+        ],
     ),
     ExpectedFinding(
-        statement="The store must notify the competent supervisory authority of the breach within seventy-two hours unless it is unlikely to result in a risk, and document every breach.",
+        statement="Staff operating and supervising the chatbot need sufficient AI literacy.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 33"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 4",
+             "relevance": "Article 4 obliges the telecom to ensure its staff operating and supervising the chatbot have sufficient AI literacy."},
+        ],
     ),
     ExpectedFinding(
-        statement="Customers must be informed of the breach without undue delay where it is likely to result in a high risk to them, describing its nature and the steps taken.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 34"}],
-    ),
-    ExpectedFinding(
-        statement="Personal data must have been secured with appropriate technical and organisational security measures, and the incident will test whether they were adequate.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
-    ),
-    ExpectedFinding(
-        statement="As controller, the store is responsible for demonstrating GDPR compliance in how it handled and responded to the breach.",
+        statement="The underlying model's provider owes documentation, downstream information and policy duties - what the telecom examines when assessing its vendor's model-level compliance.",
         strength=Strength.moderate,
-        citations=[{"source_id": "gdpr", "provision": "Article 24"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 53",
+             "relevance": "Article 53's documentation, downstream-information, and policy duties bind the general-purpose AI model provider, informing the telecom's vendor due diligence for the chatbot's underlying engine."},
+            {"source_id": "ai-act", "provision": "Annex 11",
+             "relevance": "Annex XI's documentation content for general-purpose AI models is part of what the telecom examines when assessing the vendor's model-level compliance."},
+            {"source_id": "ai-act", "provision": "Annex 12",
+             "relevance": "Annex XII's downstream-information requirements show what the model provider owes the chatbot's provider, supporting the telecom's assessment of its vendor chain."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The names, account numbers and addresses customers enter are personal data, so the chatbot processing needs a lawful basis - plausibly contract necessity or legitimate interests - kept fair, minimal and storage-limited, with secondary uses such as model training passing the compatibility test.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(1) confirms that the names, account numbers, and addresses customers type into the chatbot are personal data, bringing the processing within the GDPR."},
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5's fairness, minimisation, and storage-limitation principles govern how long conversations are kept and how narrowly they are used, keeping secondary uses such as model training tied to compatible purposes."},
+            {"source_id": "gdpr", "provision": "Article 6",
+             "relevance": "Article 6 requires a lawful basis for the chatbot processing, plausibly contract necessity for customer service or legitimate interests subject to balancing, with Article 6(4) supplying the compatibility test for further uses such as training."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Customers must be told, at the time they enter their details, of the chatbot processing's purposes, legal basis, retention and rights, in concise, accessible form, with combined data from other sources covered too.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 13",
+             "relevance": "Article 13 obliges the telecom to inform customers, at the time they enter their details, of the chatbot processing's purposes, legal basis, retention, and their rights."},
+            {"source_id": "gdpr", "provision": "Article 12",
+             "relevance": "Article 12 sets the concise, accessible form in which the telecom delivers the chatbot's privacy information and handles customers' rights requests."},
+            {"source_id": "gdpr", "provision": "Article 14",
+             "relevance": "Article 14 completes the transparency coverage for customer data the telecom combines with chatbot conversations from other sources, such as account records."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The chatbot answers questions and routes account changes to human staff, keeping the GDPR's safeguards against solely automated decisions in reserve for future capability changes.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 22",
+             "relevance": "Article 22 sets the decision-making boundary for the deployment: the chatbot answers questions and routes account changes to human staff, keeping the right against solely-automated decisions in reserve for future capability changes."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The chatbot's processing must appear in the telecom's records of processing activities, and the account numbers and addresses flowing through it must be secured with proportionate measures.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 30",
+             "relevance": "Article 30 requires the chatbot's processing to appear in the telecom's records of activities, covering purposes, categories, recipients, and transfers."},
+            {"source_id": "gdpr", "provision": "Article 32",
+             "relevance": "Article 32 obliges the telecom to secure the account numbers and addresses processed through the chatbot with measures proportionate to the risk."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="DORA's financial-entity perimeter leaves the telecom's chatbot duties to the GDPR and the AI Act.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2 defines DORA's financial-entity perimeter, which assigns the telecom's chatbot duties to the GDPR and AI Act for this deployment."},
+        ],
+    ),
+]
+
+_FINTECH_LOAN_RECOMMENDATIONS_EXPECTED = [
+    ExpectedFinding(
+        statement="AI systems that evaluate the creditworthiness of natural persons are high-risk under the AI Act, so the full high-risk regime applies to the loan system alongside the GDPR.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Annex 3",
+             "relevance": "Annex III point 5(b) lists creditworthiness evaluation and credit scoring as a high-risk use area, which places the fintech's loan-recommendation system squarely within the Chapter III regime."},
+            {"source_id": "ai-act", "provision": "Article 6",
+             "relevance": "Article 6(2) classifies the loan-assessment system as high-risk, and the profiling carve-out in Article 6(3) keeps that status because applicant scoring is profiling."},
+            {"source_id": "ai-act", "provision": "Article 2",
+             "relevance": "Article 2(7) confirms the AI Act runs alongside the GDPR, so the fintech owes both regimes' duties for the loan-assessment system."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The provider-side duties - risk management, data governance with bias examination, technical documentation, logging, instructions, oversight design, accuracy and robustness, and the compliance markers - are what the fintech verifies when adopting the loan system, and owes itself where it developed the system under its own name.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 9",
+             "relevance": "Article 9's provider-side risk-management system is the foundation the fintech relies on when adopting the loan system, covering identified and foreseeable risks across its lifecycle."},
+            {"source_id": "ai-act", "provision": "Article 10",
+             "relevance": "Article 10's data-governance duties, including bias examination and mitigation, are the discrimination-protection requirement for borrower scoring, defining what the fintech should verify about the system's training data."},
+            {"source_id": "ai-act", "provision": "Article 11",
+             "relevance": "Article 11's pre-market technical documentation demonstrates the loan system's Chapter III conformity, the evidence trail available to the fintech and to authorities."},
+            {"source_id": "ai-act", "provision": "Article 12",
+             "relevance": "Article 12's logging requirement underpins the traceability of the loan system's outputs and supports the fintech's Article 26(6) log-keeping."},
+            {"source_id": "ai-act", "provision": "Article 13",
+             "relevance": "Article 13 obliges the provider to supply instructions covering the system's capabilities, accuracy, and oversight measures, which the fintech needs to operate the system per instructions and to inform applicants."},
+            {"source_id": "ai-act", "provision": "Article 15",
+             "relevance": "Article 15's accuracy, robustness, and cybersecurity baseline is the performance standard the fintech should verify for the loan system."},
+            {"source_id": "ai-act", "provision": "Article 16",
+             "relevance": "Article 16's provider duties of conformity assessment, CE marking, and registration apply to the fintech itself where it developed the system, and otherwise define the compliance markers it verifies in its vendor."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The provider must have passed the internal-control conformity assessment and registered the system in the EU database before the fintech deploys it - checkpoints the fintech verifies before adoption.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 43",
+             "relevance": "Article 43(2) sets the internal-control conformity assessment for Annex III credit systems, the gate the provider passes before the fintech deploys the system."},
+            {"source_id": "ai-act", "provision": "Article 49",
+             "relevance": "Article 49(1) requires the provider's EU-database registration of the high-risk loan system, a checkpoint the fintech verifies before adoption."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="As deployer, the fintech must run the system per the provider's instructions, assign competent human oversight, keep logs through the financial-institution governance route, ensure representative input data, and inform applicants they are subject to AI-based assessment.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 26",
+             "relevance": "Article 26 obliges the fintech as deployer to run the system per instructions, assign competent oversight, ensure representative input data, keep logs through the financial-institution governance route of paragraphs (5)-(6), and inform applicants they are subject to AI-based assessment."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The employees reviewing recommendations must genuinely exercise human oversight - automation-bias awareness included - before final loan decisions.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 14",
+             "relevance": "Article 14's human-oversight design, including automation-bias awareness, defines what the fintech's reviewing employees must genuinely exercise before final loan decisions."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Staff, including the reviewing employees, need sufficient AI literacy.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 4",
+             "relevance": "Article 4 obliges the fintech to ensure its staff, including the employees reviewing recommendations, have sufficient AI literacy."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Declined applicants have a right to clear explanations of the AI system's role in the decision.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 86",
+             "relevance": "Article 86 gives declined applicants a right to clear explanations of the AI system's role in the decision, which the fintech must be able to deliver in its loan outcomes."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="As a deployer of a creditworthiness system, the fintech must perform a fundamental-rights impact assessment before deployment and notify the market-surveillance authority of its results.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 27",
+             "relevance": "Article 27 makes the fintech, as a deployer of an Annex III 5(b) system, perform a fundamental-rights impact assessment before deployment and notify the market-surveillance authority of its results, a mandatory pre-use step for this scenario."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The high-risk and fundamental-rights duties for the loan system apply from 2 August 2026.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 113",
+             "relevance": "Article 113(2) fixes 2 August 2026 as the application date, confirming the high-risk and FRIA duties for the loan system are in force at the time of use."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The AI Act's definitions fix the fintech's role as deployer - and provider too where it developed the system under its own name.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 3",
+             "relevance": "Article 3's definitions fix the fintech's role as deployer of a profiling system, and provider as well where it developed the system under its own name, which determines whether Article 16 duties also apply."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Processing applicants' financial data needs a lawful basis - plausibly steps prior to entering a loan contract - exercised consistently with the core principles, with the financial data sitting in the ordinary personal-data regime.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 6",
+             "relevance": "Article 6(1)(b) supplies the natural lawful basis, the application being steps prior to entering a loan contract, for processing applicant financial data through the system."},
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5's principles govern the collection and use of income, employment, and debt data, requiring the assessment to stay proportionate to the loan-decision purpose."},
+            {"source_id": "gdpr", "provision": "Article 9",
+             "relevance": "Article 9's special-category scope confirms that the applicant financial data sit in the ordinary personal-data regime, routing the lawfulness analysis to Article 6 and its bases."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Applicants must be told about the automated decision-making and profiling in concise, accessible form, with meaningful information about the logic and consequences, and can access information about the automated assessment's logic.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 13",
+             "relevance": "Article 13(2)(f) obliges the fintech to tell applicants about the automated decision-making and profiling in the assessment, with meaningful information about the logic and consequences."},
+            {"source_id": "gdpr", "provision": "Article 12",
+             "relevance": "Article 12 sets the concise, accessible form for the information and rights responses the fintech owes loan applicants."},
+            {"source_id": "gdpr", "provision": "Article 15",
+             "relevance": "Article 15(1)(h) lets applicants access information about the automated assessment's logic, reinforcing the explanation duty alongside AI Act Article 86."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Where the employee review becomes nominal and the decision rests solely on the system, the GDPR's safeguards - human intervention, expressing a view, contesting - become mandatory, a risk the automation-bias concern makes concrete.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 22",
+             "relevance": "Article 22 engages where the employee review becomes nominal and the decision rests solely on the system, in which case the Article 22(3) safeguards of human intervention, expressing a view, and contesting become mandatory; AI Act Article 14(4)(b) identifies the automation-bias risk that threatens the review's substance."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The systematic profiling-based evaluation of all applicants makes a DPIA mandatory before the loan system goes into use, with prior consultation where high residual risk remains.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 35",
+             "relevance": "Article 35(3)(a) makes a DPIA mandatory for the systematic profiling-based evaluation of all applicants, required before the loan system goes into use."},
+            {"source_id": "gdpr", "provision": "Article 36",
+             "relevance": "Article 36 requires prior consultation with the supervisory authority where the DPIA leaves high residual risk, defining the escalation path."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The applicant scoring is profiling, which anchors the DPIA trigger and the automated-decision analysis.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(4) confirms the applicant scoring is profiling, which anchors the DPIA trigger and the automated-decision analysis for the loan system."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="If the fintech's authorization brings it within DORA as a financial entity, its management body becomes ultimately responsible for ICT risk and it must operate a documented ICT risk-management framework with reliable, resilient systems for the loan platform.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2's financial-entity list determines whether the fintech's authorization brings it within DORA, which gates the ICT-resilience duties for the loan platform."},
+            {"source_id": "dora", "provision": "Article 5",
+             "relevance": "Article 5 would make the fintech's management body ultimately responsible for ICT risk once it qualifies as a financial entity."},
+            {"source_id": "dora", "provision": "Article 6",
+             "relevance": "Article 6 would require the fintech, as a financial entity, to operate a documented ICT risk-management framework for the loan platform, reviewed upon major incidents."},
+            {"source_id": "dora", "provision": "Article 7",
+             "relevance": "Article 7 would require the fintech to run the loan platform on reliable, resilient ICT systems with sufficient capacity for processing volumes."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="On that same condition, the fintech must map the loan system's ICT dependencies, protect the platform's availability, integrity and confidentiality, and run detection mechanisms over the platform.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 8",
+             "relevance": "Article 8 would require the fintech to identify and map the loan system's ICT dependencies, including ICT third-party providers, as the prerequisite for criticality classification."},
+            {"source_id": "dora", "provision": "Article 9",
+             "relevance": "Article 9 would require the fintech to deploy ICT security policies protecting the availability, integrity, and confidentiality of loan-processing data."},
+            {"source_id": "dora", "provision": "Article 10",
+             "relevance": "Article 10 would require the fintech to operate detection mechanisms that promptly surface anomalies and intrusions in the loan platform."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="On the same condition it maintains tested business continuity plans, backups with segregated restoration, post-incident reviews, and communication strategies for incidents affecting loan customers, under the harmonised technical standards - or the simplified framework if it is a small non-interconnected firm.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 11",
+             "relevance": "Article 11 would require the fintech to maintain tested ICT business continuity and response plans covering the loan-approval service."},
+            {"source_id": "dora", "provision": "Article 12",
+             "relevance": "Article 12 would require the fintech to maintain backup and segregated restoration capabilities for loan-platform data."},
+            {"source_id": "dora", "provision": "Article 13",
+             "relevance": "Article 13 would require the fintech to run post-incident reviews after major incidents and incorporate lessons into its risk framework."},
+            {"source_id": "dora", "provision": "Article 14",
+             "relevance": "Article 14 would require the fintech to maintain communication strategies for ICT incidents affecting loan customers."},
+            {"source_id": "dora", "provision": "Article 15",
+             "relevance": "Article 15 would bring the fintech within the ESAs' harmonised technical standards for ICT risk-management tools and testing."},
+            {"source_id": "dora", "provision": "Article 16",
+             "relevance": "Article 16 swaps in a simplified ICT risk-management framework where the fintech is a small and non-interconnected investment firm, requiring a status check before the full framework applies."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Any ICT third-party arrangement for the loan system would require due diligence, a register entry, exit planning, concentration-risk weighing and prescribed contract provisions.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "dora", "provision": "Article 28",
+             "relevance": "Article 28 would govern any ICT third-party arrangement for the loan system, covering due diligence, a register entry, and exit planning once the fintech is a financial entity."},
+            {"source_id": "dora", "provision": "Article 29",
+             "relevance": "Article 29 would require the fintech to weigh concentration risk from hard-to-substitute providers of the loan platform."},
+            {"source_id": "dora", "provision": "Article 30",
+             "relevance": "Article 30 would prescribe the contractual provisions for ICT services supporting the loan platform, including locations, data protection, and incident assistance."},
+        ],
     ),
 ]
 
 _INSURANCE_HEALTH_PRICING_EXPECTED = [
     ExpectedFinding(
-        statement="AI-based risk assessment and pricing for life and health insurance is a named high-risk use under the AI Act, so the full high-risk obligations apply.",
+        statement="AI-based risk assessment and pricing for life and health insurance is a named high-risk use, so the full high-risk regime applies, with health-based applicant scoring confirmed as profiling.",
         strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 6(2)"}, {"source_id": "ai-act", "provision": "Annex III point 5(c)"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Annex 3",
+             "relevance": "Annex III point 5(c) lists risk assessment and pricing AI for life and health insurance as high-risk, which places the insurer's premium-recommendation system squarely within the Chapter III regime."},
+            {"source_id": "ai-act", "provision": "Article 6",
+             "relevance": "Article 6(2) classifies the insurance-pricing system as high-risk, and the profiling carve-out in Article 6(3) keeps that status because the system scores applicants."},
+            {"source_id": "ai-act", "provision": "Article 3",
+             "relevance": "Article 3's profiling definition, incorporating GDPR Article 4(4), confirms that health-based applicant scoring is profiling, which sustains the high-risk classification under Article 6(3)."},
+        ],
     ),
     ExpectedFinding(
-        statement="Health information is special-category data whose analysis the GDPR restricts unless a specific exception applies.",
+        statement="The insurer's underwriting staff reviewing recommendations need sufficient AI literacy.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 9"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 4",
+             "relevance": "Article 4 obliges the insurer to ensure its underwriting staff reviewing recommendations have sufficient AI literacy."},
+        ],
     ),
     ExpectedFinding(
-        statement="Processing health data for pricing needs a lawful basis under the GDPR, applied with the core data-protection principles.",
+        statement="The provider's bias-examination and mitigation duties are the discrimination-protection requirement for health-based scoring, which the insurer verifies about the system's data governance.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 10",
+             "relevance": "Article 10's bias-examination and mitigation duties are the discrimination-protection requirement for health-based scoring, defining what the insurer should verify about the system's data governance."},
+        ],
     ),
     ExpectedFinding(
-        statement="Customers must receive transparent information about the processing of their health data.",
+        statement="The provider must supply instructions describing capabilities, accuracy and oversight measures, and design the human oversight the reviewing employee must genuinely exercise before a policy is issued.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 13"}, {"source_id": "gdpr", "provision": "Article 14"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 13",
+             "relevance": "Article 13 obliges the provider to supply instructions describing the system's capabilities, accuracy, and oversight measures, which the insurer needs to operate the system per instructions."},
+            {"source_id": "ai-act", "provision": "Article 14",
+             "relevance": "Article 14's oversight design, including automation-bias awareness, defines what the insurer's reviewing employee must genuinely exercise before issuing a policy."},
+        ],
     ),
     ExpectedFinding(
-        statement="Automated life-insurance pricing is a solely automated decision affecting customers significantly, so GDPR restrictions and safeguards on such decisions apply.",
+        statement="The compliance markers - conformity assessment, CE marking, EU-database registration, and the internal-control procedure for Annex III insurance systems - are what the insurer verifies when adopting the system.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 16",
+             "relevance": "Article 16's provider duties define the compliance markers the insurer verifies when adopting the system, and owes itself where it developed the system."},
+            {"source_id": "ai-act", "provision": "Article 43",
+             "relevance": "Article 43(2) sets the internal-control conformity assessment for Annex III insurance systems, the gate the provider passes before the insurer deploys it."},
+            {"source_id": "ai-act", "provision": "Article 49",
+             "relevance": "Article 49(1) requires the provider's EU-database registration of the high-risk pricing system, a checkpoint the insurer verifies."},
+        ],
     ),
     ExpectedFinding(
-        statement="Data protection by design and by default must shape the pricing system's processing.",
+        statement="As deployer, the insurer must run the system per instructions, assign competent oversight, keep logs through the financial-institution governance route, and inform applicants they are subject to AI-based assessment.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 26",
+             "relevance": "Article 26 obliges the insurer as deployer to run the system per instructions, assign competent oversight, keep logs through the financial-institution governance route, and inform applicants they are subject to AI-based assessment."},
+        ],
     ),
     ExpectedFinding(
-        statement="Analysing health data at scale to price policies calls for a data protection impact assessment.",
+        statement="As a deployer of an insurance pricing system, the insurer must perform a fundamental-rights impact assessment before deployment and notify the market-surveillance authority of its results.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 27",
+             "relevance": "Article 27 makes the insurer, as a deployer of an Annex III 5(c) system, perform a fundamental-rights impact assessment before deployment and notify the authority, a mandatory pre-use step for the pricing system."},
+        ],
     ),
     ExpectedFinding(
-        statement="The system's provider must meet the high-risk requirements: risk management, data governance, technical documentation, record-keeping, transparency, designed human oversight, and accuracy, robustness and cybersecurity.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": f"Article {n}"} for n in range(9, 16)],
-    ),
-    ExpectedFinding(
-        statement="As deployer, the insurer must operate the system per the provider's instructions, with human oversight and retained logs.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 26"}],
-    ),
-    ExpectedFinding(
-        statement="DORA's governance and ICT risk-management duties reach the insurer only insofar as it is a DORA-covered financial entity.",
+        statement="The provider's post-market monitoring can be integrated into the insurer's existing financial-services governance frameworks, keeping oversight after the system enters service.",
         strength=Strength.moderate,
-        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(5, 12)],
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 72",
+             "relevance": "Article 72 lets the insurer integrate the provider's post-market monitoring into its existing financial-services governance frameworks, keeping oversight after the system enters service."},
+        ],
     ),
     ExpectedFinding(
-        statement="Under that same condition, DORA adds resilience testing up to threat-led penetration testing, plus the register of ICT third-party arrangements and EU-level oversight of critical providers.",
+        statement="Applicants adversely affected by premium or eligibility decisions have a right to explanations of the AI system's role in the outcome.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 86",
+             "relevance": "Article 86 gives applicants adversely affected by premium or eligibility decisions a right to explanations of the AI system's role, which the insurer must deliver in its outcomes."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The applicants' medical information is data concerning health, so the underwriting processing is restricted to the Article 9 gateways - explicit consent the clearly available route for underwriting, with Member States able to add conditions - and needs a lawful basis alongside the gateway.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(15) defines data concerning health broadly enough to cover the medical information the insurer analyses, which brings the underwriting within Article 9's special-category regime."},
+            {"source_id": "gdpr", "provision": "Article 9",
+             "relevance": "Article 9 restricts the insurer's processing of applicants' medical information to defined gateways, with explicit consent under Article 9(2)(a) the clearly available route for underwriting, the decisive constraint on the AI pricing system. Article 9(4) lets Member States add further conditions on health data, a layer the insurer must check."},
+            {"source_id": "gdpr", "provision": "Article 6",
+             "relevance": "Article 6 requires a lawful basis alongside the Article 9 gateway, plausibly contract-necessity steps for the insurance application or consent."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The collection and use of applicants' medical and personal data must stay proportionate and transparent under the GDPR's principles.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5's principles govern the collection and use of applicants' medical and personal data, requiring the underwriting processing to stay proportionate and transparent."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Applicants must be told about the automated decision-making and profiling behind eligibility and premium determination, with meaningful information about the logic and consequences, and can access information about the automated underwriting's logic.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 13",
+             "relevance": "Article 13(2)(f) obliges the insurer to inform applicants of the automated decision-making and profiling behind eligibility and premium determination, with meaningful information about the logic and consequences."},
+            {"source_id": "gdpr", "provision": "Article 15",
+             "relevance": "Article 15(1)(h) lets applicants access information about the automated underwriting's logic, reinforcing the explanation duties alongside AI Act Article 86."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Automated decisions resting on health data are restricted to the explicit-consent and public-interest gateways with suitable safeguards, conditioning the premium-recommendation workflow, while the employee-review step determines whether the solely-automated safeguards are engaged at all.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 22",
+             "relevance": "Article 22(4) restricts automated decisions resting on health data to the explicit-consent and public-interest gateways with suitable safeguards in place, directly conditioning the premium-recommendation workflow, while the employee-review step determines whether Article 22(1) is engaged at all."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Large-scale processing of health data makes a DPIA mandatory before the AI underwriting begins, with prior consultation where high residual risk remains.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 35",
+             "relevance": "Article 35(3)(b) makes a DPIA mandatory for large-scale processing of health data, required before the AI underwriting begins."},
+            {"source_id": "gdpr", "provision": "Article 36",
+             "relevance": "Article 36 requires prior consultation with the supervisory authority where the DPIA leaves high residual risk, the escalation step for this deployment."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Large-scale special-category processing as a core activity makes DPO designation mandatory, with the DPO's timely involvement, resources and direct reporting line secured and its advisory and monitoring tasks defined.",
         strength=Strength.moderate,
-        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(24, 31)],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 37",
+             "relevance": "Article 37(1)(c) makes DPO designation mandatory where the insurer's core activities involve large-scale special-category processing, which health-based underwriting plausibly is."},
+            {"source_id": "gdpr", "provision": "Article 38",
+             "relevance": "Article 38 secures the designated DPO's timely involvement, resources, and direct reporting line within the insurer's governance."},
+            {"source_id": "gdpr", "provision": "Article 39",
+             "relevance": "Article 39's advisory and monitoring tasks define the DPO's role in overseeing the health-data underwriting and its impact assessment."},
+        ],
     ),
-]
-
-_TELECOM_CHATBOT_EXPECTED = [
     ExpectedFinding(
-        statement="Users interacting with the chatbot must be clearly informed they are dealing with an AI system, per the AI Act's transparency rule for interactive AI.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 50(1)"}],
-    ),
-    ExpectedFinding(
-        statement="Generated content may additionally require machine-readable marking under the AI Act's synthetic-content rules, depending on what the chatbot produces.",
+        statement="The insurer is a financial entity within DORA, whose ICT-resilience duties attach to its operations while the AI and health-data questions are governed by the GDPR and the AI Act.",
         strength=Strength.moderate,
-        citations=[{"source_id": "ai-act", "provision": "Article 50(2)"}],
-    ),
-    ExpectedFinding(
-        statement="Staff involved in operating the chatbot need sufficient AI literacy.",
-        strength=Strength.strong,
-        citations=[{"source_id": "ai-act", "provision": "Article 4"}],
-    ),
-    ExpectedFinding(
-        statement="Processing customers' names, account numbers and addresses requires a lawful basis under the GDPR, applied with the core data-protection principles.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 5"}, {"source_id": "gdpr", "provision": "Article 6"}],
-    ),
-    ExpectedFinding(
-        statement="Customers must receive clear, accessible information about how the chatbot processes their data.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 12"}, {"source_id": "gdpr", "provision": "Article 13"}],
-    ),
-    ExpectedFinding(
-        statement="Privacy protections must be built into the chatbot through data protection by design and by default.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 25"}],
-    ),
-    ExpectedFinding(
-        statement="Where the chatbot vendor processes customer data on the telecom's behalf, a GDPR processor contract with documented instructions is required.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 28"}],
-    ),
-    ExpectedFinding(
-        statement="Conversation data demands appropriate technical and organisational security measures.",
-        strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
-    ),
-    ExpectedFinding(
-        statement="Where the chatbot systematically processes personal data at scale, a data protection impact assessment becomes necessary.",
-        strength=Strength.moderate,
-        citations=[{"source_id": "gdpr", "provision": "Article 35"}],
+        citations=[
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2(1)(n) confirms the insurer is a financial entity within DORA's scope, whose ICT-resilience duties attach to its operations while the scenario's AI and health-data questions are governed by the GDPR and AI Act."},
+        ],
     ),
 ]
 
 _RANSOMWARE_INVESTMENT_FIRM_EXPECTED = [
     ExpectedFinding(
-        statement="The firm's business continuity, response-and-recovery and crisis-management arrangements are engaged, as DORA obliges financial entities to maintain and exercise them for ICT disruption.",
+        statement="The investment firm is a financial entity within DORA, and the ransomware event is an ICT-related incident - a cyber-attack of the reportable category from the outset.",
         strength=Strength.strong,
-        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(11, 15)],
-    ),
-    ExpectedFinding(
-        statement="The ransomware attack must be handled through the firm's ICT incident-management process.",
-        strength=Strength.strong,
-        citations=[{"source_id": "dora", "provision": "Article 17"}],
-    ),
-    ExpectedFinding(
-        statement="The attack must be classified against DORA's major-incident criteria and reported to the competent authority within strict deadlines.",
-        strength=Strength.strong,
-        citations=[{"source_id": "dora", "provision": "Article 18"}, {"source_id": "dora", "provision": "Article 19"}],
-    ),
-    ExpectedFinding(
-        statement="Designated entities face further resilience-testing duties, up to threat-led penetration testing every three years.",
-        strength=Strength.moderate,
-        citations=[{"source_id": "dora", "provision": f"Article {n}"} for n in range(24, 28)],
-    ),
-    ExpectedFinding(
-        statement="Affected ICT third-party arrangements belong in the firm's register of information, with designated critical providers subject to EU-level oversight.",
-        strength=Strength.moderate,
         citations=[
-            {"source_id": "dora", "provision": "Article 28"},
-            {"source_id": "dora", "provision": "Article 29"},
-            {"source_id": "dora", "provision": "Article 30"},
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2(1)(e) brings the investment firm within DORA as a financial entity, engaging the incident-management and reporting regime for the ransomware attack."},
+            {"source_id": "dora", "provision": "Article 3",
+             "relevance": "Article 3's definitions of ICT-related incident, cyber-attack, and major incident establish the ransomware event as an ICT incident of the reportable category from the outset."},
         ],
     ),
     ExpectedFinding(
-        statement="Client data hit by the ransomware constitutes a personal data breach, engaging the GDPR's integrity and confidentiality principle.",
+        statement="The firm must run the attack through its ICT incident-management process - detection, management, notification, root-cause identification, senior-management escalation - and classify it by clients affected, duration, data losses including the open confidentiality question, criticality and economic impact to gate the reporting duty.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 17",
+             "relevance": "Article 17 obliges the firm to run the ransomware incident through its ICT incident-management process of detection, management, notification, root-cause identification, senior-management escalation, and response for timely restoration."},
+            {"source_id": "dora", "provision": "Article 18",
+             "relevance": "Article 18(1) requires the firm to classify the incident by clients affected, duration, data losses including the open confidentiality question, criticality of trading services, and economic impact, which gates the reporting duty."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Once classified major, the firm reports through initial, intermediate and final reports - the intermediate ones accommodating the evolving investigation into client-data access - within the prescribed templates and time limits, through the centralised channel, with the authority's acknowledgement and feedback closing the supervisory loop.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 19",
+             "relevance": "Article 19 obliges the firm to report the major incident through initial, intermediate, and final reports, with the intermediate reports accommodating the evolving investigation into client-data access, and Article 19(3) adds the client-notification duty where financial interests are affected."},
+            {"source_id": "dora", "provision": "Article 20",
+             "relevance": "Article 20 tasks the ESAs with the reporting templates and time limits the firm's incident reports must follow, the source of the deadlines the analysis references."},
+            {"source_id": "dora", "provision": "Article 21",
+             "relevance": "Article 21's centralisation roadmap streamlines the reporting channel through which the firm submits its notifications."},
+            {"source_id": "dora", "provision": "Article 22",
+             "relevance": "Article 22 provides for the authority's acknowledgement and feedback on the incident reports, the supervisory loop supporting the firm's handling."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The firm must contain the attack, limit damage and prioritise resumption of trading, restoring systems and data from backups with segregation and integrity checks.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 11",
+             "relevance": "Article 11(2) frames the containment, damage-limitation, and prioritised-resumption duties the firm executes while restoring trading and internal systems."},
+            {"source_id": "dora", "provision": "Article 12",
+             "relevance": "Article 12's backup and segregated-restoration duties govern the recovery of systems and data, with Article 12(3)'s segregation and integrity checks applying to any restoration from backups."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The major incident triggers a review of the ICT risk-management framework and a post-incident review of response promptness, forensic quality, escalation and communication, with a communication strategy framing messaging to clients, staff and stakeholders.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 6",
+             "relevance": "Article 6(5) makes a major incident a mandatory trigger for reviewing the firm's ICT risk-management framework, framing the post-attack hardening."},
+            {"source_id": "dora", "provision": "Article 13",
+             "relevance": "Article 13(2) requires a post-incident review once the major incident has disrupted core activities, covering response promptness, forensic quality, escalation, and communication, squarely the follow-up the firm owes after this attack."},
+            {"source_id": "dora", "provision": "Article 14",
+             "relevance": "Article 14's communication-strategy duty frames the firm's messaging to clients, staff, and stakeholders about the attack, complementing the Article 19(3) client notification."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="A size and status check applies: small and non-interconnected investment firms follow the simplified framework, while the incident-reporting duties continue to apply in full.",
         strength=Strength.moderate,
-        citations=[{"source_id": "gdpr", "provision": "Article 5(1)(f)"}],
+        citations=[
+            {"source_id": "dora", "provision": "Article 16",
+             "relevance": "Article 16 requires a size and status check: small and non-interconnected investment firms follow the simplified framework while the incident-reporting duties of Articles 17-19 continue to apply in full."},
+        ],
     ),
     ExpectedFinding(
-        statement="Client data and trading systems must be protected with appropriate technical and organisational security measures under the GDPR.",
+        statement="The ransomware intrusion into systems holding client data is a personal data breach on occurrence, and the firm must notify the supervisory authority within 72 hours of awareness, phasing information while the access investigation proceeds and documenting the breach.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 32"}],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(12) makes the ransomware intrusion, with unauthorized access and potential encryption-destruction of client data, a personal data breach on occurrence, grounding the parallel GDPR track."},
+            {"source_id": "gdpr", "provision": "Article 33",
+             "relevance": "Article 33 obliges the firm to notify the supervisory authority within 72 hours of awareness of the intrusion into systems holding client data, with phased information under Article 33(4) while the access investigation proceeds and documentation under Article 33(5)."},
+        ],
     ),
     ExpectedFinding(
-        statement="Unless the attack is unlikely to result in a risk, the firm must notify the supervisory authority within seventy-two hours and document the breach.",
+        statement="Clients whose data the attackers accessed must be informed where the breach is likely to result in high risk, with the encryption condition available where affected data were unintelligible.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 33"}],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 34",
+             "relevance": "Article 34 requires communication to affected clients where attacker access to their data creates high risk, with Article 34(3)(a)'s encryption condition available where affected data were unintelligible."},
+        ],
     ),
     ExpectedFinding(
-        statement="Clients whose personal data is affected must be informed where the breach is likely to result in a high risk to them.",
+        statement="Client data and trading systems must be protected with appropriate technical and organisational security measures, including timely restoration of availability and access, framed by the integrity and confidentiality principle.",
         strength=Strength.strong,
-        citations=[{"source_id": "gdpr", "provision": "Article 34"}],
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 32",
+             "relevance": "Article 32's security duties, including Article 32(1)(c)'s timely restoration of availability and access to client data, frame both the incident's prevention dimension and the recovery architecture."},
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5(1)(f)'s integrity-and-confidentiality principle frames the security hardening the firm owes client data after the attack."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The firm's remediation must produce demonstrable compliance measures under the accountability duty.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 24",
+             "relevance": "Article 24's accountability duty frames the demonstrable compliance measures the firm's remediation must produce."},
+        ],
     ),
 ]
 
-_LIVE_CASE_SCENARIOS: List[EvalScenario] = [
+_GENAI_CUSTOMER_SERVICE_ASSISTANT_EXPECTED = [
+    ExpectedFinding(
+        statement="Customer conversations flowing through the AI assistant must be processed fairly and transparently on an identified lawful basis, with any new purpose passing the compatibility test.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5(1)(a)'s fairness and transparency principle frames how the institution handles customer conversations now processed through an AI assistant."},
+            {"source_id": "gdpr", "provision": "Article 6",
+             "relevance": "Article 6 requires the institution to identify a lawful basis for the customer conversations flowing through the AI service, with any new purpose passing the Article 6(4) compatibility test."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Customers must receive concise, accessible information that their conversations are processed through an AI-assisted service, covering purposes, legal basis, recipients and transfers, with rights responses in the same form.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 13",
+             "relevance": "Article 13 obliges the institution to inform customers that their conversations are processed through an AI-assisted service, covering purposes, legal basis, recipients, and transfers."},
+            {"source_id": "gdpr", "provision": "Article 12",
+             "relevance": "Article 12 sets the concise, accessible form for the information and rights responses the institution owes customers whose conversations are processed through the assistant."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The institution needs processor contracts with the AI provider and the cloud host as sub-processor - documented instructions, security, assistance, deletion or return, audit access - records of the processing, and security across the arrangement.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 28",
+             "relevance": "Article 28 requires processor contracts with the AI provider and the cloud host as sub-processor, covering documented instructions, security measures, assistance with rights and breach duties, deletion or return, and audit access, the GDPR counterpart to DORA's contractual toolkit."},
+            {"source_id": "gdpr", "provision": "Article 30",
+             "relevance": "Article 30 requires the AI-assistant processing to appear in the institution's records, covering purposes, categories of data, recipients including processors, and any transfers."},
+            {"source_id": "gdpr", "provision": "Article 32",
+             "relevance": "Article 32 obliges the institution to ensure the security of customer data processed by the providers, applying jointly to controller and processors across the arrangement."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Any third-country movement of customer conversations to the externally hosted AI and cloud infrastructure must rest on the Chapter V safeguards, with standard contractual clauses the appropriate-safeguards route - making the hosting locations a central fact.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 44",
+             "relevance": "Article 44 conditions any third-country movement of customer conversations to the externally hosted AI and cloud infrastructure on compliance with the Chapter V safeguards, which makes the hosting locations a central fact for this scenario."},
+            {"source_id": "gdpr", "provision": "Article 46",
+             "relevance": "Article 46 supplies the appropriate-safeguards route, such as standard contractual clauses, enabling lawful transfers where the AI service or cloud hosting processes conversations outside the EEA."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="A customer-service support role leaves the assistant in the transparency tier of the AI Act's high-risk perimeter, and a shift toward creditworthiness evaluation would change that classification.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Annex 3",
+             "relevance": "Annex III defines the high-risk perimeter for the assistant: a customer-service support role leaves it in the transparency tier, and a shift toward creditworthiness evaluation under point 5(b) would change that classification."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The AI Act's definitions fix the institution's role as deployer and frame the vendor-side analysis for the underlying generative model.",
+        strength=Strength.weak,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 3",
+             "relevance": "Article 3's definitions of deployer and general-purpose AI model fix the institution's role as deployer and frame the vendor-side analysis for the underlying generative model."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Customer-service employees using the assistant need sufficient AI literacy.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 4",
+             "relevance": "Article 4 obliges the institution to ensure its customer-service employees using the assistant have sufficient AI literacy."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The disclosure duty attaches to direct customer interaction, which the employee-support design leaves conditional, so the institution should secure the disclosure capability for any customer-facing use.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 50",
+             "relevance": "Article 50(1)'s disclosure duty attaches to direct customer interaction, which the assistant's employee-support design leaves conditional here, so the institution should secure the disclosure capability for any customer-facing use."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The technology company's documentation, downstream-information and policy duties as general-purpose AI model provider are what the institution examines in vendor due diligence on a service it has limited visibility into.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 53",
+             "relevance": "Article 53's technical-documentation, downstream-information, and policy duties bind the technology company as general-purpose AI model provider, informing the institution's vendor due diligence on a service it has limited visibility into."},
+            {"source_id": "ai-act", "provision": "Annex 12",
+             "relevance": "Annex XII's downstream-information requirements define what the model provider owes the system provider integrating it, part of the compliance chain the institution examines."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Both the AI provider and the hosting cloud fall within DORA's third-party regime, and the institution must assign a role or senior manager to monitor those arrangements - directly addressing the limited-visibility concern.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 3",
+             "relevance": "Article 3's definitions of ICT services and ICT third-party service provider bring both the AI provider and the hosting cloud within the third-party regime, the vocabulary on which the analysis rests."},
+            {"source_id": "dora", "provision": "Article 5",
+             "relevance": "Article 5(3) requires the institution to assign a role, or a senior manager, to monitor the ICT third-party arrangements, directly addressing the limited-visibility concern."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The whole reliance is governed by DORA's third-party regime: pre-contract due diligence and criticality assessment, a register covering both providers, audit rights suited to the AI service's complexity, the subcontracting chain between the AI provider and the cloud host, and contract terms securing locations, data protection, incident assistance, contingency plans and monitoring rights - with full institutional responsibility preserved.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 28",
+             "relevance": "Article 28 governs the whole reliance: pre-contract due diligence and criticality assessment, the register of information covering both providers, information-security standards, audit rights suited to the AI service's technical complexity, termination grounds, and exit strategies preserving full institutional responsibility."},
+            {"source_id": "dora", "provision": "Article 29",
+             "relevance": "Article 29(2) squarely addresses the structure, since the AI provider's reliance on another cloud host is a subcontracting chain the institution must weigh, especially where long or complex chains impair its ability to fully monitor the contracted functions."},
+            {"source_id": "dora", "provision": "Article 30",
+             "relevance": "Article 30 prescribes the contract content the institution must secure, covering locations and data-processing venues, personal-data protection, data return, incident assistance at defined cost, notification of material developments, tested contingency plans, and ongoing performance-monitoring rights, the toolkit for restoring visibility into the service."},
+        ],
+    ),
+]
+
+_AI_TRADING_CLOUD_ATTACK_EXPECTED = [
+    ExpectedFinding(
+        statement="The investment firm is a financial entity within DORA, and the cyberattack is an ICT-related incident affecting a critical or important function supplied by a provider the firm depends on - a major-incident candidate from the outset.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2(1)(e) brings the investment firm within DORA as a financial entity, engaging the incident-reporting and third-party regimes for the cloud attack."},
+            {"source_id": "dora", "provision": "Article 3",
+             "relevance": "Article 3's definitions of ICT-related incident, cyber-attack, major incident, critical or important function, and ICT concentration risk frame the attack as a major-incident candidate affecting a critical function supplied by a provider the firm depends on."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The firm must run the attack through its ICT incident-management process, classify it by clients affected, duration of more than a day, data losses including the potential client-data access, criticality and economic impact, and report through initial, intermediate and final reports as the investigation evolves, following the ESAs' templates and time limits.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 17",
+             "relevance": "Article 17 obliges the firm to run the attack through its ICT incident-management process of detection, management, notification, senior-management escalation, and response procedures for timely restoration of trading."},
+            {"source_id": "dora", "provision": "Article 18",
+             "relevance": "Article 18(1) requires the firm to classify the incident by clients affected, duration of more than a day, data losses including the potential client-data access, criticality of trading services, and economic impact, which gates the reporting duty."},
+            {"source_id": "dora", "provision": "Article 19",
+             "relevance": "Article 19 obliges the firm to report the major incident through initial, intermediate, and final reports as the investigation into client-data access evolves, and Article 19(3) adds the prompt client notification where financial interests are affected."},
+            {"source_id": "dora", "provision": "Article 20",
+             "relevance": "Article 20 tasks the ESAs with the reporting templates and time limits the firm's incident reports must follow."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The firm must contain the attack, prioritise resuming trading, maintain continuity plans covering the outsourced critical function, and restore trading systems and client data from backups with segregation and redundancy, while a communication strategy frames what clients and stakeholders are told.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 11",
+             "relevance": "Article 11(2) frames the containment, prioritised resumption, and crisis-communication duties the firm executes while trading systems are down, with Article 11(4)'s outsourced-critical-function continuity plans squarely engaged."},
+            {"source_id": "dora", "provision": "Article 12",
+             "relevance": "Article 12's backup, segregated-restoration, and redundancy duties frame the firm's recovery of trading systems and client data from the attack."},
+            {"source_id": "dora", "provision": "Article 14",
+             "relevance": "Article 14's communication-strategy duty frames the firm's messaging to clients and stakeholders about the attack, complementing the Article 19(3) client notification."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The major incident triggers a review of the ICT risk-management framework and a post-incident review of response promptness, forensic quality, escalation and communication.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 6",
+             "relevance": "Article 6(5) makes a major incident a mandatory trigger for reviewing the ICT risk-management framework, and Article 6(9)'s multi-vendor strategy option is the structural answer to the cloud dependency the attack exposed."},
+            {"source_id": "dora", "provision": "Article 13",
+             "relevance": "Article 13(2) requires a post-incident review, covering response promptness, forensic quality, escalation, and communication, once the major incident has disrupted core trading activities."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The firm stays fully responsible for DORA compliance despite the cloud provider's failure; the critical trading infrastructure's dependence on a single provider requires concentration-risk analysis and substitutability planning, with audit rights, termination grounds and exit strategies governing the relationship, and the contract securing incident assistance and tested contingency plans.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "dora", "provision": "Article 28",
+             "relevance": "Article 28 keeps the firm fully responsible for DORA compliance despite the cloud provider's failure, and its audit rights, termination grounds including evidenced provider weaknesses, and exit strategies now govern the relationship's future."},
+            {"source_id": "dora", "provision": "Article 29",
+             "relevance": "Article 29's concentration-risk duties apply squarely, since the firm's critical trading infrastructure depends on a single cloud provider whose failure endangered critical functions, requiring substitutability analysis and alternative solutions."},
+            {"source_id": "dora", "provision": "Article 30",
+             "relevance": "Article 30 requires the cloud contract to secure incident assistance, notification of material developments, tested contingency plans, and ongoing performance monitoring, the provisions the firm invokes during and after the attack."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Once established, the unauthorized access to systems holding client information is a personal data breach, obliging notification to the supervisory authority within 72 hours with phased information while the investigation proceeds.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 4",
+             "relevance": "Article 4(12) makes the possible unauthorized access to systems holding client information a personal data breach once established, grounding the GDPR track of the response."},
+            {"source_id": "gdpr", "provision": "Article 33",
+             "relevance": "Article 33 obliges the firm to notify the supervisory authority within 72 hours of awareness of the potential client-data access, with phased information under Article 33(4) while the investigation proceeds and documentation under Article 33(5)."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Clients must be informed where attacker access creates high risk, with the encryption condition available where affected data were unintelligible.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 34",
+             "relevance": "Article 34 requires communication to affected clients where attacker access creates high risk, with Article 34(3)'s encryption condition available where affected data were unintelligible."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="Client data and trading systems must be secured with measures covering availability and timely restoration, framed by the integrity and confidentiality principle.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 32",
+             "relevance": "Article 32's security duties, including availability and timely restoration for client data, frame both the incident's prevention dimension and the recovery architecture."},
+            {"source_id": "gdpr", "provision": "Article 5",
+             "relevance": "Article 5(1)(f)'s integrity-and-confidentiality principle frames the security hardening the firm owes client data after the attack."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The firm's remediation must produce demonstrable compliance measures under the accountability duty.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "gdpr", "provision": "Article 24",
+             "relevance": "Article 24's accountability duty frames the demonstrable compliance measures the firm's remediation must produce."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The firm is a Union deployer owing AI Act duties, and the definitions of deployer and intended purpose frame the classification of the trading-recommendation tool.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 2",
+             "relevance": "Article 2(1)(b) establishes the firm's status as a Union deployer owing AI Act duties, the entry point for the classification analysis of the trading-recommendation system."},
+            {"source_id": "ai-act", "provision": "Article 3",
+             "relevance": "Article 3's definitions of deployer and intended purpose frame the classification of a recommendation tool used by traders under the firm's authority, whose intended purpose drives the high-risk question."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The classification analysis tests the product-safety route and the Annex III creditworthiness wording, and on the stated facts leaves the market-recommendation tool in the lighter tier - a shift toward evaluating clients' creditworthiness would change that.",
+        strength=Strength.moderate,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 6",
+             "relevance": "Article 6(1) supplies the product-safety high-risk route through Annex I, which the classification analysis tests for this decision-support tool and, on the stated facts, leaves the system in the lighter tier."},
+            {"source_id": "ai-act", "provision": "Annex 1",
+             "relevance": "Annex I lists the Union harmonisation legislation whose safety components trigger Article 6(1) high-risk classification, the alternative route assessed for the trading system, which on the stated facts leaves a recommendation engine in the lighter tier."},
+            {"source_id": "ai-act", "provision": "Annex 3",
+             "relevance": "Annex III point 5(b) frames the decisive classification test: its creditworthiness wording leaves a market-analysis and recommendation tool in the lighter tier on these facts, and any shift toward evaluating clients' creditworthiness would change that."},
+        ],
+    ),
+    ExpectedFinding(
+        statement="The traders using the system's recommendations need sufficient AI literacy - the duty the analysis finds clearly applicable.",
+        strength=Strength.strong,
+        citations=[
+            {"source_id": "ai-act", "provision": "Article 4",
+             "relevance": "Article 4 obliges the firm to ensure its traders using the system's recommendations have sufficient AI literacy, the AI Act duty the analysis finds clearly applicable to this deployment."},
+        ],
+    ),
+]
+LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
     EvalScenario(
-        id="live-hr-recruitment",
-        scenario_id="hr-cv-screening",
-        description="A company uses an AI system to automatically rank job applicants based on their CVs and video interviews.",
-        question="What legal obligations should we consider before using this system?",
-        expected=_HR_RECRUITMENT_EXPECTED,
+        id="live-retailer-breach",
+        scenario_id="online-retailer-breach",
+        description="An online retailer discovers that attackers gained unauthorized access to a database containing customers' names, email addresses, postal addresses, and order information. The company has confirmed that the attackers were able to access the data but does not yet know whether the information was downloaded.",
+        question="What regulatory obligations should the company consider following this personal data breach?",
+        expected=_RETAILER_BREACH_EXPECTED,
+    ),
+    EvalScenario(
+        id="live-ai-recruitment-screening",
+        scenario_id="hr-ai-cv-screening",
+        description="A company uses an AI system to screen job applications. The system analyses applicants' CVs and recorded video interviews and assigns each applicant a score that recruiters use to prioritize candidates for interviews.",
+        question="What regulatory requirements should the company consider before using this AI system for recruitment?",
+        expected=_AI_RECRUITMENT_SCREENING_EXPECTED,
     ),
     EvalScenario(
         id="live-bank-cloud-outage",
         scenario_id="bank-cloud-outage",
-        description="A bank relies on a cloud provider for critical online banking systems. A major outage has prevented customers from accessing their accounts.",
-        question="What regulatory obligations should we consider?",
+        description="A bank relies on an external cloud provider to host critical systems used for online banking. A major technical failure at the cloud provider makes the bank's online banking services unavailable to customers for several hours.",
+        question="What regulatory obligations should the bank consider in relation to this incident and its reliance on the cloud provider?",
         expected=_BANK_CLOUD_OUTAGE_EXPECTED,
     ),
     EvalScenario(
-        id="live-fintech-loan-decisions",
-        scenario_id="fintech-loan-decisions",
-        description="A fintech company uses an AI system to analyse customers' income and financial history to automatically decide whether to approve their loan applications.",
-        question="What regulations and obligations could apply?",
-        expected=_FINTECH_LOAN_DECISIONS_EXPECTED,
-    ),
-    EvalScenario(
-        id="live-employee-monitoring",
+        id="live-employee-productivity-monitoring",
         scenario_id="employee-productivity-monitoring",
-        description="A company uses AI software to monitor employees' computer activity and automatically generate productivity scores.",
-        question="Are there any legal requirements we need to consider?",
-        expected=_EMPLOYEE_MONITORING_EXPECTED,
-    ),
-    EvalScenario(
-        id="live-data-breach-notification",
-        scenario_id="online-store-breach",
-        description="An online store discovered that hackers accessed a database containing customers' names, email addresses and home addresses.",
-        question="What legal obligations does the company have following this incident?",
-        expected=_DATA_BREACH_NOTIFICATION_EXPECTED,
-    ),
-    EvalScenario(
-        id="live-insurance-health-pricing",
-        scenario_id="insurer-health-ai-pricing",
-        description="An insurance company uses AI to analyse customers' health information and automatically calculate life insurance prices.",
-        question="What regulations and compliance requirements should we consider?",
-        expected=_INSURANCE_HEALTH_PRICING_EXPECTED,
+        description="A company deploys software that continuously records employees' computer activity, including applications used, websites visited, and time spent working. An AI system uses this information to generate an individual productivity score for each employee, which managers can use when evaluating performance.",
+        question="What legal requirements should the company consider when using this system to monitor and evaluate employees?",
+        expected=_EMPLOYEE_PRODUCTIVITY_MONITORING_EXPECTED,
     ),
     EvalScenario(
         id="live-telecom-chatbot",
         scenario_id="telecom-genai-chatbot",
-        description="A telecommunications company uses a generative AI chatbot to answer customer questions. Customers may provide their names, account numbers and addresses during conversations.",
-        question="What legal requirements apply to this system?",
-        expected=_TELECOM_CHATBOT_EXPECTED,
+        description="A telecommunications company deploys a generative AI chatbot on its website to answer customer-service questions. Customers can enter information such as their name, account number, and address when describing their problems. The chatbot provides answers but cannot make changes to customer accounts.",
+        question="What regulatory requirements should the company consider when operating this chatbot and processing the information provided by customers?",
+        expected=_TELECOM_GENAI_CHATBOT_EXPECTED,
+    ),
+    EvalScenario(
+        id="live-fintech-loan-recommendations",
+        scenario_id="fintech-loan-recommendations",
+        description="A fintech company uses an AI system to analyse applicants' income, employment history, existing debts, and other financial information to produce a recommendation on whether a loan should be approved. Employees review the recommendation before making the final decision. The company uses the system for all consumer loan applications in the EU.",
+        question="What EU regulatory requirements should the company consider when using this system to assess and decide on consumer loan applications?",
+        expected=_FINTECH_LOAN_RECOMMENDATIONS_EXPECTED,
+    ),
+    EvalScenario(
+        id="live-insurance-health-pricing",
+        scenario_id="insurer-health-ai-pricing",
+        description="An insurance company uses an AI system to analyse applicants' medical information and other personal data when determining eligibility and calculating premiums for life insurance policies. The system produces a recommended premium automatically, which an employee can review before the policy is issued.",
+        question="What regulatory requirements should the insurer consider regarding the use of AI and the processing of applicants' health information?",
+        expected=_INSURANCE_HEALTH_PRICING_EXPECTED,
     ),
     EvalScenario(
         id="live-ransomware-investment-firm",
         scenario_id="investment-firm-ransomware",
-        description="An investment firm has suffered a ransomware attack that disrupted its trading platform and affected systems containing client information.",
-        question="What regulatory obligations should we consider?",
+        description="An investment firm suffers a ransomware attack that disrupts its trading platform and prevents employees from accessing several internal systems. Some systems affected by the attack contain client personal data. The firm restores its services after several hours and is investigating whether client data was accessed by the attackers.",
+        question="What regulatory obligations should the firm consider following the incident?",
         expected=_RANSOMWARE_INVESTMENT_FIRM_EXPECTED,
     ),
+    EvalScenario(
+        id="live-genai-customer-service",
+        scenario_id="financial-institution-genai-assistant",
+        description="A European financial institution deploys a generative AI system provided by an external technology company to assist customer-service employees. The system processes customer conversations that may contain account information and personal data. The AI service is hosted on infrastructure operated by another cloud provider, and the financial institution has limited visibility into how the underlying service is operated.",
+        question="What regulatory requirements should the financial institution consider regarding the AI system, the processing of customer information, and its reliance on external technology providers?",
+        expected=_GENAI_CUSTOMER_SERVICE_ASSISTANT_EXPECTED,
+    ),
+    EvalScenario(
+        id="live-ai-trading-cloud-attack",
+        scenario_id="investment-firm-ai-cloud-attack",
+        description="A European investment firm uses an AI system hosted by a third-party cloud provider to analyse market and client information and generate recommendations that traders use when making investment decisions. The system processes personal data relating to clients and is integrated into the firm's critical trading infrastructure. The cloud provider suffers a major cyberattack that disrupts the firm's trading systems for more than a day. During the incident, the firm discovers that attackers may also have gained unauthorized access to systems containing client information.",
+        question="What EU regulatory obligations should the investment firm consider in relation to the AI system, the processing of client data, the ICT incident, and its dependence on the third-party cloud provider?",
+        expected=_AI_TRADING_CLOUD_ATTACK_EXPECTED,
+    ),
 ]
-
-LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
-    scenario for scenario in CURATED_SCENARIOS if scenario.id in _CANONICAL_CASE_IDS
-] + _LIVE_CASE_SCENARIOS
 
 
 # The audit-dump form of one expected Finding: the authored statement, its
@@ -978,7 +1847,7 @@ def _summary_fidelity(
     provision-aligned expected and produced Provision relevance.
 
     Ground truth must summarize at least one cited provision for the
-    component to measure at all (#51 authors those labels). Pairs align by
+    component to measure at all (the labels #51 authored). Pairs align by
     structural target, one per provision: a target the Answer cites bare —
     ground truth summarizes it, the Summarizer shipped nothing — floors its
     share of the score deterministically, with no judge call; a target

@@ -24,3 +24,13 @@ the corpus level per locked decision Q8 (issue #1).
 - **DORA carries full recital text** for all 106 recitals — the only document whose recitals can be quoted.
 - **AI Act annex numbering is shifted by one** relative to the official text: the JSON `annexes` array is indexed 0–12, so `annexes[2]` has id `annex-3` and is titled "High-Risk AI Systems Referred to in Article 6(2)" — the official Annex III. Citations use official numbering and resolve via the corpus id.
 - **Spain-specific national requirements are outside the corpus entirely** (e.g. Spanish Credit Agreements law, AEPD guidance).
+
+## Evaluation ground truth
+
+`citations.json` is not corpus: it is the maintainer's hand-authored record of
+the Live eval's expected citations (issue #51). Each scenario entry lists the
+provisions an answer should cite, each with the relevance summary the
+summary-fidelity judge compares against. It is independent of pipeline output
+(#7 precedent) and is transcribed verbatim into `backend/src/eval_harness.py`,
+where `test_live_eval.py::test_shipped_ground_truth_transcribes_the_operators_citations_file`
+pins the transcription.

@@ -30,7 +30,7 @@ from src.live_eval import LiveEvalRefused, main, report_artifact, run_live_eval
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ProvisionSummary, ResearchTarget, Summaries, Verdict, Verdicts
 from src.models import Mode, ProvisionKind, Strength
 
-from conftest import install_fake_pipeline
+from conftest import ROOT, install_fake_pipeline
 from fakes import (
     CONTRADICTION_VERDICT,
     FULL_AGREEMENT_VERDICT,
@@ -64,11 +64,12 @@ def _on_target_llm() -> ScriptedLlm:
     statement differs from the expectation's — an audit would still pair
     them by eye through the dump."""
     statement = (
-        "AI systems that evaluate the creditworthiness of natural persons or "
-        "establish their credit score are high-risk AI systems under the AI Act."
+        "The company must notify the supervisory authority of the breach "
+        "within seventy-two hours and inform affected customers where they "
+        "face a high risk."
     )
     return ScriptedLlm(
-        plan=Plan(targets=[ResearchTarget(query="creditworthiness evaluation high-risk")]),
+        plan=Plan(targets=[ResearchTarget(query="breach notification duties")]),
         claims=DraftClaims(claims=[DraftClaim(statement=statement, evidence_refs=["E1", "E2"])]),
         verdicts=Verdicts(verdicts=[
             Verdict(statement=statement, supported=True, strength=Strength.strong, evidence_refs=["E1", "E2"])
@@ -79,8 +80,8 @@ def _on_target_llm() -> ScriptedLlm:
 def _on_target_retriever() -> FakeRetriever:
     """Chunks whose provision metadata matches the ground truth's targets."""
     return FakeRetriever(chunks=[
-        make_chunk(source_id="ai-act", kind=ProvisionKind.article, number=6),
-        make_chunk(source_id="ai-act", kind=ProvisionKind.annex, number=3),
+        make_chunk(source_id="gdpr", kind=ProvisionKind.article, number=33),
+        make_chunk(source_id="gdpr", kind=ProvisionKind.article, number=34),
     ])
 
 
@@ -124,7 +125,7 @@ def test_scores_every_live_case_through_the_live_pipeline(ingested_store, query_
     assert [result.id for result in report.scenarios] == [case.id for case in LIVE_EVAL_SCENARIOS]
     first = report.scenarios[0]
     assert isinstance(first, EvalScenarioResult)
-    # On the canonical case the produced Citations hit exactly the two expected
+    # On the first case the produced Citations hit exactly the two expected
     # targets and nothing else: full precision, partial recall. The other
     # cases' expectations describe different scenarios, so this one canned
     # Finding simply goes uncovered there — per-case scoring is what matters.
@@ -159,16 +160,44 @@ def test_live_case_ids_are_unique():
     assert len(ids) == len(set(ids))
 
 
+def test_shipped_ground_truth_transcribes_the_operators_citations_file():
+    """#51's ground truth is transcribed verbatim from the operator's
+    data/regulations/citations.json: every case's cited provisions and their
+    relevance summaries must match the file exactly, so the operator's
+    authored file stays the record and any transcription drift fails here
+    instead of silently changing the judge's ground truth. Cases pair with
+    scenario keys by order — the file numbers its scenarios the same way
+    (scenario_1 first) — and a reorder or mismatch fails loudly."""
+    citations = json.loads((ROOT / "data" / "regulations" / "citations.json").read_text())
+    assert len(LIVE_EVAL_SCENARIOS) == len(citations), "one case per citations.json scenario"
+
+    for index, case in enumerate(LIVE_EVAL_SCENARIOS, start=1):
+        key = f"scenario_{index}"
+        shipped = [
+            (c["source_id"], c["provision"], c["relevance"])
+            for finding in case.expected
+            for c in finding.citations
+        ]
+        authored = [
+            (entry["source_id"], entry["provision"], entry["relevance"])
+            for entry in citations[key]
+        ]
+        assert sorted(shipped) == sorted(authored), f"{case.id} does not transcribe {key} verbatim"
+        # Every shipped citation carries its authored relevance — the shape
+        # the fidelity judge reads — with none left bare.
+        assert all(relevance for _, _, relevance in shipped), f"{case.id}: bare expected citation"
+
+
 def test_coverage_recall_is_strength_weighted_over_expected_targets(ingested_store, query_log_path):
-    """The produced Citations hit the two targets of the first (strong)
-    expectation: recall is their combined weight over the max-rule weighted
-    total of the case's expected targets."""
+    """The produced Citations hit two strongly-weighted expected targets:
+    recall is their combined weight over the max-rule weighted total of the
+    case's expected targets."""
     install_fake_pipeline(_on_target_llm(), _on_target_retriever())
 
     report = run_live_eval(live_settings(query_log_path))
 
     first = report.scenarios[0]
-    hit_weight = STRENGTH_WEIGHTS[Strength.strong] * 2  # Article 6(2) + Annex III point 4(a)
+    hit_weight = STRENGTH_WEIGHTS[Strength.strong] * 2  # gdpr Article 33 + Article 34
     total_weight = sum(expected_target_weights(LIVE_EVAL_SCENARIOS[0].expected).values())
     assert first.recall == pytest.approx(hit_weight / total_weight)
 
@@ -213,31 +242,36 @@ def test_not_available_mid_run_aborts_instead_of_scoring_zeros(monkeypatch, quer
 
 def _on_target_llm_with_summaries() -> ScriptedLlm:
     """The on-target pipeline plus the Summarizer's reply: one grounded
-    relevance statement per cited provision (P1: Article 6, P2: Annex III)."""
+    relevance statement per cited provision (P1: Article 33, P2: Article 34)."""
+    statement = (
+        "The company must notify the supervisory authority of the breach "
+        "within seventy-two hours and inform affected customers where they "
+        "face a high risk."
+    )
     return ScriptedLlm(
-        plan=Plan(targets=[ResearchTarget(query="creditworthiness evaluation high-risk")]),
+        plan=Plan(targets=[ResearchTarget(query="breach notification duties")]),
         claims=DraftClaims(claims=[DraftClaim(
-            statement="AI systems that evaluate the creditworthiness of natural persons are high-risk.",
+            statement=statement,
             evidence_refs=["E1", "E2"],
         )]),
         verdicts=Verdicts(verdicts=[
             Verdict(
-                statement="AI systems that evaluate the creditworthiness of natural persons are high-risk.",
+                statement=statement,
                 supported=True,
                 strength=Strength.strong,
                 evidence_refs=["E1", "E2"],
             )
         ]),
         summaries=Summaries(summaries=[
-            ProvisionSummary(ref="P1", relevance="produced relevance for Article 6"),
-            ProvisionSummary(ref="P2", relevance="produced relevance for Annex III"),
+            ProvisionSummary(ref="P1", relevance="produced relevance for Article 33"),
+            ProvisionSummary(ref="P2", relevance="produced relevance for Article 34"),
         ]),
     )
 
 
 def _comparable_case() -> EvalScenario:
     """A Live case whose ground truth summarizes the provisions it cites —
-    the shape #51 will author; here it is test data, never shipped labels."""
+    the shape #51 authored; here it is test data, never shipped labels."""
     return EvalScenario(
         id="judged-case",
         scenario_id="some-live-scenario",
@@ -247,8 +281,8 @@ def _comparable_case() -> EvalScenario:
             statement="expected statement",
             strength=Strength.strong,
             citations=[
-                {"source_id": "ai-act", "provision": "Article 6", "relevance": "expected relevance for Article 6"},
-                {"source_id": "ai-act", "provision": "Annex III point 5(b)", "relevance": "expected relevance for Annex III"},
+                {"source_id": "gdpr", "provision": "Article 33", "relevance": "expected relevance for Article 33"},
+                {"source_id": "gdpr", "provision": "Article 34", "relevance": "expected relevance for Article 34"},
             ],
         )],
     )
@@ -464,10 +498,12 @@ def test_main_writes_the_report_artifact_when_given_an_output_path(monkeypatch, 
         "summary_fidelity", "strength_agreement",
     }
     assert first["expected"] and first["produced"]
-    # No judge ran and #51 has not authored the relevance labels yet: the
-    # fidelity component reports unmeasured, never a fake zero.
-    assert first["summary_fidelity"] is None
-    assert artifact["mean_summary_fidelity"] is None
+    # No judge ran, and the canned pipeline ships no relevance summaries for
+    # the provisions it cites: the fidelity component scores the
+    # deterministic floor — a bare citation is infidelitous by construction —
+    # while every unmeasured case reports None, never a fake zero.
+    assert first["summary_fidelity"] == pytest.approx(0.0)
+    assert artifact["mean_summary_fidelity"] == pytest.approx(0.0)
     # Both dump sides speak provisions: authored labels vs structural targets.
     assert all(
         "gdpr" in citation["label"] or "ai-act" in citation["label"] or "dora" in citation["label"]
