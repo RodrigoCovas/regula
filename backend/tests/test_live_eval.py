@@ -364,7 +364,9 @@ def test_main_aborts_clearly_when_the_judge_cannot_be_reached(monkeypatch, capsy
 
     assert exit_code == 1
     err = capsys.readouterr().err
-    assert "judge" in err.lower()
+    assert "llm call failed" in err.lower()
+    # The judge names itself: the operator can tell which LLM call failed.
+    assert "summary-fidelity judge" in err
     assert "Could not reach the LLM provider" in err
     assert not out_path.exists()
 
@@ -396,12 +398,42 @@ def test_main_aborts_clearly_when_the_judge_reply_cannot_be_trusted(monkeypatch,
     assert "judge" in capsys.readouterr().err.lower()
 
 
+def test_main_aborts_clearly_when_a_workflow_llm_call_fails(monkeypatch, capsys):
+    """A provider glitch mid-run — a malformed planner reply, say — aborts the
+    run like any infrastructure failure, and the message must not blame the
+    summary-fidelity judge: the abort names the LLM call failure itself, with
+    the provider detail verbatim, so the operator fixes the right thing."""
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+
+    class GlitchingPlanner:
+        def complete(self, system, user, schema):
+            raise LlmError(
+                "Model 'test-model-9' did not return parseable JSON for schema Plan: '{\"targets\":[]}]'"
+            )
+
+    install_fake_pipeline(GlitchingPlanner(), _on_target_retriever())
+
+    exit_code = main([])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "Live eval aborted" in err
+    assert "LLM call failed" in err
+    assert "schema Plan" in err
+    assert "judge" not in err.lower()
+
+
 def test_main_prints_all_three_components_with_their_aggregates(monkeypatch, capsys):
     import src.availability as availability
 
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
     monkeypatch.setenv("REGULA_MODE", "demo")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("LLM_MODEL", "test-model-9")
     install_fake_pipeline(_on_target_llm(), _on_target_retriever())
 
     exit_code = main([])
@@ -414,6 +446,9 @@ def test_main_prints_all_three_components_with_their_aggregates(monkeypatch, cap
     assert "mean coverage" in out.lower()
     assert "mean summary fidelity" in out.lower()
     assert "mean strength agreement" in out.lower()
+    # The operator output names the model that produced the numbers —
+    # results are model-sensitive by design (ADR-0009).
+    assert "Model: test-model-9" in out
     # No judge and no authored summaries: the unmeasured component reads as
     # n/a, never as a fake zero.
     assert "n/a" in out
@@ -424,7 +459,10 @@ def test_main_prints_all_three_components_with_their_aggregates(monkeypatch, cap
 
 def test_report_artifact_shape_at_the_pure_seam():
     """The CLI's JSON artifact is a pure function of the report: run metadata
-    over the per-case component scores plus the produced-versus-expected dump."""
+    over the per-case component scores plus the produced-versus-expected dump.
+    The metadata names the model that produced the numbers — eval results are
+    model-sensitive by design (ADR-0009), so the artifact must say whose they
+    are or a later reader cannot judge them."""
     report = EvalReport(
         scenarios=[EvalScenarioResult(
             id="case",
@@ -441,10 +479,11 @@ def test_report_artifact_shape_at_the_pure_seam():
         mean_strength_agreement=1.0,
     )
 
-    artifact = report_artifact(report)
+    artifact = report_artifact(report, llm_model="upstage/solar-pro4")
 
     assert artifact["mode"] == "live"
     assert artifact["generated_at"]
+    assert artifact["llm_model"] == "upstage/solar-pro4"
     assert artifact["mean_f1"] == pytest.approx(0.666666)
     assert artifact["mean_summary_fidelity"] == pytest.approx(0.75)
     assert artifact["mean_strength_agreement"] == pytest.approx(1.0)
@@ -481,6 +520,7 @@ def test_main_writes_the_report_artifact_when_given_an_output_path(monkeypatch, 
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
     monkeypatch.setenv("REGULA_MODE", "demo")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("LLM_MODEL", "test-model-9")
     install_fake_pipeline(_on_target_llm(), _on_target_retriever())
     out_path = tmp_path / "reports" / "live-eval.json"
 
@@ -491,6 +531,9 @@ def test_main_writes_the_report_artifact_when_given_an_output_path(monkeypatch, 
     artifact = json.loads(out_path.read_text())
     assert artifact["mode"] == "live"
     assert artifact["generated_at"]
+    # The artifact records the model that produced the numbers (ADR-0009):
+    # the configured LLM_MODEL, not a hardcoded pin.
+    assert artifact["llm_model"] == "test-model-9"
     assert artifact["mean_f1"] == pytest.approx(
         sum(case["f1"] for case in artifact["scenarios"]) / len(artifact["scenarios"])
     )

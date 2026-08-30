@@ -10,6 +10,8 @@ defaults that reproduce the original pin (Solar Pro 4 over OpenRouter, nomic
 embedder).
 """
 
+import os
+
 import pytest
 from pathlib import Path
 
@@ -198,6 +200,12 @@ def test_load_settings_reads_backend_env_local_when_present(monkeypatch, tmp_pat
     settings = load_settings()
 
     assert settings.llm_model == "from-env-local"
+    # load_dotenv planted the file's values straight into os.environ — a
+    # side effect monkeypatch cannot undo, because the delenv above recorded
+    # the variable's absent state before the plant happened. Remove the
+    # planted value explicitly so the leak cannot reach later tests (a
+    # suite-order-dependent model leak once surfaced exactly here).
+    os.environ.pop("LLM_MODEL", None)
 
 
 def test_the_real_environment_wins_over_env_local(monkeypatch, tmp_path):

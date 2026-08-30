@@ -14,8 +14,9 @@ Summary fidelity measures where the ground truth summarizes a cited
 provision (the labels #51 authored, one per cited provision); elsewhere it
 reports unmeasured, and
 the judge is never woken for nothing. The judge is the configured provider
-itself (ADR-0009): if it cannot be reached — or a reply fails the verdict
-schema — the run aborts with the detail, never scoring silence.
+itself (ADR-0009): if any LLM call fails mid-run — the workflow's or the
+judge's, an unreachable provider or a reply that fails its schema — the run
+aborts with the detail, never scoring silence.
 
 With ``--output PATH`` the command also writes a JSON artifact: the run's
 metadata, the per-case component scores, and the produced-versus-expected
@@ -66,6 +67,21 @@ class LiveEvalRefused(RuntimeError):
     """The quality run cannot start; the message names what to do about it."""
 
 
+def _judge_naming_its_failures(judge: SummaryJudge) -> SummaryJudge:
+    """The judge with its failures annotated: when an LLM call aborts the run,
+    the message must say which call it was — the judge's LlmErrors are
+    re-raised prefixed with "judge", so they read differently from the
+    workflow stages' own failures under the CLI's single abort message."""
+    class _BlamedJudge:
+        def compare(self, pairs):
+            try:
+                return judge.compare(pairs)
+            except LlmError as error:
+                raise LlmError(f"summary-fidelity judge: {error}") from error
+
+    return _BlamedJudge()
+
+
 def ensure_runnable(settings: Settings) -> None:
     """Refuse clearly when the run's prerequisites are missing.
 
@@ -112,9 +128,12 @@ def run_live_eval(
 
     The fidelity judge defaults to the configured provider (ADR-0009) through
     the one ``chat_client`` recipe the workflow itself runs on; tests script
-    the seam by passing one. A judge failure — an unreachable provider, a
-    verdict that fails its schema — aborts the run: infrastructure failure is
-    never measured quality.
+    the seam by passing one. The default judge carries its name on its
+    failures — when an LLM call aborts the run, the operator must be able to
+    tell which call it was: the judge's failures say "judge", the workflow
+    stages' speak for themselves. Any LLM failure — unreachable provider,
+    schema-invalid reply, workflow or judge — aborts the run:
+    infrastructure failure is never measured quality.
 
     A Not-available response mid-run means the ground shifted under the run
     (the store emptied, an outage began): it is infrastructure failure, never
@@ -149,7 +168,11 @@ def run_live_eval(
             scenarios if scenarios is not None else LIVE_EVAL_SCENARIOS,
             respond,
             mode=Mode.live,
-            judge=judge if judge is not None else SummaryFidelityJudge(chat_client(settings)),
+            judge=(
+                judge
+                if judge is not None
+                else _judge_naming_its_failures(SummaryFidelityJudge(chat_client(settings)))
+            ),
         )
     finally:
         main.settings = app_settings
@@ -161,10 +184,13 @@ def _fmt(score: Optional[float]) -> str:
     return f"{score:.3f}" if score is not None else "n/a"
 
 
-def print_report(report: EvalReport) -> None:
+def print_report(report: EvalReport, llm_model: str) -> None:
     """Per-case component scores, then the aggregates — the operator-facing
-    output. Three components, three means, never blended (ADR-0010)."""
+    output. Three components, three means, never blended (ADR-0010). The
+    model that produced the numbers is named: results are model-sensitive
+    by design (ADR-0009)."""
     print(f"Live eval: {len(report.scenarios)} case(s) through /api/analyze in Live mode")
+    print(f"Model: {llm_model}")
     for result in report.scenarios:
         print(
             f"  {result.id}: coverage precision={result.precision:.3f} "
@@ -177,27 +203,31 @@ def print_report(report: EvalReport) -> None:
     print(f"Aggregate mean strength agreement: {_fmt(report.mean_strength_agreement)}")
 
 
-def report_artifact(report: EvalReport) -> dict:
+def report_artifact(report: EvalReport, llm_model: str) -> dict:
     """The JSON artifact the CLI writes: run metadata over the full report —
-    per-case component scores plus the produced-versus-expected dump."""
+    the model that produced the numbers (ADR-0009), per-case component
+    scores, and the produced-versus-expected dump."""
     return {
         "mode": Mode.live.value,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "llm_model": llm_model,
         **asdict(report),
     }
 
 
-def write_report_artifact(report: EvalReport, path: Path) -> None:
+def write_report_artifact(report: EvalReport, path: Path, llm_model: str) -> None:
     """Write the artifact, creating missing parent directories on the way."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report_artifact(report), indent=2) + "\n")
+    path.write_text(json.dumps(report_artifact(report, llm_model), indent=2) + "\n")
 
 
 def main(argv: list | None = None) -> int:
-    """The CLI entry point: refuse with exit 1 when prerequisites are missing
-    or the judge fails (an unreachable provider, an invalid verdict),
-    otherwise print the report, write the artifact when --output is given,
-    and exit 0. ``argv`` defaults to the process arguments."""
+    """The CLI entry point: refuse with exit 1 when prerequisites are missing,
+    abort with exit 1 when an LLM call fails mid-run (the workflow's or the
+    judge's — a malformed reply or an unreachable provider is infrastructure
+    failure, never measured quality), otherwise print the report, write the
+    artifact when --output is given, and exit 0. ``argv`` defaults to the
+    process arguments."""
     parser = argparse.ArgumentParser(
         description="Run the Live eval and print per-case component scores.",
     )
@@ -211,16 +241,17 @@ def main(argv: list | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        report = run_live_eval(load_settings())
+        settings = load_settings()
+        report = run_live_eval(settings)
     except (LiveEvalRefused, ConfigurationError) as error:
         print(f"Live eval refused: {error}", file=sys.stderr)
         return 1
     except LlmError as error:
-        print(f"Live eval aborted: the summary-fidelity judge failed — {error}", file=sys.stderr)
+        print(f"Live eval aborted: an LLM call failed — {error}", file=sys.stderr)
         return 1
-    print_report(report)
+    print_report(report, llm_model=settings.llm_model)
     if args.output is not None:
-        write_report_artifact(report, args.output)
+        write_report_artifact(report, args.output, llm_model=settings.llm_model)
         print(f"Report artifact written to {args.output}")
     return 0
 
