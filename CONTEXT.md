@@ -88,6 +88,14 @@ How directly the cited Evidence supports a Finding, at three levels:
 Every Finding carries Evidence and stays in the Answer, badged with its Strength. A statement with no Evidence is not a Finding and never appears in the Answer.
 _Avoid_: Confidence, probability
 
+  **Finding strength**:
+  The Strength of one Finding: how directly that Finding's own Evidence supports that Finding's claim. Judged per Finding, on the provisions that Finding cites.
+  _Avoid_: Citation strength, average strength
+
+  **Citation strength**:
+  The Strength of one cited provision for the whole Answer, not for one Finding: the strongest Finding strength among the Findings citing it. Two Findings citing the same provision can carry different Finding strengths; the provision carries one Citation strength.
+  _Avoid_: Finding strength, average strength
+
 **Unsupported claim**:
 A statement with no Evidence in the Corpus either way — no provision can be cited for or against it. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
 _Avoid_: Unverified claim, speculation
