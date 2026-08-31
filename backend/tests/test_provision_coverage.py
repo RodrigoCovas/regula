@@ -32,7 +32,6 @@ from src.models import Citation, ProvisionKind, ProvisionTarget, Strength
 def _expected(strength: Strength, *labels: str, source_id: str = "ai-act") -> ExpectedFinding:
     return ExpectedFinding(
         statement=f"expected finding citing {', '.join(labels) or 'nothing'}",
-        strength=strength,
         citations=[{"source_id": source_id, "provision": label, "strength": strength} for label in labels],
     )
 
@@ -124,21 +123,6 @@ def test_a_target_is_weighted_by_its_strongest_rated_citation():
     assert weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.strong]}
 
 
-def test_weights_read_the_expected_citations_strengths_not_the_finding_labels():
-    """Recall weights derive from each expected Citation's own Strength — the
-    operator's per-provision rating transcribed in #56 — under the shared
-    max-rule. A Finding-level Strength disagreeing with its Citations feeds
-    no score (#57)."""
-    weights = expected_target_weights([
-        ExpectedFinding(
-            statement="finding label disagrees with its citations",
-            strength=Strength.strong,
-            citations=[{"source_id": "ai-act", "provision": "Article 6", "strength": Strength.weak}],
-        ),
-    ])
-    assert weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.weak]}
-
-
 def test_each_expected_target_carries_its_own_weight():
     weights = expected_target_weights([
         _expected(Strength.weak, "Article 3"),
@@ -215,20 +199,6 @@ def test_expected_target_strengths_follow_the_max_rule():
     assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
 
 
-def test_expected_strengths_read_the_citations_ratings_not_the_finding_labels():
-    """The agreement component's expected half reads the same per-provision
-    ratings as the recall weights (#57) — one expected-strength source backs
-    both components, so product and eval aggregation cannot diverge."""
-    strengths = expected_target_strengths([
-        ExpectedFinding(
-            statement="finding label disagrees with its citation",
-            strength=Strength.weak,
-            citations=[{"source_id": "ai-act", "provision": "Article 6", "strength": Strength.moderate}],
-        ),
-    ])
-    assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.moderate}
-
-
 def test_strength_agreement_compares_both_sides_per_shared_target():
     """Provision-aligned comparison: a target both sides cite agrees when the
     max-rule strengths match, whatever those strengths are."""
@@ -294,7 +264,6 @@ def test_expected_relevance_summaries_key_by_parsed_target():
     expected = [
         ExpectedFinding(
             statement="expected finding",
-            strength=Strength.strong,
             citations=[{
                 "source_id": "gdpr",
                 "provision": "Article 22",
@@ -322,12 +291,10 @@ def test_conflicting_ground_truth_summaries_fail_loudly():
     expected = [
         ExpectedFinding(
             statement="first",
-            strength=Strength.strong,
             citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "one story", "strength": Strength.strong}],
         ),
         ExpectedFinding(
             statement="second",
-            strength=Strength.moderate,
             citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "another story", "strength": Strength.moderate}],
         ),
     ]
@@ -339,12 +306,10 @@ def test_identical_duplicate_summaries_deduplicate():
     expected = [
         ExpectedFinding(
             statement="first",
-            strength=Strength.strong,
             citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "same story", "strength": Strength.strong}],
         ),
         ExpectedFinding(
             statement="second",
-            strength=Strength.moderate,
             citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "same story", "strength": Strength.moderate}],
         ),
     ]
@@ -433,7 +398,7 @@ def test_empty_expected_with_leakage_scores_zero():
 def test_expectation_without_citations_is_a_loud_zero():
     """A ground-truth Finding naming no provision can never be covered — the
     authoring bug scores zero instead of passing silently."""
-    expected = [ExpectedFinding(statement="no provisions named", strength=Strength.strong)]
+    expected = [ExpectedFinding(statement="no provisions named")]
     assert coverage_scores(expected, [])["f1"] == 0.0
     assert coverage_scores(expected, [_produced(Strength.strong, _article(6))])["f1"] == 0.0
 
@@ -447,7 +412,6 @@ def test_scores_ignore_statement_text_entirely():
     expected = [
         ExpectedFinding(
             statement="The completely unrelated produced wording below still covers this provision",
-            strength=Strength.strong,
             citations=[{"source_id": "gdpr", "provision": "Article 22", "strength": Strength.strong}],
         )
     ]

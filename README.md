@@ -413,8 +413,8 @@ of each. The judge runs on the same configured provider as the workflow; if
 it cannot be reached — or a verdict fails its schema — the run aborts with
 the fix instead of scoring silence. With `--output` it also writes a JSON
 report: per-case component scores plus the produced-versus-expected dump
-(statements, Strengths, Citation targets, relevance summaries) for the
-human audit. Precision over provisions is pessimistic by construction — a
+(statements, Citation targets, relevance summaries, and the produced side's
+Strengths) for the human audit. Precision over provisions is pessimistic by construction — a
 produced Citation outside the hand-authored expected set is not necessarily
 wrong; review the spurious list before quoting numbers. Without a key or an
 ingested Corpus it refuses with the fix instead of measuring garbage.

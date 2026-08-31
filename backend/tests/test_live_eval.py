@@ -283,7 +283,6 @@ def _comparable_case() -> EvalScenario:
         question="What applies?",
         expected=[ExpectedFinding(
             statement="expected statement",
-            strength=Strength.strong,
             citations=[
                 {"source_id": "gdpr", "provision": "Article 33", "relevance": "expected relevance for Article 33", "strength": Strength.strong},
                 {"source_id": "gdpr", "provision": "Article 34", "relevance": "expected relevance for Article 34", "strength": Strength.strong},
@@ -470,7 +469,7 @@ def test_report_artifact_shape_at_the_pure_seam():
             precision=1.0,
             recall=0.5,
             f1=0.666666,
-            expected=[{"statement": "expected", "strength": "strong", "citations": [{"label": "gdpr Article 22", "relevance": "expected relevance"}]}],
+            expected=[{"statement": "expected", "citations": [{"label": "gdpr Article 22", "relevance": "expected relevance"}]}],
             produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None, "relevance": "produced relevance"}]}],
             summary_fidelity=0.75,
             strength_agreement=1.0,

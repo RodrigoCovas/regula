@@ -40,16 +40,22 @@ drift fails loudly.
 
 The Findings grouping those citations are hand-authored once in the harness
 under the same #7 precedent — never derived from or validated against pipeline
-output, so the eval can disagree with the code. Authoring conventions:
+output, so the eval can disagree with the code. They carry statements only:
+since #58 the operator's per-provision Strength ratings are the single source
+of expected Citation strength, riding the Citations alone. Authoring
+conventions:
 
-- Related articles cluster into one expectation (one Finding statement, one
-  Strength); ranges expand into their separate Article targets; sub-references
+- Related articles cluster into one expectation (one Finding statement);
+  ranges expand into their separate Article targets; sub-references
   like "point 5(b)" collapse to the Annex they refine — the structural targets
   coverage compares.
 - Each provision is cited by exactly one Finding per scenario: its relevance
   summary is authored once, matching the one-summary-per-provision shape
   `expected_relevance_summaries` enforces.
-- Strengths follow CONTEXT.md: strong when a provision names the situation
-  outright, moderate where the claim is derived or contingent on facts the
-  Corpus cannot settle (entity status, designation), weak where provisions
-  only supply framing.
+- The per-provision Strength rating on each citations-record entry (and its
+  verbatim transcription on the expected Citation) follows CONTEXT.md:
+  strong when a provision names the situation outright, moderate where the
+  claim is derived or contingent on facts the Corpus cannot settle (entity
+  status, designation), weak where provisions only supply framing. These
+  ratings are the expected half of both strength-bearing components —
+  coverage recall and strength agreement.
