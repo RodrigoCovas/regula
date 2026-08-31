@@ -165,12 +165,13 @@ def test_live_case_ids_are_unique():
 
 def test_shipped_ground_truth_transcribes_the_operators_citations_file():
     """#51's ground truth is transcribed verbatim from the operator's
-    data/regulations/citations.json: every case's cited provisions and their
-    relevance summaries must match the file exactly, so the operator's
-    authored file stays the record and any transcription drift fails here
-    instead of silently changing the judge's ground truth. Cases pair with
-    scenario keys by order — the file numbers its scenarios the same way
-    (scenario_1 first) — and a reorder or mismatch fails loudly.
+    data/regulations/citations.json: every case's cited provisions with their
+    relevance summaries and per-provision Strength ratings must match the
+    file exactly (#56), so the operator's authored file stays the record and
+    any transcription drift fails here instead of silently changing the
+    judge's ground truth. Cases pair with scenario keys by order — the file
+    numbers its scenarios the same way (scenario_1 first) — and a reorder or
+    mismatch fails loudly.
 
     The projection is deliberately spelled out here instead of reusing a
     harness shape: the pin must not share an implementation with the ground
@@ -182,18 +183,18 @@ def test_shipped_ground_truth_transcribes_the_operators_citations_file():
     for index, case in enumerate(LIVE_EVAL_SCENARIOS, start=1):
         key = f"scenario_{index}"
         shipped = [
-            (c["source_id"], c["provision"], c["relevance"])
+            (c["source_id"], c["provision"], c["relevance"], c["strength"].value)
             for finding in case.expected
             for c in finding.citations
         ]
         authored = [
-            (entry["source_id"], entry["provision"], entry["relevance"])
+            (entry["source_id"], entry["provision"], entry["relevance"], entry["strength"])
             for entry in citations[key]
         ]
         assert sorted(shipped) == sorted(authored), f"{case.id} does not transcribe {key} verbatim"
         # Every shipped citation carries its authored relevance — the shape
         # the fidelity judge reads — with none left bare.
-        assert all(relevance for _, _, relevance in shipped), f"{case.id}: bare expected citation"
+        assert all(relevance for _, _, relevance, _ in shipped), f"{case.id}: bare expected citation"
 
 
 def test_coverage_recall_is_strength_weighted_over_expected_targets(ingested_store, query_log_path):
@@ -284,8 +285,8 @@ def _comparable_case() -> EvalScenario:
             statement="expected statement",
             strength=Strength.strong,
             citations=[
-                {"source_id": "gdpr", "provision": "Article 33", "relevance": "expected relevance for Article 33"},
-                {"source_id": "gdpr", "provision": "Article 34", "relevance": "expected relevance for Article 34"},
+                {"source_id": "gdpr", "provision": "Article 33", "relevance": "expected relevance for Article 33", "strength": Strength.strong},
+                {"source_id": "gdpr", "provision": "Article 34", "relevance": "expected relevance for Article 34", "strength": Strength.strong},
             ],
         )],
     )

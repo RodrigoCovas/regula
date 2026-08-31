@@ -30,8 +30,9 @@ the corpus level per locked decision Q8 (issue #1).
 `citations.json` is not corpus: it is the maintainer's hand-authored record of
 the Live eval's expected citations (issue #51). Each scenario entry lists the
 provisions an answer should cite, each with the relevance summary the
-summary-fidelity judge compares against. It is independent of pipeline output
-(#7 precedent): every relevance string is transcribed into
+summary-fidelity judge compares against and the operator's per-provision
+Strength rating (#56). It is independent of pipeline output
+(#7 precedent): every relevance string and Strength is transcribed into
 `backend/src/eval_harness.py` text-verbatim — the pinning test
 (`test_live_eval.py::test_shipped_ground_truth_transcribes_the_operators_citations_file`)
 compares each case's contents against this file regardless of order, so any

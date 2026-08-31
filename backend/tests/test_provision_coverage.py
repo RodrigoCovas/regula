@@ -33,7 +33,7 @@ def _expected(strength: Strength, *labels: str, source_id: str = "ai-act") -> Ex
     return ExpectedFinding(
         statement=f"expected finding citing {', '.join(labels) or 'nothing'}",
         strength=strength,
-        citations=[{"source_id": source_id, "provision": label} for label in labels],
+        citations=[{"source_id": source_id, "provision": label, "strength": strength} for label in labels],
     )
 
 
@@ -269,6 +269,7 @@ def test_expected_relevance_summaries_key_by_parsed_target():
                 "source_id": "gdpr",
                 "provision": "Article 22",
                 "relevance": "Article 22 restricts the solely automated loan decision.",
+                "strength": Strength.strong,
             }],
         ),
     ]
@@ -292,12 +293,12 @@ def test_conflicting_ground_truth_summaries_fail_loudly():
         ExpectedFinding(
             statement="first",
             strength=Strength.strong,
-            citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "one story"}],
+            citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "one story", "strength": Strength.strong}],
         ),
         ExpectedFinding(
             statement="second",
             strength=Strength.moderate,
-            citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "another story"}],
+            citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "another story", "strength": Strength.moderate}],
         ),
     ]
     with pytest.raises(ValueError, match="Article 6"):
@@ -309,12 +310,12 @@ def test_identical_duplicate_summaries_deduplicate():
         ExpectedFinding(
             statement="first",
             strength=Strength.strong,
-            citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "same story"}],
+            citations=[{"source_id": "ai-act", "provision": "Article 6", "relevance": "same story", "strength": Strength.strong}],
         ),
         ExpectedFinding(
             statement="second",
             strength=Strength.moderate,
-            citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "same story"}],
+            citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "relevance": "same story", "strength": Strength.moderate}],
         ),
     ]
     assert expected_relevance_summaries(expected) == {
@@ -417,7 +418,7 @@ def test_scores_ignore_statement_text_entirely():
         ExpectedFinding(
             statement="The completely unrelated produced wording below still covers this provision",
             strength=Strength.strong,
-            citations=[{"source_id": "gdpr", "provision": "Article 22"}],
+            citations=[{"source_id": "gdpr", "provision": "Article 22", "strength": Strength.strong}],
         )
     ]
     produced = [_produced(Strength.weak, _article(22), source_id="gdpr")]

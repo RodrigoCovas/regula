@@ -55,6 +55,24 @@ def test_demo_report_keeps_the_components_separate():
     assert report.mean_strength_agreement == 1.0
 
 
+def test_canonical_expected_citations_carry_their_findings_strength():
+    """#56: every canonical expected Citation carries a Strength copied 1:1
+    from the demo Finding def it mirrors — the Finding strengths already
+    mirror DEMO_FINDING_DEFS through strength agreement's 1.0 pin above, so
+    the copy keeps Demo scoring perfect by construction. A drift between a
+    citation's strength and its Finding's fails loudly here."""
+    for scenario in CURATED_SCENARIOS:
+        if not scenario.id.startswith("canonical"):
+            continue
+        for finding in scenario.expected:
+            assert finding.citations, f"{scenario.id}: expectation without Citations"
+            for citation in finding.citations:
+                assert citation["strength"] == finding.strength, (
+                    f"{scenario.id}: {citation['source_id']} {citation['provision']} "
+                    f"drifts from its Finding's strength"
+                )
+
+
 def test_eval_pins_demo_mode_per_request_even_when_app_boots_live(monkeypatch):
     """ADR-0008: mean F1 below 1.0 must signal a regression, never the boot mode.
 
@@ -139,6 +157,7 @@ def test_per_case_result_carries_the_produced_versus_expected_dump():
                 "source_id": "gdpr",
                 "provision": "Recital 71",
                 "relevance": "Recital 71 frames the profiling the loan scoring performs.",
+                "strength": Strength.strong,
             }],
         )],
     )
@@ -186,7 +205,7 @@ def _target(number: int, kind: str = "article", source_id: str = "gdpr") -> Prov
 
 
 def _expected_finding(label: str, relevance: str | None = None, strength: Strength = Strength.strong):
-    citation: ExpectedCitation = {"source_id": "gdpr", "provision": label}
+    citation: ExpectedCitation = {"source_id": "gdpr", "provision": label, "strength": strength}
     if relevance is not None:
         citation["relevance"] = relevance
     return ExpectedFinding(statement=f"expected: {label}", strength=strength, citations=[citation])
