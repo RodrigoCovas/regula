@@ -68,9 +68,13 @@ class ExpectedCitation(TypedDict):
     relevance: NotRequired[str]
     strength: Strength
 
+# The eval's one numeric weight map (#55): strong = 50, moderate = 5, weak =
+# 1, so missing a provision that names the situation outright costs fifty
+# times a missed framing provision. It feeds recall only — strength agreement
+# compares raw Strengths, and precision stays unweighted.
 STRENGTH_WEIGHTS: Dict[Strength, int] = {
-    Strength.strong: 3,
-    Strength.moderate: 2,
+    Strength.strong: 50,
+    Strength.moderate: 5,
     Strength.weak: 1,
 }
 
@@ -187,10 +191,13 @@ def parse_provision(source_id: str, label: str) -> ProvisionTarget:
 def expected_target_strengths(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, Strength]:
     """The expected side's Citation strength under the max-rule (CONTEXT.md):
     per expected Citation target, the strongest Strength among the
-    ground-truth Findings citing it — the expected half the strength-agreement
-    component (#50) compares, and the source of coverage's strength weights."""
+    ground-truth Citations citing it — each Citation's own Strength, the
+    operator's per-provision rating transcribed in #56. The expected half the
+    strength-agreement component (#50) compares, and the source of coverage's
+    strength weights; the Finding-level Strengths still present on expected
+    Findings feed no score (#57)."""
     return max_rule_strengths(
-        (parse_provision(citation["source_id"], citation["provision"]), finding.strength)
+        (parse_provision(citation["source_id"], citation["provision"]), citation["strength"])
         for finding in expected
         for citation in finding.citations
     )
@@ -198,12 +205,12 @@ def expected_target_strengths(expected: List[ExpectedFinding]) -> Dict[Provision
 
 def expected_target_weights(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, int]:
     """Weight each expected Citation target by the strongest Strength among
-    the ground-truth Findings citing it — CONTEXT.md's max-rule Citation
-    strength, applied to the expected side through the one shared max-rule
-    implementation (models.max_rule_strengths). A target cited by several
-    Findings enters once (set semantics); a Finding citing no target
-    contributes nothing, so an expectation that names no provision can never
-    be covered."""
+    the ground-truth Citations citing it — the operator's per-provision
+    ratings under CONTEXT.md's max-rule, applied to the expected side through
+    the one shared max-rule implementation (models.max_rule_strengths). A
+    target cited by several Findings enters once (set semantics); a Finding
+    citing no target contributes nothing, so an expectation that names no
+    provision can never be covered."""
     return {
         target: STRENGTH_WEIGHTS[strength]
         for target, strength in expected_target_strengths(expected).items()
@@ -284,8 +291,9 @@ def coverage_scores(
     """Provision-coverage F1 (ADR-0010): set arithmetic over Citation targets.
 
     Recall is the strength-weighted share of expected targets the produced
-    side covers: each expected target carries the weight of its strongest
-    citing Finding, and covering it anywhere in production counts in full.
+    side covers: each expected target carries the weight of its
+    strongest-rated expected Citation — the operator's per-provision rating —
+    and covering it anywhere in production counts in full.
     Precision is the fraction of produced targets that hit an expected one —
     every off-target produced Citation counts against it (pessimistic by
     construction: the audit reviews the spurious list before numbers are

@@ -114,14 +114,29 @@ def test_parsed_labels_and_validated_metadata_meet_in_one_type():
 # --- Strength weighting of the expected side ---
 
 
-def test_a_target_is_weighted_by_its_strongest_citing_finding():
+def test_a_target_is_weighted_by_its_strongest_rated_citation():
     """Two ground-truth Findings citing one target: the max rule of CONTEXT.md's
-    Citation strength — the target carries the strongest Strength's weight."""
+    Citation strength — the target carries the strongest rated Citation's weight."""
     weights = expected_target_weights([
         _expected(Strength.weak, "Article 6"),
         _expected(Strength.strong, "Article 6"),
     ])
     assert weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.strong]}
+
+
+def test_weights_read_the_expected_citations_strengths_not_the_finding_labels():
+    """Recall weights derive from each expected Citation's own Strength — the
+    operator's per-provision rating transcribed in #56 — under the shared
+    max-rule. A Finding-level Strength disagreeing with its Citations feeds
+    no score (#57)."""
+    weights = expected_target_weights([
+        ExpectedFinding(
+            statement="finding label disagrees with its citations",
+            strength=Strength.strong,
+            citations=[{"source_id": "ai-act", "provision": "Article 6", "strength": Strength.weak}],
+        ),
+    ])
+    assert weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.weak]}
 
 
 def test_each_expected_target_carries_its_own_weight():
@@ -136,8 +151,9 @@ def test_each_expected_target_carries_its_own_weight():
 
 
 def test_a_target_cited_by_several_findings_enters_the_denominator_once():
-    """Set semantics: a target cited by two weak Findings weighs 2 (the max),
-    never 4 (the sum) — repeating an expectation cannot inflate its worth."""
+    """Set semantics: a target cited by two weakly-rated Citations weighs the
+    weak weight once (the max), never the sum — repeating an expectation
+    cannot inflate its worth."""
     weights = expected_target_weights([
         _expected(Strength.weak, "Article 6"),
         _expected(Strength.weak, "Article 6"),
@@ -172,7 +188,7 @@ def test_produced_citation_strengths_are_per_target():
 
 def test_expected_and_produced_max_rule_meet_in_one_implementation():
     """The eval's two sides share models.max_rule_strengths: a target cited by
-    Findings of different Strengths grades the same way either side of the
+    Citations of different Strengths grades the same way either side of the
     comparison — expected weights read through STRENGTH_WEIGHTS."""
     expected_weights = expected_target_weights([
         _expected(Strength.weak, "Article 6"),
@@ -191,12 +207,26 @@ def test_expected_and_produced_max_rule_meet_in_one_implementation():
 
 def test_expected_target_strengths_follow_the_max_rule():
     """The expected half of the comparison: per expected target, the
-    strongest Strength among the ground-truth Findings citing it."""
+    strongest Strength among the ground-truth Citations citing it."""
     strengths = expected_target_strengths([
         _expected(Strength.weak, "Article 6"),
         _expected(Strength.strong, "Article 6"),
     ])
     assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
+
+
+def test_expected_strengths_read_the_citations_ratings_not_the_finding_labels():
+    """The agreement component's expected half reads the same per-provision
+    ratings as the recall weights (#57) — one expected-strength source backs
+    both components, so product and eval aggregation cannot diverge."""
+    strengths = expected_target_strengths([
+        ExpectedFinding(
+            statement="finding label disagrees with its citation",
+            strength=Strength.weak,
+            citations=[{"source_id": "ai-act", "provision": "Article 6", "strength": Strength.moderate}],
+        ),
+    ])
+    assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.moderate}
 
 
 def test_strength_agreement_compares_both_sides_per_shared_target():
@@ -336,7 +366,7 @@ def test_missed_expected_target_lowers_recall_by_its_weight():
     expected = [_expected(Strength.strong, "Article 6"), _expected(Strength.weak, "Article 3")]
     produced = [_produced(Strength.strong, _article(6))]
     result = coverage_scores(expected, produced)
-    assert result["recall"] == pytest.approx(3 / 4)
+    assert result["recall"] == pytest.approx(50 / 51)
 
 
 def test_missing_a_strong_target_hurts_more_than_missing_a_weak_one():

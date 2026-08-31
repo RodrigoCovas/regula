@@ -371,8 +371,9 @@ separately per case and in aggregate:
 
 - **Provision coverage** — a deterministic set F1 over Citation targets —
   provision kind + number, never label strings — with the expected side
-  weighted by its Findings' Strengths (strong = 3, moderate = 2, weak = 1)
-  and every off-target produced Citation counted against precision.
+  weighted by the operator's per-provision Strength ratings carried on its
+  expected Citations (strong = 50, moderate = 5, weak = 1) and every
+  off-target produced Citation counted against precision.
 - **Summary fidelity** — a strict rubric judge (same configured provider,
   one batched call per case, schema-validated verdict) compares
   provision-aligned expected and produced Provision relevance; a
@@ -380,7 +381,9 @@ separately per case and in aggregate:
   relevance summaries are hand-authored per case, so the component reads
   `n/a` where labels are not yet written.
 - **Strength agreement** — max-rule Citation strength compared on both
-  sides over the provisions both sides cite. It is reported as its own
+  sides over the provisions both sides cite: the expected half reads the
+  operator's per-provision Strength ratings, the produced half the Answer's
+  Finding Strengths. It is reported as its own
   number and read at small weight: it grades only the Strength labels the
   workflow assigned, while coverage and fidelity grade the substance.
 
