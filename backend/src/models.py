@@ -181,6 +181,12 @@ def answer_citations(
 EMBEDDING_DIMENSION = 768
 
 
+# The identity of a stored Chunk: source, provision kind, the exactly-one
+# provision number, and the chunk index. Two Chunks with one identity are
+# the same stored Chunk, whatever read path surfaced them.
+ChunkIdentity = tuple[str, str, Optional[int], int]
+
+
 class Chunk(BaseModel):
     """A retrievable passage of one Regulation, targeting a single provision.
 
@@ -204,9 +210,10 @@ class Chunk(BaseModel):
         return self.article_number or self.recital_number or self.annex_number
 
     @property
-    def identity(self) -> tuple[str, str, Optional[int], int]:
-        """The stored-passage identity: two Chunks with one identity are one
-        passage, whatever read path surfaced them."""
+    def identity(self) -> ChunkIdentity:
+        """The stored Chunk's identity (``ChunkIdentity``): two Chunks with
+        one identity are the same stored Chunk, whatever read path surfaced
+        them."""
         return (self.source_id, self.kind.value, self.provision_number, self.chunk_index)
 
     @model_validator(mode="after")

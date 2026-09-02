@@ -37,10 +37,10 @@ locked embedding model; cosine similarity of genuinely relevant provisions
 sits far above junk matches.
 """
 
-from typing import Optional, Protocol, runtime_checkable, Sequence
+from typing import Protocol, runtime_checkable, Sequence
 
 from .embedder import Embedder
-from .models import Chunk, ScoredChunk
+from .models import Chunk, ChunkIdentity, ScoredChunk
 
 # The vector leg's per-target depth (ADR-0012): how deep the vector search
 # reaches — the store's LIMIT for the vector query, whatever the plan looks
@@ -137,10 +137,6 @@ class VectorRetriever:
         return [hit.chunk for hit in hits if hit.distance <= self._max_distance]
 
 
-# A Chunk identity as a dict key — Chunk.identity's shape, tuple-permitted.
-_ChunkKey = tuple[str, str, Optional[int], int]
-
-
 def _rrf_fuse(legs: list[list[Chunk]], k: int) -> list[Chunk]:
     """Fuse ranked Chunk lists by Reciprocal Rank Fusion.
 
@@ -149,8 +145,8 @@ def _rrf_fuse(legs: list[list[Chunk]], k: int) -> list[Chunk]:
     summed contribution. Score ties keep first-appearance order (the vector
     leg's results precede the lexical leg's), so the fusion is deterministic.
     """
-    scores: dict[_ChunkKey, float] = {}
-    first_seen: dict[_ChunkKey, Chunk] = {}
+    scores: dict[ChunkIdentity, float] = {}
+    first_seen: dict[ChunkIdentity, Chunk] = {}
     for leg in legs:
         for rank, chunk in enumerate(leg, start=1):
             key = chunk.identity
@@ -181,7 +177,6 @@ class HybridRetriever:
         vector_depth: int = VECTOR_LEG_DEPTH,
         lexical_depth: int = LEXICAL_LEG_DEPTH,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
-        rrf_k: int = RRF_K,
     ):
         self._store = store
         self._vector_leg = VectorRetriever(
@@ -191,11 +186,10 @@ class HybridRetriever:
             min_similarity=min_similarity,
         )
         self._lexical_depth = lexical_depth
-        self._rrf_k = rrf_k
 
     def retrieve(self, query: str) -> list[Chunk]:
         vector_results = self._vector_leg.retrieve(query)
         lexical_results = list(
             self._store.search_chunks_lexically(query, self._lexical_depth)
         )
-        return _rrf_fuse([vector_results, lexical_results], k=self._rrf_k)
+        return _rrf_fuse([vector_results, lexical_results], k=RRF_K)

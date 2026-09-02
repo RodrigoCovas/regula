@@ -185,7 +185,9 @@ def test_hybrid_fusion_orders_chunks_by_reciprocal_rank_contribution():
     """RRF scores a Chunk 1/(k + rank) per leg that found it, summed: a Chunk
     both legs found outranks either leg's own top hit, and single-leg Chunks
     order by their rank. Ranks start at 1, and the fusion constant is the
-    standard k = 60 (ADR-0012)."""
+    standard k = 60 (ADR-0012). Within the 12/8 caps the fused order is
+    k-stable for every k >= 8 — the ordering alone cannot distinguish k = 60
+    from nearby values, so the constant itself is pinned here."""
     assert RRF_K == 60
 
     retriever, _ = make_hybrid(
@@ -205,6 +207,23 @@ def test_hybrid_fusion_orders_chunks_by_reciprocal_rank_contribution():
     # both-legs: 1/61 + 1/62; vector-top: 1/61; lexical-only: 1/62;
     # vector-last: 1/63.
     assert [c.source_id for c in chunks] == ["both-legs", "vector-top", "lexical-only", "vector-last"]
+
+
+def test_hybrid_fusion_earns_its_sum_at_the_legs_deepest_ranks():
+    """The extreme within-caps case: a Chunk found by both legs at their
+    deepest ranks (vector 12, lexical 8) outranks a single-leg Chunk at
+    rank 1 — the summed contribution beats the top single-leg hit at k = 60.
+    The ordering inverts only below k ≈ 7.8, which is what bounds the
+    k-stability the constant pin carries."""
+    shared = chunk_hit(source_id="shared", number=30)
+    vector_hits = [chunk_hit(source_id=f"vec-{i}", number=i + 1) for i in range(11)] + [shared]
+    lexical_hits = [make_chunk(source_id=f"lex-{i}", number=i + 1) for i in range(7)] + [shared.chunk]
+    retriever, _ = make_hybrid(vector_hits=vector_hits, lexical_hits=lexical_hits)
+
+    chunks = retriever.retrieve("oversight duties")
+
+    assert chunks[0].source_id == "shared", "the summed both-legs contribution outranks every single-leg hit"
+    assert len(chunks) == 19, "all 12 vector + 8 lexical hits minus the one dedup"
 
 
 def test_hybrid_fusion_breaks_score_ties_by_first_appearance():
