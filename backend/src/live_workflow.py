@@ -52,9 +52,9 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
-from .corpus import source_short_names
+from .corpus import corpus_inventory, source_short_names
 from .llm import Llm
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, GroundedSummary, ProvisionKind, ProvisionTarget, STRENGTH_ORDER, Strength, Trace, PROVISION_NUMBER_FIELDS, answer_citations, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, GroundedSummary, ProvisionKind, ProvisionTarget, STRENGTH_ORDER, Strength, Trace, PROVISION_NOUNS, PROVISION_NUMBER_FIELDS, answer_citations, quote_snippet
 from .progress import PhaseReport, ProgressSink
 from .query_log import RequestObservation
 from .retrieval import Retriever
@@ -109,10 +109,11 @@ SEEK_COUNSEL_ACTION = (
 # (ADR-0004): the sheet is capped, never empty.
 MAX_ACTIONS = 5
 
-# The Planner's declared budget: 1-3 Research targets. A provider response
-# over this limit is corrected once by truncation — the Evidence pool derives
-# from the accepted plan, never from an over-limit provider response.
-MAX_RESEARCH_TARGETS = 3
+# The Planner's declared budget: 1-6 Research targets (ADR-0003 rationale,
+# iteration 5). A provider response over this limit is corrected once by
+# truncation — the Evidence pool derives from the accepted plan, never from an
+# over-limit provider response.
+MAX_RESEARCH_TARGETS = 6
 
 
 # --- Workflow boundaries: every agent input/output crosses as a validated schema ---
@@ -308,14 +309,18 @@ class LiveState(BaseModel):
 
 _PLANNER_SYSTEM = (
     "You are the Planner of a regulatory research assistant. Decompose the regulatory "
-    "question into 1-3 short keyword Research targets that would locate the relevant "
-    "provisions (articles, recitals, annexes) in a corpus of EU regulations: the AI Act, "
-    "GDPR, and DORA. Name concepts and likely provision subjects, not full sentences. "
-    "When the question asks what applies or what obligations exist, do not stop at "
-    "regime-level classification: give the operational duties each regulation imposes in "
-    "this scenario their own Research target — e.g. 'AI Act deployer obligations human "
-    "oversight logging' or 'automated decision information duties' — so duty-bearing "
-    "provisions surface alongside the classification ones."
+    f"question into 1-{MAX_RESEARCH_TARGETS} short keyword Research targets that would locate the "
+    "relevant provisions (articles, recitals, annexes) in the corpus whose inventory is given "
+    "with the question. One target per regulation the question implicates and per operational "
+    "duty area involved — never merge two duty areas into one target. Lift the inventory's "
+    "exact vocabulary into your target keywords (e.g. 'records of processing activities', "
+    "'ICT-related incident classification'); the inventory is vocabulary guidance, not a "
+    "constraint — a duty area the inventory does not name still earns its own target. Name "
+    "concepts and likely provision subjects, not full sentences. When the question asks what "
+    "applies or what obligations exist, do not stop at regime-level classification: give the "
+    "operational duties each regulation imposes in this scenario their own Research target — "
+    "e.g. 'AI Act deployer obligations human oversight logging' or 'automated decision "
+    "information duties' — so duty-bearing provisions surface alongside the classification ones."
 )
 
 _RESEARCHER_SYSTEM = (
@@ -381,15 +386,9 @@ def _evidence_block(evidence: list[LabeledEvidence]) -> str:
 
 # --- Deterministic Citation derivation from Chunk metadata ---
 
-_PROVISION_NOUNS = {
-    ProvisionKind.article: "Article",
-    ProvisionKind.recital: "Recital",
-    ProvisionKind.annex: "Annex",
-}
-
 
 def _provision_label(chunk: Chunk) -> str:
-    return f"{_PROVISION_NOUNS[chunk.kind]} {chunk.provision_number}"
+    return f"{PROVISION_NOUNS[chunk.kind]} {chunk.provision_number}"
 
 
 def derive_citation(chunk: Chunk) -> Citation:
@@ -792,7 +791,17 @@ def _build_graph(
         if progress:
             progress(PhaseReport(phase="planner", message="decomposing the Regulatory question into research targets"))
         started = time.perf_counter()
-        user = f"Company/product scenario: {state.scenario_description or '(not described)'}\nRegulatory question: {state.question}"
+        # The Planner is grounded in the Corpus's own table of contents
+        # (ADR-0012): the inventory block rides the request-time prompt so
+        # target formulation lifts the Corpus's actual vocabulary instead of
+        # the model's parametric memory.
+        inventory = corpus_inventory()
+        user = (
+            f"Corpus inventory (the Corpus's titled provisions, grouped by source):\n\n"
+            f"{inventory or '(the Corpus inventory is empty)'}\n\n"
+            f"Company/product scenario: {state.scenario_description or '(not described)'}\n"
+            f"Regulatory question: {state.question}"
+        )
         plan = llm.complete(system=_PLANNER_SYSTEM, user=user, schema=Plan)
         targets = plan.targets
         correction = None

@@ -1,15 +1,19 @@
 """The repo-local Corpus documents (ADR-0002): the one loader both paths share.
 
 Demo mode reads full documents to resolve its lookup targets; Live mode needs
-only the source id → short name map for Citation metadata. Loading is lazy
-and cached once per process; a missing or unreadable corpus degrades to an
-empty Corpus — never an error on the request path.
+only the source id → short name map for Citation metadata, plus the Corpus
+inventory that grounds the Planner (ADR-0012). Loading is lazy and cached once
+per process; a missing or unreadable corpus degrades to an empty Corpus —
+never an error on the request path.
 """
 
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
+
+from .chunking import chunk_regulation
+from .models import PROVISION_NOUNS, ProvisionKind
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +21,7 @@ logger = logging.getLogger(__name__)
 CORPUS_DIR = Path(__file__).resolve().parents[2] / "data" / "regulations"
 
 _documents: Optional[dict[str, dict]] = None
+_inventory: Optional[str] = None
 
 
 def load_documents() -> dict[str, dict]:
@@ -53,3 +58,49 @@ def source_short_names() -> dict[str, str]:
         if short_name:
             names[doc_id] = str(short_name)
     return names
+
+
+def _titled_provisions(document: Mapping[str, Any]) -> list[tuple[ProvisionKind, int, str]]:
+    """One (kind, number, title) per titled provision of one document, in
+    document order — the Chunk metadata, collapsed to one entry per provision
+    (a multi-part Article shares its title across its Chunks)."""
+    entries: list[tuple[ProvisionKind, int, str]] = []
+    seen: set[tuple[ProvisionKind, int]] = set()
+    for chunk in chunk_regulation(document):
+        if chunk.title is None:
+            continue  # recitals carry no titles and stay reachable through search
+        number = chunk.provision_number
+        assert number is not None  # the Chunk validator enforces exactly-one-target
+        key = (chunk.kind, number)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append((chunk.kind, number, chunk.title))
+    return entries
+
+
+def corpus_inventory() -> str:
+    """The Corpus inventory (CONTEXT.md, ADR-0012): the Corpus's own table of
+    contents, rendered from Chunk metadata — every titled Article and Annex,
+    grouped by source under its short name. The Planner lifts the inventory's
+    exact vocabulary into Research-target keywords; it is vocabulary guidance,
+    not a constraint. Rendered through the same pure chunking transform ingest
+    runs, so the inventory always matches what the Corpus actually stores, and
+    cached once per process like the documents themselves. An unreadable
+    Corpus degrades to an empty block — never a request-path error."""
+    global _inventory
+    if _inventory is None:
+        groups: list[str] = []
+        short_names = source_short_names()
+        for source_id, document in load_documents().items():
+            name = short_names.get(source_id, source_id)
+            entries = _titled_provisions(document)
+            if not entries:
+                continue
+            lines = [f"{name}:"] + [
+                f"- {PROVISION_NOUNS[kind]} {number}: {title}"
+                for kind, number, title in entries
+            ]
+            groups.append("\n".join(lines))
+        _inventory = "\n\n".join(groups)
+    return _inventory

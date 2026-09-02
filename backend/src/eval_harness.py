@@ -44,6 +44,7 @@ from typing import Callable, Dict, Iterable, List, NotRequired, Optional, TypedD
 
 from .eval_judge import FIDELITY_FLOOR, RelevancePair, SummaryJudge
 from .models import (
+    PROVISION_NOUNS,
     PROVISION_NUMBER_FIELDS,
     AnalyzeRequest,
     AnalyzeResponse,
@@ -288,18 +289,10 @@ def strength_agreement(
     return sum(expected_strengths[target] == produced_strengths[target] for target in shared) / len(shared)
 
 
-# The human-readable provision kind for an audit-dump target string.
-_KIND_LABELS: Dict[ProvisionKind, str] = {
-    ProvisionKind.article: "Article",
-    ProvisionKind.recital: "Recital",
-    ProvisionKind.annex: "Annex",
-}
-
-
 def format_provision_target(target: ProvisionTarget) -> str:
     """The deterministic audit-dump form of a structural target: the source
     and its provision kind + number — never the free-text label."""
-    return f"{target.source_id} {_KIND_LABELS[target.kind]} {target.number}"
+    return f"{target.source_id} {PROVISION_NOUNS[target.kind]} {target.number}"
 
 
 def coverage_scores(

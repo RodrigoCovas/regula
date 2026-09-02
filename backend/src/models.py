@@ -46,6 +46,16 @@ PROVISION_NUMBER_FIELDS: dict[ProvisionKind, str] = {
 }
 
 
+# The one map from provision kind to its human-readable provision noun —
+# shared by every citation derivation, inventory render, and label that must
+# agree on how a provision is named.
+PROVISION_NOUNS: dict[ProvisionKind, str] = {
+    ProvisionKind.article: "Article",
+    ProvisionKind.recital: "Recital",
+    ProvisionKind.annex: "Annex",
+}
+
+
 class ProvisionTarget(NamedTuple):
     """The one concrete provision a Citation points at: its source document,
     the provision kind, and the document's structural number — what ground

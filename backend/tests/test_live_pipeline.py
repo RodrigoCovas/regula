@@ -1033,6 +1033,41 @@ def test_derive_citation_populates_the_short_name_only_for_known_sources():
     assert unknown.source_short_name is None
 
 
+# --- Planner grounding: the Corpus inventory and the 1-6 budget (issue #62) ---
+
+
+def test_planner_prompt_carries_the_corpus_inventory_and_the_target_budget(live_client):
+    """The Planner is grounded in the Corpus's own table of contents (issue #62,
+    ADR-0012): the request-time prompt shows the titled provisions grouped by
+    source, and the system prompt declares the 1-6 budget with the
+    per-regulation and per-duty-area discipline and the vocabulary-lifting
+    instruction."""
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, FakeRetriever())
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+
+    planner_system, planner_user = llm.calls[0][0], llm.calls[0][1]
+    # The budget and the decomposition discipline ride the system prompt.
+    assert "1-6" in planner_system
+    assert "duty area" in planner_system
+    assert "never merge" in planner_system
+    assert "guidance, not a constraint" in planner_system
+    assert "exact vocabulary" in planner_system
+    # The user prompt carries the full inventory block: titled provisions
+    # grouped by source — the corpus's own table of contents, from chunk
+    # metadata.
+    assert "Corpus inventory" in planner_user
+    assert "EU AI Act:" in planner_user
+    assert "DORA:" in planner_user
+    assert "GDPR:" in planner_user
+    assert "Article 3: Definitions" in planner_user
+    assert "Article 6: ICT risk management framework" in planner_user
+    assert "Annex 1: List of Union Harmonisation Legislation" in planner_user
+    # The scenario and the question still travel in the same user prompt.
+    assert "Regulatory question: Does automated loan scoring trigger high-risk obligations?" in planner_user
+
+
 # --- Planner Research-target budget enforcement (ticket #37) -----------------
 
 
@@ -1054,8 +1089,8 @@ def run_with_plan(live_client, targets, per_query=None):
 
 
 def test_planner_response_with_three_targets_is_accepted_unchanged(live_client):
-    """A Planner response with exactly three Research targets is accepted
-    without correction — the declared 1-3 budget is respected."""
+    """A Planner response with three Research targets is accepted
+    without correction — within the declared 1-6 budget."""
     from src.live_workflow import ResearchTarget
 
     data = run_with_plan(live_client, [
@@ -1072,7 +1107,7 @@ def test_planner_response_with_three_targets_is_accepted_unchanged(live_client):
 
 def test_planner_response_with_one_target_is_accepted_unchanged(live_client):
     """A Planner response with one Research target is accepted — the lower
-    end of the 1-3 budget works unchanged."""
+    end of the 1-6 budget works unchanged."""
     from src.live_workflow import ResearchTarget
 
     data = run_with_plan(live_client, [ResearchTarget(query="creditworthiness")])
@@ -1099,9 +1134,9 @@ def test_planner_response_with_zero_targets_falls_through_to_insufficient_eviden
     assert_insufficient_evidence_response(data)
 
 
-def test_planner_response_over_budget_is_truncated_to_three(live_client):
-    """A Planner response with more than three Research targets is corrected
-    once by truncation: only the first three targets are accepted, the rest
+def test_planner_response_over_budget_is_truncated_to_six(live_client):
+    """A Planner response with more than six Research targets is corrected
+    once by truncation: only the first six targets are accepted, the rest
     are silently dropped — the Evidence pool never expands beyond the
     accepted plan."""
     from src.live_workflow import ResearchTarget
@@ -1110,26 +1145,36 @@ def test_planner_response_over_budget_is_truncated_to_three(live_client):
         ResearchTarget(query="creditworthiness"),
         ResearchTarget(query="automated decisions"),
         ResearchTarget(query="deployer obligations"),
+        ResearchTarget(query="incident reporting"),
+        ResearchTarget(query="records of processing activities"),
+        ResearchTarget(query="human oversight"),
         ResearchTarget(query="extra target one"),
-        ResearchTarget(query="extra target two"),
     ])
 
     step = planner_step(data)
-    assert len(step["research_targets"]) == 3
-    assert step["research_targets"] == ["creditworthiness", "automated decisions", "deployer obligations"]
+    assert len(step["research_targets"]) == 6
+    assert step["research_targets"][:3] == ["creditworthiness", "automated decisions", "deployer obligations"]
     assert step["correction"] is not None
     assert "truncated" in step["correction"].lower()
-    assert "5" in step["correction"]
-    assert "3" in step["correction"]
+    assert "7" in step["correction"]
+    assert "6" in step["correction"]
 
 
 def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_client):
     """The Evidence pool derives from the accepted plan, not the provider's
-    over-limit response: even when the Planner returns five targets, only
-    three seats' worth of Evidence is retrieved."""
+    over-limit response: even when the Planner returns seven targets, only
+    six seats' worth of Evidence is retrieved."""
     from src.live_workflow import ResearchTarget, SEATS_PER_TARGET
 
-    targets = ["creditworthiness", "automated decisions", "deployer obligations", "extra one", "extra two"]
+    targets = [
+        "creditworthiness",
+        "automated decisions",
+        "deployer obligations",
+        "incident reporting",
+        "records of processing activities",
+        "human oversight",
+        "extra one",
+    ]
     per_query = {t: depth_results(t) for t in targets}
     data = run_with_plan(
         live_client,
@@ -1138,12 +1183,11 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
     )
 
     retrieved = served_evidence(data)
-    assert len(retrieved) == SEATS_PER_TARGET * 3, "pool bounded by accepted plan, not provider response"
+    assert len(retrieved) == SEATS_PER_TARGET * 6, "pool bounded by accepted plan, not provider response"
     sources = {r["source_id"] for r in retrieved}
-    for target in targets[:3]:
+    for target in targets[:6]:
         assert any(s.startswith(f"{target}-") for s in sources), f"{target} is represented"
-    for target in targets[3:]:
-        assert not any(s.startswith(f"{target}-") for s in sources), f"{target} was dropped"
+    assert not any(s.startswith("extra one-") for s in sources), "the seventh target was dropped"
 
 
 def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
@@ -1155,10 +1199,13 @@ def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
         ResearchTarget(query="creditworthiness"),
         ResearchTarget(query="automated decisions"),
         ResearchTarget(query="deployer obligations"),
+        ResearchTarget(query="incident reporting"),
+        ResearchTarget(query="records of processing activities"),
+        ResearchTarget(query="human oversight"),
         ResearchTarget(query="extra"),
     ])
 
     step = planner_step(data)
     assert step["correction"] is not None
-    assert "4" in step["correction"]
-    assert "3" in step["correction"]
+    assert "7" in step["correction"]
+    assert "6" in step["correction"]
