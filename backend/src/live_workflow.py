@@ -34,11 +34,12 @@ Four rules are enforced by application code, never trusted to the LLM:
   On Summarizer failure the Answer ships without summaries plus a Known
   limitation — the run does not fail.
 
-When retrieval returns nothing relevant enough (no Chunk clears the
-relevance threshold), no LLM call drafts, verifies, or proposes anything:
-the response is the Insufficient-evidence path — empty Findings, a Known
-limitation explaining the gap, and Actions suggesting how to narrow the
-question.
+When retrieval returns nothing at all — both the vector and the lexical
+leg come back empty (ADR-0012) — no LLM call drafts, verifies, or proposes
+anything: the response is the Insufficient-evidence path — empty Findings,
+a Known limitation explaining the gap, and Actions suggesting how to narrow
+the question. Lexical-only evidence fills the pool: lexically-obvious
+provisions are not hidden behind an embedding miss.
 """
 
 import json
@@ -73,9 +74,12 @@ _MAX_CHUNK_CHARS = 1500
 # claims this many seats, so seat demand scales with the Planner's
 # decomposition — breadth arriving as more targets, depth as finer-grained
 # ones — and sharper targets automatically widen the pool. Per-target
-# retrieval depth stays a separate concern (retrieval.PER_TARGET_DEPTH):
-# widening this pool never deepens crawling. Adjust only on scored evidence.
-SEATS_PER_TARGET = 6
+# retrieval depth stays a separate concern (the retrieval service's leg
+# depths): widening this pool never deepens crawling. Adjust only on scored
+# evidence — widened from 6 to 12 on the ADR-0012 evidence (a 72-chunk
+# maximum pool; the vector leg's depth rose with it so the seats stay
+# reachable).
+SEATS_PER_TARGET = 12
 
 INSUFFICIENT_EVIDENCE_LIMITATION = (
     "Known limitation: the Corpus holds nothing relevant enough to answer this "
@@ -833,15 +837,9 @@ def _build_graph(
             )
             fresh: list[Chunk] = []
             for chunk in found:
-                identity = (
-                    chunk.source_id,
-                    chunk.kind.value,
-                    chunk.provision_number,
-                    chunk.chunk_index,
-                )
-                if identity in seen:
+                if chunk.identity in seen:
                     continue
-                seen.add(identity)
+                seen.add(chunk.identity)
                 fresh.append(chunk)
             per_target.append(fresh)
 
@@ -893,8 +891,8 @@ def _build_graph(
         if progress:
             progress(PhaseReport(phase="verifier", message="checking each drafted Claim against the retrieved Evidence and tagging its Strength"))
         if not state.evidence:
-            # Nothing retrieved cleared the relevance threshold: drafting and
-            # verifying claims against no Evidence would be theatre.
+            # Both retrieval legs came back empty: drafting and verifying
+            # claims against no Evidence would be theatre.
             return {}
         user = (
             f"Regulatory question: {state.question}\n\nRetrieved evidence:\n\n"

@@ -15,16 +15,27 @@ re-checked at this seam, so junk-only search results can never reach drafting.
 Spec #60 added the read-seams section: the composition-root store must
 satisfy both the vector and the lexical read seam. The ``LazyStore`` check
 opens no connection — deferral is the point — so the no-PostgreSQL promise
-holds.
+holds. Issue #64 added the hybrid section: both legs fuse by Reciprocal Rank
+Fusion inside the retriever, and the seam stays query-in, Chunks-out.
 """
 
 import pytest
 
 from src.db import LazyStore
 from src.models import ProvisionKind
-from src.retrieval import PER_TARGET_DEPTH, LexicalSearchStore, SearchStore, VectorRetriever
+from src.retrieval import (
+    LEXICAL_LEG_DEPTH,
+    RRF_K,
+    VECTOR_LEG_DEPTH,
+    HybridRetriever,
+    HybridSearchStore,
+    LexicalSearchStore,
+    Retriever,
+    SearchStore,
+    VectorRetriever,
+)
 
-from fakes import FakeEmbedder, FakeSearchStore, chunk_hit
+from fakes import FakeEmbedder, FakeSearchStore, chunk_hit, make_chunk
 
 
 def make_retriever(hits, min_similarity=0.5):
@@ -32,6 +43,12 @@ def make_retriever(hits, min_similarity=0.5):
     store = FakeSearchStore(hits)
     retriever = VectorRetriever(store=store, embedder=embedder, min_similarity=min_similarity)
     return retriever, embedder, store
+
+
+def make_hybrid(vector_hits, lexical_hits, min_similarity=0.5):
+    store = FakeSearchStore(hits=vector_hits, lexical_hits=lexical_hits)
+    retriever = HybridRetriever(store=store, embedder=FakeEmbedder(), min_similarity=min_similarity)
+    return retriever, store
 
 
 # --- Query flow: embed the query, search with its vector -----------------------
@@ -70,11 +87,11 @@ def test_retrieve_returns_each_hits_chunk_with_metadata_intact():
     assert chunk.text == "Recital 71 body"
 
 
-# --- Depth: the per-target depth is what gets requested ------------------------
+# --- Depth: the vector leg's per-target depth is what gets requested ----------
 
 
-def test_retrieve_requests_the_locked_per_target_depth_from_the_store():
-    """One retrieval reaches ``PER_TARGET_DEPTH`` deep — the store's LIMIT,
+def test_vector_leg_requests_the_locked_per_target_depth_from_the_store():
+    """One vector leg reaches ``VECTOR_LEG_DEPTH`` deep — the store's LIMIT,
     however many research targets the plan carries. The Evidence pool served
     to the agents is sized separately from the plan (live_workflow's
     SEATS_PER_TARGET), so widening that pool never deepens crawling (#23)."""
@@ -82,7 +99,7 @@ def test_retrieve_requests_the_locked_per_target_depth_from_the_store():
 
     retriever.retrieve("oversight duties")
 
-    assert store.calls[0]["limit"] == PER_TARGET_DEPTH == 8
+    assert store.calls[0]["limit"] == VECTOR_LEG_DEPTH == 12
 
 
 # --- Threshold: junk-only search results come back empty -----------------------
@@ -150,3 +167,116 @@ def test_composition_root_store_satisfies_both_read_seams():
 
     assert isinstance(store, SearchStore)
     assert isinstance(store, LexicalSearchStore)
+    assert isinstance(store, HybridSearchStore)
+
+
+# --- Hybrid retrieval: both legs fused by RRF (issue #64, ADR-0012) ------------
+
+
+def test_hybrid_retriever_satisfies_the_retriever_seam():
+    """The workflow's Evidence source stays query-in, Chunks-out: fusion
+    lives entirely inside the retrieval service."""
+    retriever, _ = make_hybrid(vector_hits=[], lexical_hits=[])
+
+    assert isinstance(retriever, Retriever)
+
+
+def test_hybrid_fusion_orders_chunks_by_reciprocal_rank_contribution():
+    """RRF scores a Chunk 1/(k + rank) per leg that found it, summed: a Chunk
+    both legs found outranks either leg's own top hit, and single-leg Chunks
+    order by their rank. Ranks start at 1, and the fusion constant is the
+    standard k = 60 (ADR-0012)."""
+    assert RRF_K == 60
+
+    retriever, _ = make_hybrid(
+        vector_hits=[
+            chunk_hit(source_id="vector-top", number=1),
+            chunk_hit(source_id="both-legs", number=2),
+            chunk_hit(source_id="vector-last", number=3),
+        ],
+        lexical_hits=[
+            make_chunk(source_id="both-legs", number=2),
+            make_chunk(source_id="lexical-only", number=4),
+        ],
+    )
+
+    chunks = retriever.retrieve("oversight duties")
+
+    # both-legs: 1/61 + 1/62; vector-top: 1/61; lexical-only: 1/62;
+    # vector-last: 1/63.
+    assert [c.source_id for c in chunks] == ["both-legs", "vector-top", "lexical-only", "vector-last"]
+
+
+def test_hybrid_fusion_breaks_score_ties_by_first_appearance():
+    """Two single-leg Chunks at the same rank tie under RRF; the chunk seen
+    first (the vector leg's, ranked before the lexical leg) keeps precedence —
+    the fusion is deterministic."""
+    retriever, _ = make_hybrid(
+        vector_hits=[chunk_hit(source_id="from-vector", number=1)],
+        lexical_hits=[make_chunk(source_id="from-lexical", number=2)],
+    )
+
+    chunks = retriever.retrieve("oversight duties")
+
+    assert [c.source_id for c in chunks] == ["from-vector", "from-lexical"]
+
+
+def test_hybrid_dedups_a_chunk_both_legs_found():
+    """A Chunk both legs found appears exactly once — its RRF contributions
+    sum into one fused entry, never a duplicate across legs."""
+    retriever, _ = make_hybrid(
+        vector_hits=[
+            chunk_hit(source_id="shared", number=7),
+            chunk_hit(source_id="vector-only", number=1),
+        ],
+        lexical_hits=[make_chunk(source_id="shared", number=7)],
+    )
+
+    chunks = retriever.retrieve("oversight duties")
+
+    assert [c.source_id for c in chunks] == ["shared", "vector-only"]
+
+
+def test_hybrid_vector_floor_binds_the_vector_leg_only():
+    """Every vector hit sits beyond the relevance floor, yet the lexical
+    leg's exact-term matches survive: the floor never gate-keeps the lexical
+    leg, so lexical-only evidence may fill the pool (ADR-0012)."""
+    retriever, _ = make_hybrid(
+        vector_hits=[chunk_hit(source_id="junk", number=1, distance=0.9)],
+        lexical_hits=[make_chunk(source_id="gdpr", number=30)],
+    )
+
+    chunks = retriever.retrieve("records of processing activities")
+
+    assert [c.source_id for c in chunks] == ["gdpr"]
+
+
+def test_hybrid_requests_each_legs_own_cap_from_the_store():
+    """Two legs, two caps, each pushed down into its own store read (ADR-0012):
+    the vector leg asks for top-12, the lexical leg for top-8."""
+    retriever, store = make_hybrid(vector_hits=[], lexical_hits=[])
+
+    retriever.retrieve("oversight duties")
+
+    assert store.calls[0]["limit"] == VECTOR_LEG_DEPTH == 12
+    assert store.lexical_calls[0]["limit"] == LEXICAL_LEG_DEPTH == 8
+    assert store.lexical_calls[0]["query"] == "oversight duties"
+
+
+def test_hybrid_returns_empty_when_both_legs_come_back_empty():
+    """Neither leg matched anything: the retriever returns empty — the shape
+    the Insufficient-evidence path builds on."""
+    retriever, _ = make_hybrid(vector_hits=[], lexical_hits=[])
+
+    assert retriever.retrieve("quantum gravity") == []
+
+
+def test_hybrid_returns_empty_when_vector_hits_are_junk_and_lexical_finds_nothing():
+    """Vector hits beyond the floor plus zero lexical matches is both legs
+    empty: no Chunk crosses the seam, however much the store returned."""
+    retriever, _ = make_hybrid(
+        vector_hits=[chunk_hit(source_id="junk", number=1, distance=0.9)],
+        lexical_hits=[],
+    )
+
+    assert retriever.retrieve("quantum gravity") == []

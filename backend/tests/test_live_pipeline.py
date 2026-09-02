@@ -32,7 +32,7 @@ from src.live_workflow import (
 )
 from src.main import app
 from src.models import Strength
-from src.retrieval import PER_TARGET_DEPTH, VectorRetriever
+from src.retrieval import LEXICAL_LEG_DEPTH, VECTOR_LEG_DEPTH, HybridRetriever
 
 from conftest import install_fake_pipeline
 from fakes import (
@@ -245,8 +245,12 @@ def run_plan(live_client, targets, per_query):
 
 
 def depth_results(target):
-    """One full-depth retrieval for a target: PER_TARGET_DEPTH unique Chunks."""
-    return [make_chunk(source_id=f"{target}-{i}", number=i + 1) for i in range(PER_TARGET_DEPTH)]
+    """One full-depth hybrid retrieval for a target: up to ``VECTOR_LEG_DEPTH +
+    LEXICAL_LEG_DEPTH`` unique Chunks (ADR-0012)."""
+    return [
+        make_chunk(source_id=f"{target}-{i}", number=i + 1)
+        for i in range(VECTOR_LEG_DEPTH + LEXICAL_LEG_DEPTH)
+    ]
 
 
 def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(live_client):
@@ -271,7 +275,7 @@ def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(l
     # Every fresh Chunk fits under the plan-derived cap (len(targets) targets ×
     # SEATS_PER_TARGET seats); the thin second target simply leaves seats open.
     assert len(retrieved) == len(broad) + len(narrow)
-    assert len(retrieved) > PER_TARGET_DEPTH, "the widened pool out-seats one retrieval's depth — #23's fix"
+    assert len(retrieved) > VECTOR_LEG_DEPTH + LEXICAL_LEG_DEPTH, "the widened pool out-seats one full hybrid retrieval — #23's fix"
     assert len(retrieved) <= SEATS_PER_TARGET * len(targets), "the plan-derived cap holds"
     assert any(s.startswith("narrow-") for s in sources), "the second target is represented"
     assert any(s.startswith("broad-") for s in sources), "the first target is still represented"
@@ -292,13 +296,14 @@ def test_evidence_pool_scales_with_the_planned_target_count(live_client):
 
 
 def test_pool_derives_from_the_plan_not_from_retrieval_volume(live_client):
-    """A lone broad target retrieves ``PER_TARGET_DEPTH`` Chunks but seats
-    only ``SEATS_PER_TARGET`` of them: the pool is the plan's seat count —
-    extra retrieval volume alone never widens what the agents reason over."""
+    """A lone broad target retrieves up to ``VECTOR_LEG_DEPTH +
+    LEXICAL_LEG_DEPTH`` Chunks but seats only ``SEATS_PER_TARGET`` of them:
+    the pool is the plan's seat count — extra retrieval volume alone never
+    widens what the agents reason over."""
     data = run_plan(live_client, ["creditworthiness"], {"creditworthiness": depth_results("broad")})
 
     retrieved = served_evidence(data)
-    assert len(retrieved) == SEATS_PER_TARGET
+    assert len(retrieved) == SEATS_PER_TARGET == 12
 
 
 def test_duplicate_drafted_statements_each_get_their_own_decision(monkeypatch):
@@ -365,18 +370,20 @@ def test_unknown_evidence_labels_are_dropped_never_become_citations(monkeypatch)
     assert decision["status"] == "kept"
 
 
-# --- Insufficient evidence over a junk-only Corpus (ticket #18) ----------------
+# --- Insufficient evidence fires only when both legs come back empty (issue #64) ---
 
 
 def test_junk_only_corpus_answers_insufficient_evidence_never_fabricated_findings():
-    """Every stored Chunk sits beyond the relevance threshold: the served
-    answer says so honestly — zero Findings, a Known limitation naming the
+    """Both retrieval legs come back empty — every vector hit sits beyond the
+    relevance floor and the lexical leg matches nothing — so the served
+    answer says so honestly: zero Findings, a Known limitation naming the
     gap, narrowing Actions — even though the scripted LLM stands ready to
     fabricate grounded-looking claims if it were ever asked to draft."""
     junk = [chunk_hit(source_id=f"junk-{i}", number=i + 1, distance=0.9) for i in range(3)]
-    # The shared FakeSearchStore replays its hits whatever bound it is given,
-    # so this models a Corpus holding nothing relevant to the query.
-    retriever = VectorRetriever(store=FakeSearchStore(hits=junk), embedder=FakeEmbedder())
+    # The shared FakeSearchStore replays its hits whatever bound it is given
+    # (the vector leg's adversarial case) and holds no lexical matches:
+    # neither leg returns anything.
+    retriever = HybridRetriever(store=FakeSearchStore(hits=junk), embedder=FakeEmbedder())
     llm = make_offline_llm()
     install_fake_pipeline(llm, retriever)
 
@@ -391,6 +398,39 @@ def test_junk_only_corpus_answers_insufficient_evidence_never_fabricated_finding
     assert data["trace"]["unsupported_claims_discarded"] == []
     drafting_calls = [call for call in llm.calls if call[2] is DraftClaims]
     assert drafting_calls == [], "no Claim may be drafted over junk-only Evidence"
+
+
+def test_lexical_only_evidence_still_produces_findings_and_citations():
+    """The Insufficient-evidence path fires only when *neither* leg returns
+    anything (ADR-0012): with every vector hit beyond the relevance floor,
+    the lexical leg's exact-term matches alone fill the Evidence pool —
+    lexically-obvious provisions are no longer hidden behind an embedding
+    miss, and the answer carries Findings and Citations."""
+    lexical_only = [
+        make_chunk(
+            source_id="gdpr",
+            number=30,
+            text="The controller shall maintain records of processing activities.",
+        ),
+    ]
+    retriever = HybridRetriever(
+        store=FakeSearchStore(hits=[chunk_hit(source_id="junk", number=1, distance=0.9)], lexical_hits=lexical_only),
+        embedder=FakeEmbedder(),
+    )
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, retriever)
+
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = data["answer"]["findings"]
+    assert findings, "lexical-only Evidence still produces Findings"
+    assert data["answer"]["citations"], "lexical-only Evidence still produces Citations"
+    assert all(c["source_id"] == "gdpr" for c in data["answer"]["citations"])
+    assert [r["source_id"] for r in served_evidence(data)] == ["gdpr"], "the pool filled from the lexical leg alone"
+    assert not any("nothing relevant" in line.lower() for line in data["known_limitations"])
 
 
 # --- Proposer: referral Actions grounded in kept Findings (ticket #24) --------

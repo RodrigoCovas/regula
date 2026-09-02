@@ -105,7 +105,7 @@ A statement with no Evidence in the Corpus either way — no provision can be ci
 _Avoid_: Unverified claim, speculation
 
 **Insufficient evidence**:
-The situation where the Corpus holds nothing relevant enough to answer the Regulatory question for a Scenario. Surfaced as a Known limitation together with suggested Actions; it never produces Findings.
+The situation where retrieval returns nothing for any Research target — neither the vector nor the lexical search finds a single Chunk. Surfaced as a Known limitation together with suggested Actions; it never produces Findings. Lexical-only evidence fills the Evidence pool instead of triggering it.
 _Avoid_: No results, empty answer
 
 **Answer**:
@@ -134,7 +134,7 @@ The keyless path that serves the canonical Spanish fintech Scenario from fixed c
 _Avoid_: Offline mode, mock mode
 
 **Live mode**:
-The path where the workflow runs for real over the ingested Corpus, answering arbitrary Scenarios via vector retrieval. Executable only when Readiness holds.
+The path where the workflow runs for real over the ingested Corpus, answering arbitrary Scenarios via hybrid lexical and vector retrieval. Executable only when Readiness holds.
 _Avoid_: Production mode, online mode
 
 **Readiness**:

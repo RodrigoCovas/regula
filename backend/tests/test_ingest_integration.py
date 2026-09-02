@@ -361,13 +361,13 @@ class TextHashEmbedder:
         return values[:EMBEDDING_DIMENSION]
 
 
-def test_vector_retriever_round_trip_over_real_ingested_corpus(
+def test_hybrid_retriever_round_trip_over_real_ingested_corpus(
     dsn, assert_exactly_one_provision_target
 ):
     """The retriever seam reads the same table ingestion wrote: querying with
-    a Chunk's own text returns that Chunk first, metadata intact, within the
-    per-target depth."""
-    from src.retrieval import PER_TARGET_DEPTH, VectorRetriever
+    a Chunk's own text returns that Chunk first through both legs — vector
+    and lexical — fused by RRF, metadata intact, within the two legs' caps."""
+    from src.retrieval import LEXICAL_LEG_DEPTH, VECTOR_LEG_DEPTH, HybridRetriever
 
     document = json.loads((DATA_DIR / "gdpr.json").read_text(encoding="utf-8"))
     chunks = chunk_regulation(document)
@@ -380,14 +380,14 @@ def test_vector_retriever_round_trip_over_real_ingested_corpus(
         store.upsert_chunks(records)
 
         target = chunks[len(chunks) // 2]
-        retrieved = VectorRetriever(store=store, embedder=embedder).retrieve(target.text)
+        retrieved = HybridRetriever(store=store, embedder=embedder).retrieve(target.text)
     finally:
         with connection.cursor() as cursor:
             cursor.execute("DROP TABLE IF EXISTS chunks")
         connection.commit()
         connection.close()
 
-    assert 0 < len(retrieved) <= PER_TARGET_DEPTH
+    assert 0 < len(retrieved) <= VECTOR_LEG_DEPTH + LEXICAL_LEG_DEPTH
     assert retrieved[0].text == target.text
     assert retrieved[0].source_id == target.source_id
     assert retrieved[0].article_number == target.article_number

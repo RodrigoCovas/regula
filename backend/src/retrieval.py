@@ -1,50 +1,64 @@
 """Retrieval service — the Evidence-gathering primitive (spec #9, ticket #15).
 
-Query text in, top-k most relevant Chunks out. ``VectorRetriever`` composes
-its provider protocols — it embeds the query locally via an ``Embedder``
-and searches the pgvector store through a search-capable ``Store`` — so tests
-and the Live workflow both depend on the single ``Retriever`` seam at the
-composition root.
-
-The store's second read path — lexical full-text search — enters beside
-``SearchStore`` as its own seam (``LexicalSearchStore``, spec #60, ADR-0012);
-the hybrid retriever (#64) composes both legs without touching the vector
-doubles.
+Query text in, relevant Chunks out. ``HybridRetriever`` composes its provider
+protocols — it embeds the query locally via an ``Embedder``, searches the
+pgvector store through the vector read path, and reads the store's lexical
+full-text path — fusing the two legs by Reciprocal Rank Fusion so the
+``Retriever`` seam stays query-in, Chunks-out (spec #64, ADR-0012). Tests
+and the Live workflow both depend on that single seam at the composition root.
 
 Locked behaviour:
 
-- One retrieval reaches at most ``PER_TARGET_DEPTH`` (~8) Chunks deep: the
-  depth is requested from the store, whose LIMIT clause enforces it; each
-  query is a bounded pass, never a crawl. The Evidence pool served to the
-  agents is a separate concern derived from the plan (live_workflow's
+- Two legs per retrieval, each a bounded pass with its own cap pushed down
+  into the store's LIMIT clause: the vector leg takes top-``VECTOR_LEG_DEPTH``
+  (12), the lexical leg top-``LEXICAL_LEG_DEPTH`` (8). One retrieval can
+  return up to the two caps' sum in unique Chunks. The Evidence pool served
+  to the agents is a separate concern derived from the plan (live_workflow's
   ``SEATS_PER_TARGET``) — one constant playing both roles is how #23
   happened.
-- A relevance threshold excludes junk-only search results: when nothing in
-  the Corpus matches well enough, the caller gets no Chunks rather than
-  irrelevant Evidence. That empty result is what the Insufficient-evidence
-  path builds on. The floor is enforced twice — pushed down into the
-  store's search and re-checked here — so the guarantee holds at this seam
-  regardless of how a Store implementation behaves.
-- Every returned Chunk arrives wrapped in a ``ScoredChunk``, so its
-  provision metadata (source_id plus exactly one provision number kind) was
-  validated at construction, ready for deterministic Citation derivation.
+- The relevance floor binds the vector leg only. A vector hit must clear the
+  cosine similarity floor, enforced twice — pushed down into the store's
+  search and re-checked here — so the guarantee holds at this seam regardless
+  of how a Store implementation behaves. Lexical matches carry no similarity
+  score, so the floor never gate-keeps them: lexical-only evidence may fill
+  the pool, and the junk-only guarantee the floor once provided alone is
+  deliberately weakened — the tightened Researcher and Verifier are the
+  second line of defense (ADR-0012).
+- The ranked legs fuse by Reciprocal Rank Fusion (k = ``RRF_K``): each Chunk
+  scores 1/(k + rank) per leg that found it, summed — rank-based, so cosine
+  distance and ts_rank never need calibrating against each other. A Chunk
+  both legs found appears once, ranked by its summed contribution.
+- Every returned Chunk is metadata-complete: it came wrapped in a
+  ``ScoredChunk`` (vector leg) or was validated at store construction
+  (lexical leg), ready for deterministic Citation derivation.
 
 The threshold default was tuned against the real ingested Corpus with the
 locked embedding model; cosine similarity of genuinely relevant provisions
 sits far above junk matches.
 """
 
-from typing import Protocol, runtime_checkable, Sequence
+from typing import Optional, Protocol, runtime_checkable, Sequence
 
 from .embedder import Embedder
 from .models import Chunk, ScoredChunk
 
-# Locked per-target depth (~8): how deep one retrieval reaches — the store's
-# LIMIT for a single query, whatever the plan looks like. The total Evidence
-# pool served to the agents is derived separately from the plan
-# (live_workflow.SEATS_PER_TARGET): raising that pool must not silently
-# deepen crawling.
-PER_TARGET_DEPTH = 8
+# The vector leg's per-target depth (ADR-0012): how deep the vector search
+# reaches — the store's LIMIT for the vector query, whatever the plan looks
+# like. Raised from 8 alongside the widened Evidence pool: the pool's seats
+# per target must stay reachable. The total pool served to the agents is
+# derived separately from the plan (live_workflow.SEATS_PER_TARGET): raising
+# that pool must not silently deepen crawling.
+VECTOR_LEG_DEPTH = 12
+
+# The lexical leg's per-target cap (ADR-0012): the store's LIMIT for the
+# full-text query. Lexically distinctive provisions surface here even when
+# the embedder cannot see them.
+LEXICAL_LEG_DEPTH = 8
+
+# Reciprocal Rank Fusion constant (ADR-0012): the standard k = 60 dampens
+# top ranks so the two legs' orders fuse by rank alone — no calibration
+# between cosine distance and ts_rank.
+RRF_K = 60
 
 # Cosine similarity floor for a Chunk to count as relevant, tuned against
 # the ingested Corpus with the locked embedding model: junk-only questions
@@ -85,14 +99,20 @@ class LexicalSearchStore(Protocol):
     def search_chunks_lexically(self, query: str, limit: int) -> Sequence[Chunk]: ...
 
 
+@runtime_checkable
+class HybridSearchStore(SearchStore, LexicalSearchStore, Protocol):
+    """Both read paths the hybrid retriever composes: one store, two legs."""
+
+
 class VectorRetriever:
-    """Embeds the query, vector-searches the store, returns relevant Chunks."""
+    """The vector leg: embeds the query, vector-searches the store, returns
+    the Chunks that clear the relevance floor, best similarity first."""
 
     def __init__(
         self,
         store: SearchStore,
         embedder: Embedder,
-        depth: int = PER_TARGET_DEPTH,
+        depth: int = VECTOR_LEG_DEPTH,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
     ):
         self._store = store
@@ -115,3 +135,67 @@ class VectorRetriever:
         # Store implementation returns, no Chunk beyond the relevance floor
         # can cross this seam and become Evidence.
         return [hit.chunk for hit in hits if hit.distance <= self._max_distance]
+
+
+# A Chunk identity as a dict key — Chunk.identity's shape, tuple-permitted.
+_ChunkKey = tuple[str, str, Optional[int], int]
+
+
+def _rrf_fuse(legs: list[list[Chunk]], k: int) -> list[Chunk]:
+    """Fuse ranked Chunk lists by Reciprocal Rank Fusion.
+
+    A Chunk scores 1/(k + rank) per leg that found it — rank starting at 1 —
+    summed across legs; a Chunk both legs found appears once, ranked by its
+    summed contribution. Score ties keep first-appearance order (the vector
+    leg's results precede the lexical leg's), so the fusion is deterministic.
+    """
+    scores: dict[_ChunkKey, float] = {}
+    first_seen: dict[_ChunkKey, Chunk] = {}
+    for leg in legs:
+        for rank, chunk in enumerate(leg, start=1):
+            key = chunk.identity
+            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+            first_seen.setdefault(key, chunk)
+    # A stable descending sort: equal scores keep dict insertion order — the
+    # first-appearance order the ties must resolve by.
+    return [
+        first_seen[key]
+        for key in sorted(scores, key=lambda key: scores[key], reverse=True)
+    ]
+
+
+class HybridRetriever:
+    """Fuses the vector and lexical legs of one Research target's retrieval.
+
+    The vector leg (a ``VectorRetriever`` over the same store) keeps its
+    similarity floor and takes top-``VECTOR_LEG_DEPTH``; the lexical leg
+    takes top-``LEXICAL_LEG_DEPTH`` through the store's full-text read. The
+    ranked lists fuse by Reciprocal Rank Fusion — rank-based, so the legs'
+    incomparable scores never meet, only their orders do (ADR-0012).
+    """
+
+    def __init__(
+        self,
+        store: HybridSearchStore,
+        embedder: Embedder,
+        vector_depth: int = VECTOR_LEG_DEPTH,
+        lexical_depth: int = LEXICAL_LEG_DEPTH,
+        min_similarity: float = DEFAULT_MIN_SIMILARITY,
+        rrf_k: int = RRF_K,
+    ):
+        self._store = store
+        self._vector_leg = VectorRetriever(
+            store=store,
+            embedder=embedder,
+            depth=vector_depth,
+            min_similarity=min_similarity,
+        )
+        self._lexical_depth = lexical_depth
+        self._rrf_k = rrf_k
+
+    def retrieve(self, query: str) -> list[Chunk]:
+        vector_results = self._vector_leg.retrieve(query)
+        lexical_results = list(
+            self._store.search_chunks_lexically(query, self._lexical_depth)
+        )
+        return _rrf_fuse([vector_results, lexical_results], k=self._rrf_k)

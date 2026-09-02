@@ -42,7 +42,7 @@ from .query_log import (
     build_query_record,
 )
 from .readiness import live_readiness
-from .retrieval import Retriever, VectorRetriever
+from .retrieval import HybridRetriever, Retriever
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -488,7 +488,8 @@ def get_llm() -> Llm:
 
 
 def get_retriever() -> Iterator[Retriever]:
-    """The Evidence source: local query embeddings over the pgvector store.
+    """The Evidence source: hybrid lexical + vector retrieval over the
+    pgvector store, fused by RRF inside the retriever (ADR-0012).
 
     The dependency is resolved on every request — Demo mode included — so
     the store connection stays lazy: it opens only when Live mode actually
@@ -496,7 +497,7 @@ def get_retriever() -> Iterator[Retriever]:
     """
     store = LazyStore(settings.database_url)
     try:
-        yield VectorRetriever(
+        yield HybridRetriever(
             store=store,
             embedder=OllamaEmbedder(
                 base_url=settings.ollama_api_url, model=settings.embedding_model

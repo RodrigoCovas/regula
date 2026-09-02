@@ -203,6 +203,12 @@ class Chunk(BaseModel):
         """The exactly-one provision number, whichever kind this Chunk targets."""
         return self.article_number or self.recital_number or self.annex_number
 
+    @property
+    def identity(self) -> tuple[str, str, Optional[int], int]:
+        """The stored-passage identity: two Chunks with one identity are one
+        passage, whatever read path surfaced them."""
+        return (self.source_id, self.kind.value, self.provision_number, self.chunk_index)
+
     @model_validator(mode="after")
     def exactly_one_target(self):
         targets = {kind: getattr(self, field) for kind, field in PROVISION_NUMBER_FIELDS.items()}

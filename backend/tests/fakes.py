@@ -3,7 +3,7 @@
 Injected at the composition root via FastAPI dependency overrides so the
 HTTP seam runs fully offline — no network, no Ollama, no pgvector. The
 embedder, search-store, and scored-hit fakes also drive a real
-``VectorRetriever`` over canned search results (#18).
+``HybridRetriever`` over canned search results (#18, #64).
 """
 
 from src.eval_judge import JudgeVerdict, PairVerdict, RelevancePair, pair_fidelity
@@ -58,12 +58,17 @@ class FakeSearchStore:
     That blind replay is what makes it usable as an adversarial store too:
     handed junk-only hits, it returns them whatever max_distance the caller
     pushes down — exactly the situation the seam-side relevance floor (#18)
-    must survive.
+    must survive. The lexical read path (spec #64) replays the same way:
+    the hybrid retriever's per-leg caps are verified by assertion, never by
+    the fake enforcing them. With no ``lexical_hits`` given, the lexical leg
+    matches nothing — tests opt in to lexical Evidence.
     """
 
-    def __init__(self, hits):
+    def __init__(self, hits, lexical_hits=None):
         self.hits = hits
+        self.lexical_hits = list(lexical_hits or [])
         self.calls: list[dict] = []
+        self.lexical_calls: list[dict] = []
 
     def search_chunks(self, query_embedding, limit, max_distance):
         self.calls.append(
@@ -74,6 +79,10 @@ class FakeSearchStore:
             }
         )
         return self.hits
+
+    def search_chunks_lexically(self, query, limit):
+        self.lexical_calls.append({"query": query, "limit": limit})
+        return self.lexical_hits
 
 
 def chunk_hit(
