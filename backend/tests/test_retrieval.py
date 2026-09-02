@@ -13,7 +13,9 @@ ScoredChunk-wrapped Chunks, so it is enforced by construction.
 Ticket #18 added the threshold-enforcement section: the relevance floor is
 re-checked at this seam, so junk-only search results can never reach drafting.
 Spec #60 added the read-seams section: the composition-root store must
-satisfy both the vector and the lexical read seam.
+satisfy both the vector and the lexical read seam. The ``LazyStore`` check
+opens no connection — deferral is the point — so the no-PostgreSQL promise
+holds.
 """
 
 import pytest

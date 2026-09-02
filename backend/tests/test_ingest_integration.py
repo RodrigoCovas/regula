@@ -15,10 +15,11 @@ import os
 import shutil
 import subprocess
 import time
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 
-from typing import Generator
+from typing import Any, Generator
 
 import pytest
 
@@ -77,6 +78,18 @@ def wait_until_ready(dsn: str) -> bool:
         except Exception:
             time.sleep(1.0)
     return False
+
+
+@contextmanager
+def transient_connection(dsn: str) -> Generator[Any, None, None]:
+    """A short-lived second connection, closed on exit — for tests that must
+    act as another process (catalog checks) or perform raw DDL outside the
+    store's write path."""
+    connection = connect(dsn)
+    try:
+        yield connection
+    finally:
+        connection.close()
 
 
 @pytest.fixture(scope="session")
@@ -147,13 +160,12 @@ def test_ensure_schema_is_rerunnable(store):
 
 def test_ensure_schema_twice_leaves_one_generated_tsv_column_and_one_gin_index(store, dsn):
     """The lexical read path (spec #60): ensure_schema adds the generated
-    english tsvector over chunk content plus its GIN index (ADR-0012), and a
-    second run is a no-op — one column, one index, no error. A separate
-    connection reads the catalog, as another process would see it."""
+    tsvector (``english`` configuration) over Chunk content plus its GIN index
+    (ADR-0012), and a second run is a no-op — one column, one index, no error.
+    A separate connection reads the catalog, as another process would see it."""
     store.ensure_schema()
 
-    probe = connect(dsn)
-    try:
+    with transient_connection(dsn) as probe:
         with probe.cursor() as cursor:
             cursor.execute(
                 """
@@ -168,10 +180,26 @@ def test_ensure_schema_twice_leaves_one_generated_tsv_column_and_one_gin_index(s
                 WHERE tablename = 'chunks' AND indexname = 'chunks_content_tsv_idx'
                 """
             )
-            (indexdef,) = cursor.fetchone()
-            assert "gin" in indexdef.lower()
-    finally:
-        probe.close()
+            row = cursor.fetchone()
+            assert row is not None, "chunks_content_tsv_idx is missing"
+            assert "gin" in row[0].lower()
+
+
+def test_ensure_schema_refuses_a_foreign_content_tsv_expression(store, dsn):
+    """ADD COLUMN IF NOT EXISTS matches by name: a content_tsv generated with
+    any other configuration would silently rank with the wrong lexicon. The
+    schema step must refuse loudly instead, with the fix in the message."""
+    with transient_connection(dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("ALTER TABLE chunks DROP COLUMN content_tsv")
+            cursor.execute(
+                "ALTER TABLE chunks ADD COLUMN content_tsv tsvector "
+                "GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED"
+            )
+        connection.commit()
+
+    with pytest.raises(RuntimeError, match="english"):
+        store.ensure_schema()
 
 
 # --- Upsert: every chunk stored with vector and provision metadata -----------
@@ -450,13 +478,10 @@ def test_chunks_ingested_before_the_lexical_column_are_searchable_after_upgrade(
         [make_record(number=30, text="Records of processing activities shall be maintained.")]
     )
 
-    upgrade = connect(dsn)
-    try:
-        with upgrade.cursor() as cursor:
+    with transient_connection(dsn) as connection:
+        with connection.cursor() as cursor:
             cursor.execute("ALTER TABLE chunks DROP COLUMN content_tsv")
-        upgrade.commit()
-    finally:
-        upgrade.close()
+        connection.commit()
 
     store.ensure_schema()
 

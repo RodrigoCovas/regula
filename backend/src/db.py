@@ -47,11 +47,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS chunks_identity_key
                COALESCE(article_number, recital_number, annex_number),
                chunk_index);
 
--- The lexical read path (ADR-0012): a generated english tsvector over the
--- Chunk content, backfilled for pre-existing rows by the one-time table
--- rewrite this ALTER performs on first start after upgrade — no re-ingestion,
--- no change to the write path. The GIN index keeps the term match off a
--- sequential scan; ts_rank then scores only the matched rows.
+-- The lexical read path (ADR-0012): a generated tsvector over the Chunk
+-- content in the english configuration, backfilled for pre-existing rows by
+-- the one-time table rewrite this ALTER performs on first start after
+-- upgrade — no re-ingestion, no change to the write path. The GIN index
+-- keeps the term match off a sequential scan; ts_rank then scores only the
+-- matched rows.
 ALTER TABLE chunks
     ADD COLUMN IF NOT EXISTS content_tsv tsvector
     GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
@@ -73,6 +74,14 @@ DO UPDATE SET title = EXCLUDED.title,
               num_chunks = EXCLUDED.num_chunks,
               content = EXCLUDED.content,
               embedding = EXCLUDED.embedding
+"""
+
+# The generated column's declared expression, read back after the DDL:
+# ADD COLUMN IF NOT EXISTS matches by name, so a content_tsv generated with
+# any other configuration would silently rank with the wrong lexicon.
+_CONTENT_TSV_EXPRESSION = """
+SELECT generation_expression FROM information_schema.columns
+WHERE table_name = 'chunks' AND column_name = 'content_tsv'
 """
 
 
@@ -190,8 +199,22 @@ class PgVectorStore:
         self._connection = connection
 
     def ensure_schema(self) -> None:
+        """Create everything IF NOT EXISTS, then verify the generated lexical
+        column's expression: name-level idempotency must not silently keep a
+        foreign configuration."""
         with self._connection.cursor() as cursor:
             cursor.execute(_SCHEMA)
+            cursor.execute(_CONTENT_TSV_EXPRESSION)
+            row = cursor.fetchone()
+        declared = row[0] if row else None
+        if declared is None or "to_tsvector('english" not in declared:
+            self._connection.rollback()
+            raise RuntimeError(
+                "chunks.content_tsv does not carry the english tsvector "
+                f"generation the lexical read path requires (found: {declared!r}). "
+                "Fix with `ALTER TABLE chunks DROP COLUMN content_tsv`, then "
+                "re-run the schema step to rebuild it from chunks.content."
+            )
         self._connection.commit()
 
     def upsert_chunks(self, records: Sequence[ChunkRecord]) -> int:
@@ -265,10 +288,11 @@ class PgVectorStore:
         """Chunks whose content matches the query's terms, best rank first.
 
         Postgres full-text search over the generated tsvector is the ranking
-        metric — ts_rank, highest first — the lexical leg of hybrid retrieval
-        (ADR-0012). The query parses with ``websearch_to_tsquery`` so search
-        operators stay meaningful; each result is a fully validated Chunk,
-        and the LIMIT clause bounds one query like the vector path does.
+        metric — ts_rank with Postgres's default weights and normalization,
+        highest first — the lexical leg of hybrid retrieval (ADR-0012). The
+        query parses with ``websearch_to_tsquery`` so search operators stay
+        meaningful; each result is a fully validated Chunk, and the LIMIT
+        clause bounds one query like the vector path does.
         """
         with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute(
