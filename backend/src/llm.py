@@ -33,7 +33,7 @@ CHAT_COMPLETIONS_PATH = "/chat/completions"
 # truncated answers mid-object more often than it bounded them.
 # ADR-0003: depth outranks latency, and the cap only has to stop runaway
 # generations, not ration the answer.
-MAX_COMPLETION_TOKENS = 8192
+MAX_COMPLETION_TOKENS = 131072
 
 _TIMEOUT_SECONDS = 300
 
