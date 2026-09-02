@@ -286,10 +286,10 @@ def test_exactly_one_target_citation_invariant():
         assert sum(targets) == 1, f"Citation must target exactly one provision: {citation}"
 
 
-def test_demo_citations_carry_fixed_relevance_and_max_rule_strength():
-    """Demo Answers ship fixed Provision relevance consistent with the locked
-    demo content, and the max-rule Citation strength — one entry per cited
-    provision, keylessly (#47)."""
+def test_demo_citations_carry_fixed_relevance_and_rated_strength():
+    """Demo Answers ship fixed Provision relevance and the locked rated
+    Citation strength consistent with the locked demo content (ADR-0011) —
+    one entry per cited provision, keylessly (#47)."""
     data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
     citations = data["answer"]["citations"]
 
@@ -301,9 +301,9 @@ def test_demo_citations_carry_fixed_relevance_and_max_rule_strength():
     # flat list matches the per-Finding citations one-for-one.
     assert len(citations) == sum(len(f["citations"]) for f in data["answer"]["findings"])
 
-    # Spot-check the max-rule where it is pinned by the locked content: the
-    # high-risk classification is a strong Finding; the definitions Article is
-    # the weak framing one.
+    # Spot-check the locked ratings where the operator's ground truth pins
+    # them: the high-risk classification is strong, the definitions Article
+    # is the weak framing provision, the DORA scope Articles are supporting.
     by_number = {(c["source_id"], c.get("article_number")): c for c in citations}
     assert by_number[("ai-act", 6)]["strength"] == "strong"
     assert by_number[("ai-act", 3)]["strength"] == "weak"

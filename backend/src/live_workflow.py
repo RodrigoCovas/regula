@@ -10,7 +10,8 @@ the Proposer distills the kept Findings into referral Actions, each
 grounded in a kept Finding's Citations (ADR-0004); and the Summarizer
 turns the kept, cited Findings into Provision relevance — one grounded
 statement per cited provision, drawing only on the content of the Findings
-citing it (#47).
+citing it (#47) — and rates each cited provision's Citation strength
+(ADR-0011).
 
 Four rules are enforced by application code, never trusted to the LLM:
 
@@ -26,9 +27,12 @@ Four rules are enforced by application code, never trusted to the LLM:
   and the standing seek-counsel hand-off keeps the sheet never empty.
 - A relevance statement whose reference resolves to no cited provision is
   dropped and recorded: Provision relevance aggregates only the Findings
-  citing a provision, never material outside them. On Summarizer failure
-  the Answer ships without summaries plus a Known limitation — the run
-  does not fail.
+  citing a provision, never material outside them. The rating the
+  Summarizer gives each cited provision's Citation strength rides only when
+  it is one of the three levels — a missing or invalid rating keeps the
+  relevance, carries no strength, and is recorded with a reason (ADR-0011).
+  On Summarizer failure the Answer ships without summaries plus a Known
+  limitation — the run does not fail.
 
 When retrieval returns nothing relevant enough (no Chunk clears the
 relevance threshold), no LLM call drafts, verifies, or proposes anything:
@@ -151,6 +155,15 @@ class DraftClaims(BaseModel):
     claims: list[DraftClaim] = Field(default_factory=list)
 
 
+def _unwrap_strength_level(value: Any) -> Any:
+    """Keep the bare level when the live model wraps its strength with a
+    rationale — the one repair both the Verdict's and the Summarizer's
+    strength fields apply before the application code judges the value."""
+    if isinstance(value, dict) and "level" in value:
+        return value["level"]
+    return value
+
+
 class Verdict(BaseModel):
     """The Verifier's decision about one drafted Claim."""
 
@@ -162,10 +175,7 @@ class Verdict(BaseModel):
     @field_validator("strength", mode="before")
     @classmethod
     def accept_strength_object(cls, value: Any) -> Any:
-        """Keep the level when the live model wraps it with a rationale."""
-        if isinstance(value, dict) and "level" in value:
-            return value["level"]
-        return value
+        return _unwrap_strength_level(value)
 
 
 class Verdicts(BaseModel):
@@ -194,10 +204,22 @@ class ActionProposals(BaseModel):
 
 class ProvisionSummary(BaseModel):
     """One candidate Provision relevance the Summarizer emitted, referencing
-    the cited provision by the label it was shown (P1, P2, ...)."""
+    the cited provision by the label it was shown (P1, P2, ...).
+
+    ``strength`` is the provision's rated Citation strength (ADR-0011) — a
+    bare strong/moderate/weak string. The field stays deliberately loose:
+    a malformed rating can never reject the relevance statement around it,
+    and the grounding gate validates the value instead of defaulting it.
+    """
 
     ref: str
     relevance: str
+    strength: Any = None
+
+    @field_validator("strength", mode="before")
+    @classmethod
+    def accept_strength_object(cls, value: Any) -> Any:
+        return _unwrap_strength_level(value)
 
 
 class Summaries(BaseModel):
@@ -207,11 +229,15 @@ class Summaries(BaseModel):
 class SummaryDecision(BaseModel):
     """One Summarizer decision in the detailed trace: kept, or rejected with
     why. Mirrors ``ClaimDecision``/``ActionDecision``: rejected relevance
-    never vanishes silently."""
+    never vanishes silently. ``strength`` is the rating the provision
+    carries (ADR-0011); on a kept decision whose rating is missing or
+    invalid it is None and ``reason`` names the gap — the relevance ships,
+    the strength does not, and the trace says why."""
 
     ref: str
     status: Literal["kept", "rejected"]
     reason: Optional[str] = None
+    strength: Optional[Strength] = None
 
 
 class ActionDecision(BaseModel):
@@ -247,10 +273,14 @@ class Grounding(BaseModel):
 
 class GroundedSummary(BaseModel):
     """One cited provision's Provision relevance, grounded in the Findings
-    citing it — the gate-validated Summarizer output the Answer carries."""
+    citing it — the gate-validated Summarizer output the Answer carries.
+    ``strength`` is the provision's rated Citation strength (ADR-0011):
+    carried as rated, absent (None) when the rating was missing or invalid —
+    never defaulted from the citing Findings."""
 
     target: ProvisionTarget
     relevance: str
+    strength: Optional[Strength] = None
 
 
 class LiveState(BaseModel):
@@ -340,11 +370,15 @@ _SUMMARIZER_SYSTEM = (
     "You are the Summarizer of a regulatory research assistant. You are given the provisions an "
     "Answer cites, each with a label like [P1] and the statements of the Findings that cite it. "
     "For each provision, write ONE answer-wide Provision relevance statement: why the provision "
-    "matters to the overall Answer, aggregating across the Findings that cite it. Ground each "
-    "statement ONLY in the content of the Findings citing that provision — never on the "
-    "provision's own text, never on other provisions, never on outside knowledge. Set ref to the "
-    "provision's label (P1, P2, ...) — never a label that was not given to you. Never write more "
-    "than one statement per provision."
+    "matters to the overall Answer, aggregating across the Findings that cite it. Alongside it, "
+    "rate the provision's Citation strength as a bare string, exactly one of 'strong', 'moderate', "
+    "or 'weak', never an object or rationale: 'strong' when the provision directly imposes or "
+    "decides the obligations the Answer turns on, 'moderate' when it is a supporting duty or factor "
+    "the Answer relies on, 'weak' when it is definitional or framing. Ground each statement and its "
+    "rating ONLY in the content of the Findings citing that provision — never on the provision's "
+    "own text, never on other provisions, never on outside knowledge. Set ref to the provision's "
+    "label (P1, P2, ...) — never a label that was not given to you. Never write more than one "
+    "statement per provision."
 )
 
 
@@ -605,22 +639,50 @@ def _validate_proposals(
 _UNKNOWN_REF_REASON = "the label names no cited provision"
 _DUPLICATE_REF_REASON = "this provision already carries its relevance statement"
 _EMPTY_RELEVANCE_REASON = "the relevance statement is empty"
+_MISSING_RATING_REASON = (
+    "the Citation strength rating is missing; the provision keeps its "
+    "relevance without a strength"
+)
+_INVALID_RATING_REASON = (
+    "the Citation strength rating {value!r} is not one of strong, moderate, "
+    "or weak; the provision keeps its relevance without a strength"
+)
+
+
+def _validated_rating(raw: Any) -> tuple[Optional[Strength], Optional[str]]:
+    """The rating one emitted summary carries, validated against the three
+    levels (ADR-0011): a bare strong/moderate/weak string — or a level the
+    schema already unwrapped from a wrapped object — becomes its Strength;
+    anything else is no rating. Returns the gap reason for the detailed
+    trace instead of a default: relevance and strength degrade
+    independently."""
+    if raw is None:
+        return None, _MISSING_RATING_REASON
+    try:
+        return Strength(raw), None
+    except (ValueError, TypeError):
+        return None, _INVALID_RATING_REASON.format(value=raw)
 
 
 def _validate_summaries(
     summaries: Summaries,
     targets_by_ref: dict[str, ProvisionTarget],
-) -> tuple[dict[ProvisionTarget, str], list[SummaryDecision]]:
-    """The Summarizer's grounding gate: only cited provisions receive relevance.
+) -> tuple[dict[ProvisionTarget, GroundedSummary], list[SummaryDecision]]:
+    """The Summarizer's grounding gate: only cited provisions receive
+    relevance, and a rating rides it only when it is one of the three
+    levels (ADR-0011).
 
     A summary's reference must resolve to a cited provision through the same
     label map the prompt showed the LLM — a reference to anything else (a
     Finding label, an invented ref) is rejected and recorded in the detailed
     trace, so ungrounded relevance never reaches the Answer. One grounded
-    statement per cited provision: a second statement for an already-summarised
-    provision is rejected — the first stands, nothing merges or overwrites.
+    statement per cited provision: a second statement for an
+    already-summarised provision is rejected — the first stands, nothing
+    merges or overwrites. A kept statement carries its rating as given; a
+    missing or invalid rating keeps the relevance, carries no strength, and
+    is recorded with its reason — no default value exists anywhere.
     """
-    relevance: dict[ProvisionTarget, str] = {}
+    grounded: dict[ProvisionTarget, GroundedSummary] = {}
     decisions: list[SummaryDecision] = []
     for summary in summaries.summaries:
         target = targets_by_ref.get(summary.ref)
@@ -634,14 +696,19 @@ def _validate_summaries(
                 SummaryDecision(ref=summary.ref, status="rejected", reason=_EMPTY_RELEVANCE_REASON)
             )
             continue
-        if target in relevance:
+        if target in grounded:
             decisions.append(
                 SummaryDecision(ref=summary.ref, status="rejected", reason=_DUPLICATE_REF_REASON)
             )
             continue
-        relevance[target] = summary.relevance
-        decisions.append(SummaryDecision(ref=summary.ref, status="kept"))
-    return relevance, decisions
+        strength, rating_reason = _validated_rating(summary.strength)
+        grounded[target] = GroundedSummary(
+            target=target, relevance=summary.relevance, strength=strength
+        )
+        decisions.append(
+            SummaryDecision(ref=summary.ref, status="kept", reason=rating_reason, strength=strength)
+        )
+    return grounded, decisions
 
 
 # --- The Summarizer's outcome: classified once, described by every surface ---
@@ -883,15 +950,16 @@ def _build_graph(
         }
 
     def summarizer(state: LiveState) -> dict:
-        """Turn the kept, cited Findings into Provision relevance (issue #47).
+        """Turn the kept, cited Findings into Provision relevance (issue #47)
+        and rate each cited provision's Citation strength (ADR-0011).
 
         The block and the ref map come from one computation over the kept
         Findings — the gate validates exactly the labels the LLM saw. The
         prompt carries nothing but that block: the citing Findings' statements
-        are the relevance statements' only permitted grounding (CONTEXT.md),
-        so the question and the Evidence text stay out of the window. A
-        Summarizer failure never fails the run: the Answer ships without
-        summaries plus a Known limitation.
+        are the relevance statements' and the ratings' only permitted
+        grounding (CONTEXT.md), so the question and the Evidence text stay
+        out of the window. A Summarizer failure never fails the run: the
+        Answer ships without summaries plus a Known limitation.
         """
         if progress:
             progress(PhaseReport(phase="summarizer", message="aggregating the kept Findings into one grounded Provision relevance statement per cited provision"))
@@ -913,23 +981,20 @@ def _build_graph(
                 "summarizer failed (%s); the Answer ships without Provision relevance", error
             )
             return {"summarizer_failed": True}
-        relevance, decisions = _validate_summaries(summaries, prompt.targets_by_ref)
-        if not relevance:
+        grounded, decisions = _validate_summaries(summaries, prompt.targets_by_ref)
+        if not grounded:
             # Nothing usable came back — every statement was rejected, or none
             # was made: the same degradation as an outright failure, never a
             # silent absence.
             return {"summarizer_failed": True, "summary_decisions": decisions}
         logger.info(
             "summarizer: %d relevance statement(s) over %d provision(s) in %.2fs",
-            len(relevance),
+            len(grounded),
             len(prompt.targets_by_ref),
             time.perf_counter() - started,
         )
         return {
-            "relevance": [
-                GroundedSummary(target=target, relevance=statement)
-                for target, statement in relevance.items()
-            ],
+            "relevance": list(grounded.values()),
             "summary_decisions": decisions,
         }
 
@@ -982,9 +1047,14 @@ def run_live_analysis(
     decisions = state.claim_decisions
     discarded = [decision.claim for decision in decisions if decision.status == "rejected"]
     # The Summarizer's gate-validated relevance, keyed by provision target for
-    # the Answer's one-entry-per-provision citation list.
-    relevance_by_target = {grounded.target: grounded.relevance for grounded in state.relevance}
-    all_citations = answer_citations(findings, relevance_by_target)
+    # the Answer's one-entry-per-provision citation list. The rated strength
+    # rides beside it (ADR-0011): only rated targets enter the strengths map.
+    grounded_by_target = {grounded.target: grounded for grounded in state.relevance}
+    relevance_by_target = {target: g.relevance for target, g in grounded_by_target.items()}
+    strengths_by_target = {
+        target: g.strength for target, g in grounded_by_target.items() if g.strength is not None
+    }
+    all_citations = answer_citations(findings, relevance_by_target, strengths_by_target)
     retrieved_chunks = [
         {
             "label": item.label,

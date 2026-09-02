@@ -7,8 +7,10 @@ with the three never-blended components of ADR-0010: provision coverage
 (deterministic set F1 over Citation targets, strength-weighted on the
 expected side), summary fidelity (the strict rubric judge of
 ``eval_judge``, one batched call per case, schema-validated verdicts), and
-strength agreement (max-rule Citation strength on both sides, read at small
-weight). It prints all three per case plus the aggregate means.
+strength agreement (the operator's expected ratings against the
+Summarizer's produced ratings, ADR-0011, over rated shared targets only,
+read at small weight). It prints all three per case plus the aggregate
+means.
 
 Summary fidelity measures where the ground truth summarizes a cited
 provision (the labels #51 authored, one per cited provision); elsewhere it
@@ -20,8 +22,9 @@ aborts with the detail, never scoring silence.
 
 With ``--output PATH`` the command also writes a JSON artifact: the run's
 metadata, the per-case component scores, and the produced-versus-expected
-dump (statements, Strengths, Citation targets, relevance summaries) for the
-human audit ADR-0010 prescribes before numbers are quoted.
+dump (statements, Strengths, Citation targets, relevance summaries, the
+rated Citation strengths) for the human audit ADR-0010 prescribes before
+numbers are quoted.
 
 The command is operator-run and never part of CI: it requires a real API key
 (``OPENROUTER_API_KEY``, exported or in ``backend/.env.local``) and an

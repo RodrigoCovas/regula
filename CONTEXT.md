@@ -160,4 +160,4 @@ Checks findings against the evidence and rejects unsupported claims.
 Turns kept Findings into referral Actions for legal professionals; every Action it emits must be anchored in a Finding's Evidence, and it never advises on its own authority.
 
 **Summarizer**:
-Turns the kept, cited Findings into Provision relevance — one grounded statement per cited provision — and never draws on material outside those Findings.
+Turns the kept, cited Findings into Provision relevance — one grounded statement per cited provision — and rates each cited provision's Citation strength; both draw only on the content of the Findings citing it.

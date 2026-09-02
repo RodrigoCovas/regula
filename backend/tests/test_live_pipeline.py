@@ -620,10 +620,11 @@ def summarizer_step(data) -> dict:
     return [s for s in data["detailed_trace"] if s["step"] == "summarizer"][0]
 
 
-def test_live_answer_citations_carry_relevance_and_max_rule_strength(live_client):
+def test_live_answer_citations_carry_relevance_and_rated_strength(live_client):
     """The served Answer's Citations carry one entry per cited provision, each
-    with its Summarizer relevance and the max-rule Citation strength — while
-    the per-Finding Citations carry neither (issue #47)."""
+    with its Summarizer relevance and the rated Citation strength the
+    Summarizer carried (ADR-0011) — while the per-Finding Citations carry
+    neither (issue #47)."""
     resp = post_arbitrary_scenario(live_client)
     assert resp.status_code == 200
     data = resp.json()
@@ -646,6 +647,7 @@ def test_live_answer_citations_carry_relevance_and_max_rule_strength(live_client
     assert step["action"]
     kept = [d for d in step["summary_decisions"] if d["status"] == "kept"]
     assert len(kept) == 2, "one kept decision per cited provision"
+    assert {d["strength"] for d in kept} == {"strong", "weak"}, "kept decisions carry their rating"
 
 
 def test_grounding_gate_drops_summaries_for_unknown_labels(live_client):
@@ -680,9 +682,11 @@ def test_grounding_gate_drops_summaries_for_unknown_labels(live_client):
     assert "A Finding label, not a provision." not in served_relevance
 
 
-def test_citation_strength_follows_the_max_rule_across_findings(live_client):
+def test_the_rating_rides_the_provision_never_the_finding_strengths(live_client):
     """Two kept Findings citing one provision, at different Strengths: the
-    Answer's Citation carries the strongest (CONTEXT.md's max-rule)."""
+    Answer's Citation carries the rating the Summarizer gave that provision —
+    even one no citing Finding's Strength matches. Nothing is derived from
+    Finding strength any more (ADR-0011)."""
     from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
 
     strong_statement = "A strong claim about creditworthiness."
@@ -701,6 +705,9 @@ def test_citation_strength_follows_the_max_rule_across_findings(live_client):
             grounded_verdict(weak_statement, Strength.weak, ["E1"]),
         ]
     )
+    llm.summaries = Summaries(
+        summaries=[ProvisionSummary(ref="P1", relevance="Grounded in the citing Findings.", strength=Strength.moderate)]
+    )
     install_fake_pipeline(llm, FakeRetriever())
 
     resp = post_arbitrary_scenario(live_client)
@@ -711,7 +718,62 @@ def test_citation_strength_follows_the_max_rule_across_findings(live_client):
     citations = data["answer"]["citations"]
     assert len(citations) == 1, "both Findings cite one provision: one Answer entry"
     assert citations[0]["article_number"] == HIGH_RISK_CHUNK.article_number
-    assert citations[0]["strength"] == "strong", "the strongest citing Finding wins"
+    assert citations[0]["strength"] == "moderate", "the Summarizer's rating, not the max-rule"
+
+
+def test_a_missing_rating_keeps_the_relevance_and_is_recorded(live_client):
+    """A provision the Summarizer left unrated keeps its relevance, carries no
+    strength — never a default — and the gap is recorded with a reason on the
+    kept decision in the detailed trace (ADR-0011)."""
+    llm = make_offline_llm()
+    llm.summaries = Summaries(
+        summaries=[
+            ProvisionSummary(ref="P1", relevance="Grounded in the citing Findings."),
+            ProvisionSummary(ref="P2", relevance="Also grounded.", strength=Strength.weak),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    citations = data["answer"]["citations"]
+    by_number = {c["article_number"]: c for c in citations}
+    assert by_number[HIGH_RISK_CHUNK.article_number]["relevance"] == "Grounded in the citing Findings."
+    assert by_number[HIGH_RISK_CHUNK.article_number]["strength"] is None
+    assert by_number[DEFINITIONS_CHUNK.article_number]["strength"] == "weak"
+
+    kept = {d["ref"]: d for d in summarizer_step(data)["summary_decisions"] if d["status"] == "kept"}
+    assert kept["P1"]["strength"] is None
+    assert kept["P1"]["reason"], "the missing rating is recorded, never defaulted"
+    assert kept["P2"]["strength"] == "weak"
+
+
+def test_an_invalid_rating_keeps_the_relevance_and_is_recorded(live_client):
+    """A rating outside the three levels is no rating: the relevance ships,
+    the strength does not, and the reason names the value (ADR-0011)."""
+    llm = make_offline_llm()
+    llm.summaries = Summaries(
+        summaries=[
+            ProvisionSummary(ref="P1", relevance="Grounded in the citing Findings.", strength="decisive"),
+            ProvisionSummary(ref="P2", relevance="Also grounded.", strength={"level": "strong"}),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    by_number = {c["article_number"]: c for c in data["answer"]["citations"]}
+    assert by_number[HIGH_RISK_CHUNK.article_number]["strength"] is None
+    assert by_number[DEFINITIONS_CHUNK.article_number]["strength"] == "strong", "the wrapped object is unwrapped"
+
+    kept = {d["ref"]: d for d in summarizer_step(data)["summary_decisions"] if d["status"] == "kept"}
+    assert kept["P1"]["strength"] is None
+    assert "decisive" in (kept["P1"]["reason"] or "")
+    assert kept["P2"]["strength"] == "strong"
 
 
 def test_summarizer_failure_degrades_gracefully_never_fails_the_run(live_client):
@@ -739,6 +801,7 @@ def test_summarizer_failure_degrades_gracefully_never_fails_the_run(live_client)
     assert len(data["answer"]["findings"]) == 2, "the Findings are unaffected"
     assert data["answer"]["citations"], "the Citations are unaffected"
     assert all(c["relevance"] is None for c in data["answer"]["citations"])
+    assert all(c["strength"] is None for c in data["answer"]["citations"])
     assert any(
         "provision relevance is unavailable" in line.lower()
         for line in data["known_limitations"]
@@ -786,6 +849,11 @@ def test_summarizer_prompt_shows_only_the_citing_findings_material(live_client):
     assert "cited by" in summarizer_user
     # The citing Findings' statements ride along as the grounding material.
     assert "Creditworthiness evaluation is a high-risk use case." in summarizer_user
+    # The rating contract rides the system prompt: the three levels, judged
+    # only from the citing Findings (ADR-0011).
+    assert "Citation strength" in summarizer_system
+    for level in ("'strong'", "'moderate'", "'weak'"):
+        assert level in summarizer_system
     # Nothing outside the citing Findings: not the question, not the Evidence
     # text — CONTEXT.md's grounding boundary is the prompt's boundary.
     assert "Does automated loan scoring trigger high-risk obligations?" not in summarizer_user

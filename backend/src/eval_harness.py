@@ -16,9 +16,10 @@ separately per case and in aggregate:
    authored for the Live cases) and a judge is supplied; a cited provision
    the Summarizer left bare scores the floor deterministically, with no
    judge call.
-3. Strength agreement — max-rule Citation strength compared on both sides
-   over the targets both cite, reported at small weight: it grades only the
-   Strength labels the workflow assigned, never what the Answer claims.
+3. Strength agreement — the operator's expected per-provision ratings
+   compared against the Summarizer's produced ratings (ADR-0011) over the
+   targets both sides rate, reported at small weight: it grades only the
+   rated centrality the product badges, never what the Findings claim.
 
 Statements are never matched: statement similarity left the scoring path
 with ADR-0010 (ADR-0001's updates record the retirement as deletion), and
@@ -52,7 +53,6 @@ from .models import (
     ProvisionTarget,
     Scenario,
     Strength,
-    iter_target_strength_pairs,
     max_rule_strengths,
 )
 
@@ -71,7 +71,7 @@ class ExpectedCitation(TypedDict):
 # The eval's one numeric weight map (#55): strong = 50, moderate = 5, weak =
 # 1, so missing a provision that names the situation outright costs fifty
 # times a missed framing provision. It feeds recall only — strength agreement
-# compares raw Strengths, and precision stays unweighted.
+# compares the ratings themselves (ADR-0011), and precision stays unweighted.
 STRENGTH_WEIGHTS: Dict[Strength, int] = {
     Strength.strong: 50,
     Strength.moderate: 5,
@@ -106,17 +106,19 @@ class CoverageScores(TypedDict):
 
 class ExpectedCitationDump(TypedDict):
     """One expected Citation's audit-dump entry: the ground-truth label as
-    written, plus the authored relevance summary when #51 has written one."""
+    written, the authored relevance summary when #51 has written one, and the
+    operator's per-provision rating (ADR-0011)."""
 
     label: str
     relevance: Optional[str]
+    strength: str
 
 
 class ExpectedFindingDump(TypedDict):
     """One expected Finding's audit-dump entry: the authored statement and the
-    ground-truth provision labels as written. No Strength — the operator's
-    per-provision ratings ride the Citations, and the dump's produced side
-    carries the only Finding-level Strengths (#58)."""
+    ground-truth provision labels as written. No Finding-level Strength — the
+    operator's per-provision ratings ride the Citations (#58), on both sides
+    of the dump since ADR-0011."""
 
     statement: str
     citations: List[ExpectedCitationDump]
@@ -124,16 +126,20 @@ class ExpectedFindingDump(TypedDict):
 
 class ProducedCitationDump(TypedDict):
     """One produced Citation's audit-dump entry: the structural target, the
-    quoted evidence if any, and the Provision relevance the Answer carries."""
+    quoted evidence if any, the Provision relevance the Answer carries, and
+    the rated Citation strength — ``None`` where the Summarizer shipped no
+    rating (ADR-0011)."""
 
     target: str
     quote: Optional[str]
     relevance: Optional[str]
+    strength: Optional[str]
 
 
 class ProducedFindingDump(TypedDict):
     """One produced Finding's audit-dump entry: the statement as the LLM
-    worded it, its Strength, and each Citation's structural target."""
+    worded it, its Strength (finding display's own axis), and each Citation's
+    structural target with its rating."""
 
     statement: str
     strength: str
@@ -198,8 +204,9 @@ def expected_target_strengths(expected: List[ExpectedFinding]) -> Dict[Provision
     ground-truth Citations citing it — each Citation's own Strength, the
     operator's per-provision rating transcribed in #56 and the single source
     of expected Citation strength since #58. The expected half the
-    strength-agreement component (#50) compares, and the source of coverage's
-    strength weights."""
+    strength-agreement component (#50) compares against the Summarizer's
+    ratings (ADR-0011), and the source of coverage's strength weights —
+    the max-rule's last remaining role."""
     return max_rule_strengths(
         (parse_provision(citation["source_id"], citation["provision"]), citation["strength"])
         for finding in expected
@@ -244,28 +251,35 @@ def expected_relevance_summaries(expected: List[ExpectedFinding]) -> Dict[Provis
     return summaries
 
 
-def produced_target_strengths(produced: List[ProducedFinding]) -> Dict[ProvisionTarget, Strength]:
-    """The produced side's Citation strength under the same max-rule
-    (CONTEXT.md, issue #47): per produced Citation target, the strongest
-    Strength among the produced Findings citing it — the produced half the
-    strength-agreement component (#50) compares against ground truth."""
-    return max_rule_strengths(iter_target_strength_pairs(produced))
+def produced_target_ratings(citations: List[Citation]) -> Dict[ProvisionTarget, Strength]:
+    """The produced side's rated Citation strength (ADR-0011): the Answer's
+    Citations carry the Summarizer's centrality rating per cited provision —
+    the same value the product badges. Only rated targets enter the map, so
+    a provision whose rating is missing or invalid is excluded from the
+    comparison, never silently defaulted."""
+    return {
+        citation.provision_target: citation.strength
+        for citation in citations
+        if citation.strength is not None
+    }
 
 
 def strength_agreement(
     expected_strengths: Dict[ProvisionTarget, Strength],
     produced_strengths: Dict[ProvisionTarget, Strength],
 ) -> Optional[float]:
-    """Strength agreement (ADR-0010): over the targets both sides cite — the
-    provision-aligned comparison — the share whose max-rule Citation strength
-    matches exactly, whatever the direction of a mismatch. No shared target:
-    nothing to compare, so no number (coverage recall already flags the total
-    miss).
+    """Strength agreement (ADR-0010, ADR-0011): over the targets both sides
+    rate — the provision-aligned comparison — the share whose Citation
+    strength matches exactly, whatever the direction of a mismatch. The
+    expected side carries the operator's ratings; the produced side carries
+    the Summarizer's rated centrality and holds rated targets only, so the
+    comparison never defaults. No rated shared target: nothing to compare,
+    so no number (coverage recall already flags the total miss).
 
     The component is reported and aggregated on its own — never blended into
     the others — and is meant to be *read* at small weight: it grades only
-    the Strength labels the workflow assigned, never the substance the other
-    two components carry.
+    the ratings the product shows, never the substance the other two
+    components carry.
     """
     shared = expected_strengths.keys() & produced_strengths.keys()
     if not shared:
@@ -408,10 +422,11 @@ class EvalScenarioResult:
     Coverage (precision/recall/F1), summary fidelity, and strength agreement
     are separate numbers (ADR-0010) — nothing blends them. A component reads
     ``None`` where it measured nothing: no authored relevance summaries or no
-    judge for fidelity, no provision both sides cite for strength agreement.
-    The expected/produced dumps carry both sides as plain data (statements,
-    provision targets, relevance summaries, plus the produced side's Finding
-    Strengths) for the human review the Live eval CLI writes out.
+    judge for fidelity, no rated provision both sides share for strength
+    agreement (ADR-0011). The expected/produced dumps carry both sides as
+    plain data (statements, provision targets, relevance summaries, the
+    operator's ratings, the produced side's Finding Strengths and the rated
+    Citation strengths) for the human review the Live eval CLI writes out.
     """
 
     id: str
@@ -1919,24 +1934,30 @@ LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
 
 # The audit-dump form of one expected Finding: the authored statement and the
 # ground-truth provision labels as written, each with its authored relevance
-# summary when one exists.
+# summary when one exists and the operator's rating (ADR-0011).
 def _expected_dump(finding: ExpectedFinding) -> ExpectedFindingDump:
     return {
         "statement": finding.statement,
         "citations": [
-            {"label": f"{c['source_id']} {c['provision']}", "relevance": c.get("relevance")}
+            {
+                "label": f"{c['source_id']} {c['provision']}",
+                "relevance": c.get("relevance"),
+                "strength": c["strength"].value,
+            }
             for c in finding.citations
         ],
     }
 
 
 # The audit-dump form of one produced Finding: the statement as the LLM worded
-# it, its Strength, and each Citation's structural target with its quote and
-# the Answer's Provision relevance for that provision (``None`` where the
-# Summarizer shipped nothing).
+# it, its Strength, and each Citation's structural target with its quote, the
+# Answer's Provision relevance for that provision (``None`` where the
+# Summarizer shipped nothing), and the rated Citation strength (``None``
+# where the Summarizer shipped no rating — ADR-0011).
 def _produced_dump(
     finding: ProducedFinding,
     answer_relevance: Dict[ProvisionTarget, Optional[str]],
+    answer_ratings: Dict[ProvisionTarget, Strength],
 ) -> ProducedFindingDump:
     return {
         "statement": finding.statement,
@@ -1946,6 +1967,11 @@ def _produced_dump(
                 "target": format_provision_target(c.provision_target),
                 "quote": c.quote,
                 "relevance": answer_relevance.get(c.provision_target),
+                "strength": (
+                    rating.value
+                    if (rating := answer_ratings.get(c.provision_target)) is not None
+                    else None
+                ),
             }
             for c in finding.citations
         ],
@@ -2031,6 +2057,7 @@ def evaluate_scenarios(
         ]
         answer_citations_list = list(response.answer.citations)
         answer_relevance = {citation.provision_target: citation.relevance for citation in answer_citations_list}
+        answer_ratings = produced_target_ratings(answer_citations_list)
         expected_strengths = expected_target_strengths(scenario.expected)
         fidelity = (
             _summary_fidelity(scenario, answer_relevance, judge)
@@ -2042,12 +2069,9 @@ def evaluate_scenarios(
                 id=scenario.id,
                 **coverage_scores(scenario.expected, produced, expected_strengths),
                 expected=[_expected_dump(f) for f in scenario.expected],
-                produced=[_produced_dump(f, answer_relevance) for f in produced],
+                produced=[_produced_dump(f, answer_relevance, answer_ratings) for f in produced],
                 summary_fidelity=fidelity,
-                strength_agreement=strength_agreement(
-                    expected_strengths,
-                    produced_target_strengths(produced),
-                ),
+                strength_agreement=strength_agreement(expected_strengths, answer_ratings),
             )
         )
 

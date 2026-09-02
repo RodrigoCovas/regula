@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Iterable, Iterator, List, Literal, NamedTuple, Optional, Protocol, Tuple
+from typing import Dict, Iterable, List, Literal, NamedTuple, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -67,6 +67,8 @@ class Citation(BaseModel):
     quote: Optional[str] = None
     # Answer-wide fields (issue #47): the Citations section renders them from
     # the Answer's list only — a per-Finding Citation carries neither.
+    # ``strength`` is the provision's rated Citation strength (ADR-0011),
+    # never derived from the citing Findings.
     relevance: Optional[str] = None
     strength: Optional[Strength] = None
 
@@ -96,9 +98,10 @@ class Finding(BaseModel):
     citations: List[Citation] = Field(default_factory=list)
 
 
-# How early a Strength sorts: strong outranks moderate outranks weak. The one
-# map the max-rule reads — the strongest Strength wins — and the one the
-# answer's strength-first Finding order sorts by.
+# How early a Strength sorts: strong outranks moderate outranks weak. The
+# map the max-rule reads — the strongest Strength wins, on the eval's
+# expected side — and the one the answer's strength-first Finding order
+# sorts by.
 STRENGTH_ORDER: Dict[Strength, int] = {
     Strength.strong: 0,
     Strength.moderate: 1,
@@ -109,10 +112,11 @@ STRENGTH_ORDER: Dict[Strength, int] = {
 def max_rule_strengths(
     pairs: Iterable[Tuple[ProvisionTarget, Strength]]
 ) -> Dict[ProvisionTarget, Strength]:
-    """Citation strength (CONTEXT.md) under the max-rule: per cited provision
-    target, the strongest Strength among the Findings citing it. One
-    implementation serves the product (``answer_citations``) and the eval's
-    two scoring sides (expected weights, produced strengths)."""
+    """Citation strength (CONTEXT.md) under the max-rule: per provision
+    target, the strongest Strength among the rated Citations citing it. Since
+    ADR-0011 the max-rule serves the eval's expected side only — coverage
+    weights and the expected half of strength agreement; the produced side
+    carries the Summarizer's ratings as given."""
     strengths: Dict[ProvisionTarget, Strength] = {}
     for target, strength in pairs:
         current = strengths.get(target)
@@ -121,46 +125,29 @@ def max_rule_strengths(
     return strengths
 
 
-class CitedFinding(Protocol):
-    """Anything Finding-shaped the max-rule reads: a Strength plus Citations.
-
-    ``Finding`` and the eval harness's ``ProducedFinding`` both satisfy it
-    structurally, so one pair-generator serves both sides of the comparison.
-    """
-
-    strength: Strength
-    citations: List[Citation]
-
-
-def iter_target_strength_pairs(
-    findings: Iterable[CitedFinding],
-) -> Iterator[Tuple[ProvisionTarget, Strength]]:
-    """(provision target, citing Finding's Strength) for every Citation of
-    every Finding — the pairs ``max_rule_strengths`` consumes."""
-    for finding in findings:
-        for citation in finding.citations:
-            yield citation.provision_target, finding.strength
-
-
 def answer_citations(
     findings: List[Finding],
     relevance: Optional[Dict[ProvisionTarget, str]] = None,
+    strengths: Optional[Dict[ProvisionTarget, Strength]] = None,
 ) -> List[Citation]:
     """The Answer's flat Citation list (issue #47): one entry per cited
-    provision target, in first-mention order, badged with the max-rule
-    Citation strength and — when the Summarizer produced it — the provision's
-    grounded Provision relevance. Provision relevance and Citation strength
-    are answer-wide, so they attach here and never to the per-Finding
-    Citations the Findings section renders."""
+    provision target, in first-mention order, badged with the rated Citation
+    strength the Summarizer carried (ADR-0011) and — when produced — the
+    provision's grounded Provision relevance. Provision relevance and
+    Citation strength are answer-wide, so they attach here and never to the
+    per-Finding Citations the Findings section renders. Only targets the
+    strengths map carries get a badge: a provision whose rating is missing
+    or invalid keeps its relevance but carries no strength — nothing is
+    derived from the citing Findings' Strengths."""
     known_relevance = relevance or {}
-    strengths = max_rule_strengths(iter_target_strength_pairs(findings))
+    known_strengths = strengths or {}
     entries: Dict[ProvisionTarget, Citation] = {}
     for finding in findings:
         for citation in finding.citations:
             target = citation.provision_target
             if target not in entries:
                 entries[target] = citation.model_copy(update={
-                    "strength": strengths[target],
+                    "strength": known_strengths.get(target),
                     "relevance": known_relevance.get(target),
                 })
     return list(entries.values())

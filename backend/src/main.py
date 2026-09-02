@@ -155,6 +155,11 @@ class LookupTarget(TypedDict):
     number: int
     provision: str
     relevance: str
+    # The operator's per-provision Citation-strength rating (ADR-0011), locked
+    # alongside the relevance: the demo answer badges the rated centrality
+    # exactly as the Summarizer rates it in Live mode — never derived from
+    # Finding strength.
+    strength: Strength
 
 
 # Where each provision kind's context lives in the corpus JSON structure.
@@ -198,6 +203,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 6,
                 "provision": "Article 6(2)",
                 "relevance": "Article 6(2) is the classification rule that brings the company's credit-scoring system into the AI Act's high-risk regime, so every high-risk obligation in the other Findings applies.",
+                "strength": Strength.strong,
             },
             {
                 "source_id": "ai-act",
@@ -205,6 +211,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 3,
                 "provision": "Annex III point 5(b)",
                 "relevance": "Annex III point 5(b) names creditworthiness evaluation of natural persons as a high-risk use outright, which is what pins the company's loan-scoring system to Article 6(2)'s high-risk classification.",
+                "strength": Strength.strong,
             },
         ],
     },
@@ -218,6 +225,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 26,
                 "provision": "Article 26(2), (4), (6), (11)",
                 "relevance": "Article 26 sets the deployer duties that fall directly on the company once its system is high-risk: human oversight, six-month log retention, and informing applicants.",
+                "strength": Strength.strong,
             },
         ],
     },
@@ -231,6 +239,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 27,
                 "provision": "Article 27(1)-(4)",
                 "relevance": "Article 27 makes the Fundamental Rights Impact Assessment — and notifying its results — a step the company must complete before first deploying the creditworthiness system.",
+                "strength": Strength.strong,
             },
         ],
     },
@@ -244,6 +253,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 86,
                 "provision": "Article 86(1)",
                 "relevance": "Article 86 gives loan applicants subject to decisions based on the system's output a right to a clear and meaningful explanation of the AI system's role in the decision.",
+                "strength": Strength.strong,
             },
         ],
     },
@@ -257,6 +267,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 22,
                 "provision": "Article 22(1), (2)(a), (3)",
                 "relevance": "Article 22 restricts decisions based solely on automated processing such as the company's loan scoring, and even the contract-necessity route still requires human intervention and contest rights.",
+                "strength": Strength.strong,
             },
             {
                 "source_id": "gdpr",
@@ -264,6 +275,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 71,
                 "provision": "Recital 71",
                 "relevance": "Recital 71 backs Article 22's restriction with the GDPR's own framing of profiling — the automated processing the company's credit scoring performs, producing legal effects for applicants.",
+                "strength": Strength.strong,
             },
         ],
     },
@@ -277,6 +289,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 35,
                 "provision": "Article 35(1), (3)(a)",
                 "relevance": "Article 35 requires the data protection impact assessment before the company's credit-scoring processing starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
+                "strength": Strength.strong,
             },
         ],
     },
@@ -290,6 +303,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 2,
                 "provision": "Article 2(1)(a), (2)",
                 "relevance": "Article 2 decides whether DORA applies to the company at all: only as a licensed financial entity, the contingency the Findings leave to the company's actual status.",
+                "strength": Strength.moderate,
             },
         ],
     },
@@ -303,6 +317,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 1,
                 "provision": "Article 1(1)",
                 "relevance": "Article 1 bounds DORA to the digital operational resilience of financial entities, so it governs ICT risk rather than the substance of credit decisions.",
+                "strength": Strength.moderate,
             },
         ],
     },
@@ -316,6 +331,7 @@ DEMO_FINDING_DEFS: List[FindingDef] = [
                 "number": 3,
                 "provision": "Article 3(1), (3), (4), (52)",
                 "relevance": "Article 3 supplies the definitions — AI system, provider, deployer, profiling — the other Findings rely on, without establishing an obligation on its own.",
+                "strength": Strength.weak,
             },
         ],
     },
@@ -391,11 +407,12 @@ def _run_demo_workflow() -> Dict[str, Any]:
     """Run the deterministic demo workflow for the Spanish fintech scenario.
 
     Returns findings, the Answer's citations (one per cited provision, with
-    the locked Provision relevance and the max-rule Citation strength —
-    issue #47), retrieved passages, and tool calls.
+    the locked Provision relevance and the locked Citation-strength rating —
+    issue #47, ADR-0011), retrieved passages, and tool calls.
     """
     findings: List[Finding] = []
     relevance_by_target: Dict[ProvisionTarget, str] = {}
+    strengths_by_target: Dict[ProvisionTarget, Strength] = {}
     retrieved_passages: List[dict] = []
     tool_calls: List[dict] = []
 
@@ -424,6 +441,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
             citation = Citation(**citation_kwargs)
             finding_citations.append(citation)
             relevance_by_target[citation.provision_target] = target["relevance"]
+            strengths_by_target[citation.provision_target] = target["strength"]
             retrieved_passages.append(
                 {
                     "source_id": target["source_id"],
@@ -446,7 +464,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
 
     return {
         "findings": findings,
-        "citations": answer_citations(findings, relevance_by_target),
+        "citations": answer_citations(findings, relevance_by_target, strengths_by_target),
         "retrieved_passages": retrieved_passages,
         "tool_calls": tool_calls,
     }
@@ -786,7 +804,7 @@ def _dispatch_analyze(run: RunContext) -> AnalyzeResponse:
             },
             {
                 "step": "summarizer",
-                "action": "serve the locked Provision relevance for each cited provision from the demo content",
+                "action": "serve the locked Provision relevance and rated Citation strength for each cited provision from the demo content",
                 "summary_decisions": [],
             },
         ]

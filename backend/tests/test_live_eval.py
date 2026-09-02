@@ -267,8 +267,8 @@ def _on_target_llm_with_summaries() -> ScriptedLlm:
             )
         ]),
         summaries=Summaries(summaries=[
-            ProvisionSummary(ref="P1", relevance="produced relevance for Article 33"),
-            ProvisionSummary(ref="P2", relevance="produced relevance for Article 34"),
+            ProvisionSummary(ref="P1", relevance="produced relevance for Article 33", strength=Strength.strong),
+            ProvisionSummary(ref="P2", relevance="produced relevance for Article 34", strength=Strength.strong),
         ]),
     )
 
@@ -305,7 +305,8 @@ def test_summary_fidelity_reaches_the_report_through_a_scripted_judge(ingested_s
     assert len(judge.calls) == 1
     assert [pair.ref for pair in judge.calls[0]] == ["P1", "P2"]
     assert report.scenarios[0].summary_fidelity == pytest.approx((1.0 + 0.0) / 2)
-    # The strength components ride the same case: max-rule on both sides.
+    # The strength component rides the same case: the operator's ratings
+    # against the Summarizer's (ADR-0011) — here they agree.
     assert report.scenarios[0].strength_agreement == 1.0
     assert report.mean_summary_fidelity == pytest.approx(0.5)
     assert report.mean_strength_agreement == 1.0
@@ -469,8 +470,8 @@ def test_report_artifact_shape_at_the_pure_seam():
             precision=1.0,
             recall=0.5,
             f1=0.666666,
-            expected=[{"statement": "expected", "citations": [{"label": "gdpr Article 22", "relevance": "expected relevance"}]}],
-            produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None, "relevance": "produced relevance"}]}],
+            expected=[{"statement": "expected", "citations": [{"label": "gdpr Article 22", "relevance": "expected relevance", "strength": "strong"}]}],
+            produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None, "relevance": "produced relevance", "strength": None}]}],
             summary_fidelity=0.75,
             strength_agreement=1.0,
         )],

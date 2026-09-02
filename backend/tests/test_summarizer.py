@@ -1,9 +1,11 @@
-"""The Summarizer stage (issue #47) at the pure seam.
+"""The Summarizer stage (issue #47, ADR-0011) at the pure seam.
 
-Three pieces live here away from HTTP: the max-rule Citation strength
-(CONTEXT.md) shared by the product and the eval, the Answer's deduplicated
-Citation list, and the Summarizer's grounding gate — the application code
-that lets only cited provisions receive a relevance statement.
+Three pieces live here away from HTTP: the max-rule Citation strength the
+eval's expected side reads (CONTEXT.md), the Answer's deduplicated Citation
+list badged with the rated strength the Summarizer carried — never derived
+from Finding strength — and the Summarizer's grounding gate, the
+application code that lets only cited provisions receive a relevance
+statement and only a valid rating ride beside it.
 """
 
 import sys
@@ -15,7 +17,12 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import pytest
 
-from src.live_workflow import ProvisionSummary, Summaries, _validate_summaries
+from src.live_workflow import (
+    GroundedSummary,
+    ProvisionSummary,
+    Summaries,
+    _validate_summaries,
+)
 from src.models import (
     Citation,
     Finding,
@@ -38,7 +45,11 @@ def _finding(statement: str, strength: Strength, *citations: Citation) -> Findin
     return Finding(statement=statement, strength=strength, citations=list(citations))
 
 
-# --- The max-rule (CONTEXT.md: Citation strength) ---
+def _grounded(target: ProvisionTarget, relevance: str, strength: Strength | None = None) -> GroundedSummary:
+    return GroundedSummary(target=target, relevance=relevance, strength=strength)
+
+
+# --- The max-rule (CONTEXT.md: the eval's expected side only) ---
 
 
 def test_the_max_rule_keeps_the_strongest_strength_per_target():
@@ -99,16 +110,30 @@ def test_answer_citations_keep_first_mention_order():
     ]
 
 
-def test_answer_citations_carry_the_max_rule_strength():
+def test_answer_citations_carry_the_rated_strength():
+    """The rated Citation strength rides the Answer's list (ADR-0011): the
+    rating the Summarizer carried, never a derivation from the citing
+    Findings' Strengths."""
     high_risk = _citation("ai-act", ProvisionKind.article, 6)
     definitions = _citation("ai-act", ProvisionKind.article, 3)
     findings = [
         _finding("Strong claim.", Strength.strong, high_risk),
         _finding("Weak framing claim.", Strength.weak, high_risk, definitions),
     ]
-    strengths = {c.provision_target: c.strength for c in answer_citations(findings)}
-    assert strengths[ProvisionTarget("ai-act", ProvisionKind.article, 6)] == Strength.strong
-    assert strengths[ProvisionTarget("ai-act", ProvisionKind.article, 3)] == Strength.weak
+    citations = answer_citations(findings, strengths={high_risk.provision_target: Strength.moderate})
+    strengths = {c.provision_target: c.strength for c in citations}
+    assert strengths[ProvisionTarget("ai-act", ProvisionKind.article, 6)] == Strength.moderate
+
+
+def test_an_unrated_provision_keeps_relevance_but_carries_no_strength():
+    """No default value anywhere (ADR-0011): a provision the Summarizer never
+    rated carries no strength even when strong Findings cite it — nothing is
+    derived from Finding strength any more."""
+    high_risk = _citation("ai-act", ProvisionKind.article, 6)
+    findings = [_finding("Strong claim.", Strength.strong, high_risk)]
+    citations = answer_citations(findings, {high_risk.provision_target: "Names the situation."})
+    assert citations[0].relevance == "Names the situation."
+    assert citations[0].strength is None
 
 
 def test_answer_citations_attach_the_provisions_relevance():
@@ -139,22 +164,104 @@ def test_answer_citations_never_mutate_the_findings_own_citations():
 # --- The Summarizer's grounding gate ---
 
 
-def test_a_reference_to_a_cited_provision_is_kept():
+def test_a_reference_to_a_cited_provision_is_kept_with_its_rating():
     target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
-    relevance, decisions = _validate_summaries(
-        Summaries(summaries=[ProvisionSummary(ref="P1", relevance="Names the situation outright.")]),
+    grounded, decisions = _validate_summaries(
+        Summaries(summaries=[
+            ProvisionSummary(ref="P1", relevance="Names the situation outright.", strength=Strength.strong)
+        ]),
         {"P1": target},
     )
-    assert relevance == {target: "Names the situation outright."}
-    assert [(d.ref, d.status) for d in decisions] == [("P1", "kept")]
+    assert grounded == {target: _grounded(target, "Names the situation outright.", Strength.strong)}
+    assert [(d.ref, d.status, d.strength) for d in decisions] == [("P1", "kept", Strength.strong)]
+
+
+def test_a_bare_rating_string_is_carried_as_its_level():
+    """The schema keeps the rating loose, so a plain JSON string arrives
+    uncoerced; the gate validates it into the Strength it names."""
+    target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
+    grounded, _ = _validate_summaries(
+        Summaries(summaries=[ProvisionSummary(ref="P1", relevance="Grounded.", strength="weak")]),
+        {"P1": target},
+    )
+    assert grounded[target].strength == Strength.weak
+
+
+def test_a_wrapped_rating_object_is_unwrapped():
+    """The live model wraps the level with a rationale — the same repair the
+    Verifier's strength already applies keeps the bare level."""
+    target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
+    grounded, decisions = _validate_summaries(
+        Summaries(summaries=[
+            ProvisionSummary(
+                ref="P1",
+                relevance="Grounded.",
+                strength={"level": "moderate", "rationale": "supporting duty"},
+            )
+        ]),
+        {"P1": target},
+    )
+    assert grounded[target].strength == Strength.moderate
+    assert decisions[0].status == "kept"
+
+
+def test_a_missing_rating_keeps_the_relevance_without_a_strength():
+    """A partial Summarizer pass degrades silently, never failing the run
+    (ADR-0011): the relevance ships, no strength is defaulted, and the gap
+    is recorded with a reason in the detailed trace."""
+    target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
+    grounded, decisions = _validate_summaries(
+        Summaries(summaries=[ProvisionSummary(ref="P1", relevance="Grounded statement.")]),
+        {"P1": target},
+    )
+    assert grounded == {target: _grounded(target, "Grounded statement.", None)}
+    decision = decisions[0]
+    assert decision.status == "kept"
+    assert decision.strength is None
+    assert decision.reason, "the missing rating is recorded, never defaulted"
+
+
+def test_an_invalid_rating_keeps_the_relevance_without_a_strength():
+    """A value outside the three levels is no rating: the relevance ships,
+    the strength does not, and the reason names the offending value."""
+    target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
+    grounded, decisions = _validate_summaries(
+        Summaries(summaries=[
+            ProvisionSummary(ref="P1", relevance="Grounded statement.", strength="decisive")
+        ]),
+        {"P1": target},
+    )
+    assert grounded == {target: _grounded(target, "Grounded statement.", None)}
+    decision = decisions[0]
+    assert decision.status == "kept"
+    assert decision.strength is None
+    assert "decisive" in (decision.reason or "")
+
+
+def test_a_rating_gap_is_recorded_per_provision_not_per_run():
+    """A rated and an unrated provision in one pass: the rated one carries
+    its strength, the unrated one keeps only its relevance — independent
+    degradation (parent spec, user story 11)."""
+    article_6 = ProvisionTarget("ai-act", ProvisionKind.article, 6)
+    recital_71 = ProvisionTarget("gdpr", ProvisionKind.recital, 71)
+    grounded, decisions = _validate_summaries(
+        Summaries(summaries=[
+            ProvisionSummary(ref="P1", relevance="Article statement.", strength=Strength.strong),
+            ProvisionSummary(ref="P2", relevance="Recital statement."),
+        ]),
+        {"P1": article_6, "P2": recital_71},
+    )
+    assert grounded[article_6].strength == Strength.strong
+    assert grounded[recital_71].strength is None
+    assert [d.strength for d in decisions] == [Strength.strong, None]
 
 
 def test_a_reference_to_no_cited_provision_is_rejected():
-    relevance, decisions = _validate_summaries(
+    grounded, decisions = _validate_summaries(
         Summaries(summaries=[ProvisionSummary(ref="P9", relevance="Invented grounding.")]),
         {"P1": ProvisionTarget("ai-act", ProvisionKind.article, 6)},
     )
-    assert relevance == {}
+    assert grounded == {}
     assert decisions[0].status == "rejected"
     assert decisions[0].reason is not None
 
@@ -162,14 +269,14 @@ def test_a_reference_to_no_cited_provision_is_rejected():
 def test_finding_and_citation_labels_name_no_cited_provision():
     """The Summarizer is shown P-labels only: F1 and C1 references cannot
     smuggle Findings or per-Finding Citations into the relevance map."""
-    relevance, decisions = _validate_summaries(
+    grounded, decisions = _validate_summaries(
         Summaries(summaries=[
             ProvisionSummary(ref="F1", relevance="One."),
             ProvisionSummary(ref="C1", relevance="Two."),
         ]),
         {"P1": ProvisionTarget("ai-act", ProvisionKind.article, 6)},
     )
-    assert relevance == {}
+    assert grounded == {}
     assert [d.status for d in decisions] == ["rejected", "rejected"]
 
 
@@ -177,38 +284,41 @@ def test_one_provision_keeps_only_its_first_relevance_statement():
     """One grounded statement per cited provision: a second statement for the
     same provision is rejected, never merged or overwritten."""
     target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
-    relevance, decisions = _validate_summaries(
+    grounded, decisions = _validate_summaries(
         Summaries(summaries=[
-            ProvisionSummary(ref="P1", relevance="First statement."),
-            ProvisionSummary(ref="P1", relevance="Second statement."),
+            ProvisionSummary(ref="P1", relevance="First statement.", strength=Strength.weak),
+            ProvisionSummary(ref="P1", relevance="Second statement.", strength=Strength.strong),
         ]),
         {"P1": target},
     )
-    assert relevance == {target: "First statement."}
+    assert grounded == {target: _grounded(target, "First statement.", Strength.weak)}
     assert [d.status for d in decisions] == ["kept", "rejected"]
 
 
 def test_an_empty_relevance_statement_is_rejected():
     target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
-    relevance, decisions = _validate_summaries(
+    grounded, decisions = _validate_summaries(
         Summaries(summaries=[ProvisionSummary(ref="P1", relevance="   ")]),
         {"P1": target},
     )
-    assert relevance == {}
+    assert grounded == {}
     assert decisions[0].status == "rejected"
 
 
 def test_distinct_provisions_keep_their_own_statements():
     article_6 = ProvisionTarget("ai-act", ProvisionKind.article, 6)
     recital_71 = ProvisionTarget("gdpr", ProvisionKind.recital, 71)
-    relevance, decisions = _validate_summaries(
+    grounded, decisions = _validate_summaries(
         Summaries(summaries=[
             ProvisionSummary(ref="P1", relevance="Article statement."),
             ProvisionSummary(ref="P2", relevance="Recital statement."),
         ]),
         {"P1": article_6, "P2": recital_71},
     )
-    assert relevance == {article_6: "Article statement.", recital_71: "Recital statement."}
+    assert grounded == {
+        article_6: _grounded(article_6, "Article statement."),
+        recital_71: _grounded(recital_71, "Recital statement."),
+    }
     assert [d.status for d in decisions] == ["kept", "kept"]
 
 

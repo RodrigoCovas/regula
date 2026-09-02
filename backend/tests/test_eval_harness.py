@@ -109,13 +109,13 @@ def test_scenario_description_and_mode_reach_the_analysis_request():
 # --- The audit dump ---
 
 
-def _respond_with(*findings: Finding, relevance_by_target=None):
+def _respond_with(*findings: Finding, relevance_by_target=None, ratings_by_target=None):
     def respond(_request):
         return AnalyzeResponse(
             answer=Answer(
                 findings=list(findings),
                 actions=[],
-                citations=answer_citations(list(findings), relevance_by_target),
+                citations=answer_citations(list(findings), relevance_by_target, ratings_by_target),
             ),
             trace=Trace(workflow="fake", summary="canned"),
         )
@@ -126,10 +126,11 @@ def _respond_with(*findings: Finding, relevance_by_target=None):
 def test_per_case_result_carries_the_produced_versus_expected_dump():
     """The report rides the diagnostic material for the human audit: both
     sides' statements, the authored labels on the expected side with any
-    authored relevance, and each produced Citation's structural target with
-    its quote and its Provision relevance. Strengths ride the dump on the
-    produced side only (#58): the operator's per-provision ratings on the
-    expected Citations are the single expected-strength source."""
+    authored relevance and the operator's rating, and each produced
+    Citation's structural target with its quote, its Provision relevance, and
+    the rated strength the Answer badges. Finding-level Strengths ride the
+    produced side's Findings only (#58); the rated centrality rides the
+    Citations on both sides (ADR-0011)."""
     scenario = EvalScenario(
         id="case",
         scenario_id="some-scenario",
@@ -156,6 +157,9 @@ def test_per_case_result_carries_the_produced_versus_expected_dump():
                 _target(71, kind="recital"):
                     "produced relevance",
             },
+            ratings_by_target={
+                _target(71, kind="recital"): Strength.weak,
+            },
         ),
         mode=Mode.demo,
     )
@@ -170,13 +174,37 @@ def test_per_case_result_carries_the_produced_versus_expected_dump():
         "citations": [{
             "label": "gdpr Recital 71",
             "relevance": "Recital 71 frames the profiling the loan scoring performs.",
+            "strength": "strong",
         }],
     }]
     assert result.produced == [{
         "statement": "produced wording",
         "strength": "weak",
-        "citations": [{"target": "gdpr Recital 71", "quote": "snip", "relevance": "produced relevance"}],
+        "citations": [{
+            "target": "gdpr Recital 71",
+            "quote": "snip",
+            "relevance": "produced relevance",
+            "strength": "weak",
+        }],
     }]
+
+
+def test_an_unrated_provision_dumps_no_strength():
+    """A provision the Summarizer left unrated carries ``None`` in the dump —
+    the audit sees the gap, never a default (ADR-0011)."""
+    scenario = EvalScenario(
+        id="case",
+        scenario_id="some-scenario",
+        question="What applies?",
+        expected=[_expected_finding("Article 22")],
+    )
+    report = evaluate_scenarios(
+        [scenario],
+        _respond_with(_produced_finding(22)),
+        mode=Mode.demo,
+    )
+    (produced,) = report.scenarios[0].produced
+    assert produced["citations"][0]["strength"] is None
 
 
 # --- The three components at the evaluation loop (ADR-0010, issue #50) ---
@@ -376,6 +404,11 @@ def test_fidelity_pairs_only_provisions_both_sides_touch():
 
 
 def test_strength_agreement_rides_every_case_and_aggregates_separately():
+    """The produced side is the ratings the Answer's Citations badge
+    (ADR-0011): Article 22 agrees (strong/strong), Article 25 disagrees
+    (weak/moderate) — and the mean covers the cases that measured."""
+    target22 = _target(22)
+    target25 = _target(25)
     expected = [
         _expected_finding("Article 22", strength=Strength.strong),
         _expected_finding("Article 25", strength=Strength.weak),
@@ -385,12 +418,44 @@ def test_strength_agreement_rides_every_case_and_aggregates_separately():
         _respond_with(
             _produced_finding(22, strength=Strength.strong),
             _produced_finding(25, strength=Strength.moderate),
+            ratings_by_target={target22: Strength.strong, target25: Strength.moderate},
         ),
         mode=Mode.demo,
     )
-    # Article 22 agrees (strong/strong); Article 25 disagrees (weak/moderate).
     assert report.scenarios[0].strength_agreement == pytest.approx(0.5)
     assert report.mean_strength_agreement == pytest.approx(0.5)
+
+
+def test_strength_agreement_runs_over_rated_shared_targets_only():
+    """A shared target the Summarizer left unrated drops out of the case's
+    agreement, never defaulted (ADR-0011); no rated shared target at all
+    leaves the component unmeasured."""
+    target22 = _target(22)
+    target25 = _target(25)
+    expected = [
+        _expected_finding("Article 22", strength=Strength.strong),
+        _expected_finding("Article 25", strength=Strength.weak),
+    ]
+    produced = [
+        _produced_finding(22, strength=Strength.strong),
+        _produced_finding(25, strength=Strength.strong),
+    ]
+    # Article 22 rated and agreeing; Article 25 unrated — excluded, not zero.
+    partial = evaluate_scenarios(
+        [EvalScenario(id="case", scenario_id="s", question="What applies?", expected=expected)],
+        _respond_with(*produced, ratings_by_target={target22: Strength.strong}),
+        mode=Mode.demo,
+    )
+    assert partial.scenarios[0].strength_agreement == 1.0
+
+    # No rating anywhere: nothing to compare, no number.
+    unmeasured = evaluate_scenarios(
+        [EvalScenario(id="case", scenario_id="s", question="What applies?", expected=expected)],
+        _respond_with(*produced),
+        mode=Mode.demo,
+    )
+    assert unmeasured.scenarios[0].strength_agreement is None
+    assert unmeasured.mean_strength_agreement is None
 
 
 def test_the_report_carries_the_components_separately_and_never_blends_them():
@@ -410,6 +475,7 @@ def test_the_report_carries_the_components_separately_and_never_blends_them():
             relevance_by_target={
                 _target(22): "produced",
             },
+            ratings_by_target={_target(22): Strength.strong},
         ),
         mode=Mode.demo,
         judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),

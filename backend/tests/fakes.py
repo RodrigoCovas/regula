@@ -279,7 +279,8 @@ def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
         ),
         # The kept Findings cite two provisions (P1: the strong high-risk
         # claim's Citation, P2: the weak definitions one); each relevance
-        # statement draws only on its citing Findings' content.
+        # statement draws only on its citing Findings' content, and each
+        # provision carries its rated Citation strength (ADR-0011).
         summaries=Summaries(
             summaries=[
                 ProvisionSummary(
@@ -289,10 +290,12 @@ def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
                         "of natural persons as a high-risk use, which is what puts the "
                         "company's loan-scoring system under the full high-risk obligations."
                     ),
+                    strength=Strength.strong,
                 ),
                 ProvisionSummary(
                     ref="P2",
                     relevance="The definitions Article supplies the vocabulary the other Findings rely on — AI system, provider, deployer, profiling — without establishing an obligation on its own.",
+                    strength=Strength.weak,
                 ),
             ]
         ),
