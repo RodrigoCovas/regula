@@ -1,11 +1,12 @@
-"""Integration coverage for the pgvector store (spec #9, tickets #14–#15).
+"""Integration coverage for the pgvector store (spec #9, tickets #14–#15, #60).
 
-Covers both store paths against real PostgreSQL + pgvector: the idempotent
-ingestion write path (#14) and the vector-search read path behind retrieval
-(#15). A disposable container is started when Docker is available; when it
-is not (or REGULA_TEST_DATABASE_URL points at an unreachable server) the
-whole module skips cleanly. No Ollama, no network beyond the database
-connection.
+Covers the store paths against real PostgreSQL + pgvector: the idempotent
+ingestion write path (#14), the vector-search read path behind retrieval
+(#15), and the lexical full-text read path with its generated tsvector
+schema step (#60). A disposable container is started when Docker is
+available; when it is not (or REGULA_TEST_DATABASE_URL points at an
+unreachable server) the whole module skips cleanly. No Ollama, no network
+beyond the database connection.
 """
 
 import hashlib
@@ -142,6 +143,35 @@ def store(dsn):
 
 def test_ensure_schema_is_rerunnable(store):
     store.ensure_schema()
+
+
+def test_ensure_schema_twice_leaves_one_generated_tsv_column_and_one_gin_index(store, dsn):
+    """The lexical read path (spec #60): ensure_schema adds the generated
+    english tsvector over chunk content plus its GIN index (ADR-0012), and a
+    second run is a no-op — one column, one index, no error. A separate
+    connection reads the catalog, as another process would see it."""
+    store.ensure_schema()
+
+    probe = connect(dsn)
+    try:
+        with probe.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT count(*) FROM information_schema.columns
+                WHERE table_name = 'chunks' AND column_name = 'content_tsv'
+                """
+            )
+            assert cursor.fetchone()[0] == 1
+            cursor.execute(
+                """
+                SELECT indexdef FROM pg_indexes
+                WHERE tablename = 'chunks' AND indexname = 'chunks_content_tsv_idx'
+                """
+            )
+            (indexdef,) = cursor.fetchone()
+            assert "gin" in indexdef.lower()
+    finally:
+        probe.close()
 
 
 # --- Upsert: every chunk stored with vector and provision metadata -----------
@@ -336,6 +366,103 @@ def test_vector_retriever_round_trip_over_real_ingested_corpus(
     assert retrieved[0].recital_number is None and retrieved[0].annex_number is None
     for chunk in retrieved:
         assert_exactly_one_provision_target(chunk)
+
+
+# --- Lexical search: the rank-ordered full-text read path (spec #60) ----------
+
+
+def test_lexical_search_ranks_the_phrase_dominant_chunk_first(
+    store, assert_exactly_one_provision_target
+):
+    """Both chunks carry every query lexeme (websearch_to_tsquery ANDs the
+    terms), but the one where the phrase dominates ranks first."""
+    store.upsert_chunks(
+        [
+            make_record(
+                number=5,
+                index=0,
+                text="The processing of records happens under this activity.",
+            ),
+            make_record(
+                number=30,
+                index=1,
+                text=(
+                    "Records of processing activities. The controller shall maintain "
+                    "records of processing activities for each activity."
+                ),
+            ),
+        ]
+    )
+
+    hits = store.search_chunks_lexically(query="records of processing activities", limit=8)
+
+    assert [hit.article_number for hit in hits] == [30, 5]
+    for chunk in hits:
+        assert_exactly_one_provision_target(chunk)
+
+
+def test_lexical_search_over_real_corpus_returns_the_named_provision_first(
+    store, assert_exactly_one_provision_target
+):
+    """The acceptance query (spec #60): the ingested GDPR Corpus answers
+    "records of processing activities" with Article 30 first, every result a
+    Chunk whose provision metadata was validated at construction."""
+    ingest_real_document(store, "gdpr")
+
+    hits = store.search_chunks_lexically(query="records of processing activities", limit=8)
+
+    assert hits, "the lexically obvious provision must not be invisible"
+    first = hits[0]
+    assert first.source_id == "gdpr"
+    assert first.kind is ProvisionKind.article
+    assert first.article_number == 30
+    assert first.title == "Records of processing activities"
+    for chunk in hits:
+        assert_exactly_one_provision_target(chunk)
+
+
+def test_lexical_search_limit_caps_result_count(store):
+    store.upsert_chunks(
+        [
+            make_record(number=number, index=number, text=f"Article {number} requires records of processing.")
+            for number in range(1, 6)
+        ]
+    )
+
+    hits = store.search_chunks_lexically(query="records", limit=3)
+
+    assert len(hits) == 3
+
+
+def test_lexical_search_with_no_matching_terms_yields_no_rows(store):
+    store.upsert_chunks([make_record(number=1, text="Article 1 body")])
+
+    hits = store.search_chunks_lexically(query="zzzqqx zzzqqu", limit=8)
+
+    assert hits == []
+
+
+def test_chunks_ingested_before_the_lexical_column_are_searchable_after_upgrade(store, dsn):
+    """The generated column backfills on the one-time table rewrite (ADR-0012):
+    rows written under the pre-#60 schema become lexically searchable by
+    running ensure_schema again — no re-ingestion."""
+    store.upsert_chunks(
+        [make_record(number=30, text="Records of processing activities shall be maintained.")]
+    )
+
+    upgrade = connect(dsn)
+    try:
+        with upgrade.cursor() as cursor:
+            cursor.execute("ALTER TABLE chunks DROP COLUMN content_tsv")
+        upgrade.commit()
+    finally:
+        upgrade.close()
+
+    store.ensure_schema()
+
+    (hit,) = store.search_chunks_lexically(query="records of processing activities", limit=8)
+    assert hit.article_number == 30
+    assert hit.text == "Records of processing activities shall be maintained."
 
 
 # --- Durability: ingested rows survive the connection that wrote them --------

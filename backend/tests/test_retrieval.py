@@ -12,12 +12,15 @@ ScoredChunk-wrapped Chunks, so it is enforced by construction.
 
 Ticket #18 added the threshold-enforcement section: the relevance floor is
 re-checked at this seam, so junk-only search results can never reach drafting.
+Spec #60 added the read-seams section: the composition-root store must
+satisfy both the vector and the lexical read seam.
 """
 
 import pytest
 
+from src.db import LazyStore
 from src.models import ProvisionKind
-from src.retrieval import PER_TARGET_DEPTH, VectorRetriever
+from src.retrieval import PER_TARGET_DEPTH, LexicalSearchStore, SearchStore, VectorRetriever
 
 from fakes import FakeEmbedder, FakeSearchStore, chunk_hit
 
@@ -132,3 +135,16 @@ def test_retrieve_admits_a_hit_exactly_at_the_floor():
     chunks = retriever.retrieve("oversight duties")
 
     assert [c.source_id for c in chunks] == ["ai-act"]
+
+
+# --- Read seams: the store's two read paths stay separate protocols ------------
+
+
+def test_composition_root_store_satisfies_both_read_seams():
+    """The lexical capability enters as its own read seam (spec #60): the
+    request-scoped store serves vector and lexical reads over one deferred
+    connection, while ``SearchStore`` and its doubles stay untouched."""
+    store = LazyStore("postgresql://unused")
+
+    assert isinstance(store, SearchStore)
+    assert isinstance(store, LexicalSearchStore)

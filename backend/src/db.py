@@ -1,10 +1,11 @@
-"""PostgreSQL + pgvector persistence for Chunks (spec #9, tickets #14–#15).
+"""PostgreSQL + pgvector persistence for Chunks (spec #9, tickets #14–#15, #60).
 
-The store owns the schema, one idempotent write path, and the vector-search
-read path the retrieval service calls, and commits after every write so
-ingested rows survive the process that wrote them. Raw SQL over psycopg2
-keeps the surface small — no ORM, no migrations framework: ``ensure_schema``
-creates everything IF NOT EXISTS.
+The store owns the schema, one idempotent write path, and the two read paths
+the retrieval service calls — vector search and lexical full-text search
+(spec #60, ADR-0012) — and commits after every write so ingested rows
+survive the process that wrote them. Raw SQL over psycopg2 keeps the surface
+small — no ORM, no migrations framework: ``ensure_schema`` creates everything
+IF NOT EXISTS.
 """
 
 from dataclasses import dataclass
@@ -45,6 +46,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS chunks_identity_key
     ON chunks (source_id, kind,
                COALESCE(article_number, recital_number, annex_number),
                chunk_index);
+
+-- The lexical read path (ADR-0012): a generated english tsvector over the
+-- Chunk content, backfilled for pre-existing rows by the one-time table
+-- rewrite this ALTER performs on first start after upgrade — no re-ingestion,
+-- no change to the write path. The GIN index keeps the term match off a
+-- sequential scan; ts_rank then scores only the matched rows.
+ALTER TABLE chunks
+    ADD COLUMN IF NOT EXISTS content_tsv tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+
+CREATE INDEX IF NOT EXISTS chunks_content_tsv_idx
+    ON chunks USING GIN (content_tsv);
 """
 
 _UPSERT = """
@@ -68,22 +81,30 @@ def _to_pgvector(values: Sequence[float]) -> str:
     return "[" + ",".join(repr(float(x)) for x in values) + "]"
 
 
-def _row_to_scored_chunk(row: dict[str, Any]) -> ScoredChunk:
+# The Chunk projection shared by every read path; its column aliases pair
+# with _row_to_chunk, the one place those names become Chunk fields.
+_CHUNK_COLUMNS = """source_id, kind, title, chunk_index, num_chunks,
+                    article_number, recital_number, annex_number,
+                    content AS text"""
+
+
+def _row_to_chunk(row: dict[str, Any]) -> Chunk:
     """The one place SQL column names become Chunk fields."""
-    return ScoredChunk(
-        chunk=Chunk(
-            source_id=row["source_id"],
-            kind=ProvisionKind(row["kind"]),
-            title=row.get("title"),
-            chunk_index=row["chunk_index"],
-            num_chunks=row["num_chunks"],
-            article_number=row["article_number"],
-            recital_number=row["recital_number"],
-            annex_number=row["annex_number"],
-            text=row["text"],
-        ),
-        distance=float(row["distance"]),
+    return Chunk(
+        source_id=row["source_id"],
+        kind=ProvisionKind(row["kind"]),
+        title=row.get("title"),
+        chunk_index=row["chunk_index"],
+        num_chunks=row["num_chunks"],
+        article_number=row["article_number"],
+        recital_number=row["recital_number"],
+        annex_number=row["annex_number"],
+        text=row["text"],
     )
+
+
+def _row_to_scored_chunk(row: dict[str, Any]) -> ScoredChunk:
+    return ScoredChunk(chunk=_row_to_chunk(row), distance=float(row["distance"]))
 
 
 @dataclass(frozen=True)
@@ -122,7 +143,7 @@ def connect(dsn: str):
 
 
 class LazyStore:
-    """A ``SearchStore`` that opens its connection on first search, never before.
+    """A ``SearchStore`` and ``LexicalSearchStore`` over one deferred connection.
 
     Live mode's dependency is resolved for every request, but Demo mode may
     never touch PostgreSQL at all — so the connection is deferred until a
@@ -133,18 +154,27 @@ class LazyStore:
         self._dsn = dsn
         self._connection = None
 
+    def _ensure_connection(self):
+        if self._connection is None:
+            self._connection = connect(self._dsn)
+        return self._connection
+
     def search_chunks(
         self,
         query_embedding: Sequence[float],
         limit: int,
         max_distance: float,
     ) -> list[ScoredChunk]:
-        if self._connection is None:
-            self._connection = connect(self._dsn)
-        return PgVectorStore(self._connection).search_chunks(
+        return PgVectorStore(self._ensure_connection()).search_chunks(
             query_embedding=query_embedding,
             limit=limit,
             max_distance=max_distance,
+        )
+
+    def search_chunks_lexically(self, query: str, limit: int) -> list[Chunk]:
+        return PgVectorStore(self._ensure_connection()).search_chunks_lexically(
+            query=query,
+            limit=limit,
         )
 
     def close(self) -> None:
@@ -189,9 +219,8 @@ class PgVectorStore:
         """Stored provision metadata for one source, ordered for stable assertions."""
         with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute(
-                """
-                SELECT source_id, kind, title, chunk_index, num_chunks,
-                       article_number, recital_number, annex_number, content AS text,
+                f"""
+                SELECT {_CHUNK_COLUMNS},
                        vector_dims(embedding) AS embedding_dimensions
                 FROM chunks
                 WHERE source_id = %s
@@ -216,10 +245,8 @@ class PgVectorStore:
         """
         with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute(
-                """
-                SELECT source_id, kind, title, chunk_index, num_chunks,
-                       article_number, recital_number, annex_number,
-                       content AS text,
+                f"""
+                SELECT {_CHUNK_COLUMNS},
                        embedding <=> %(query)s::vector AS distance
                 FROM chunks
                 WHERE embedding <=> %(query)s::vector <= %(max_distance)s
@@ -233,6 +260,29 @@ class PgVectorStore:
                 },
             )
             return [_row_to_scored_chunk(row) for row in cursor.fetchall()]
+
+    def search_chunks_lexically(self, query: str, limit: int) -> list[Chunk]:
+        """Chunks whose content matches the query's terms, best rank first.
+
+        Postgres full-text search over the generated tsvector is the ranking
+        metric — ts_rank, highest first — the lexical leg of hybrid retrieval
+        (ADR-0012). The query parses with ``websearch_to_tsquery`` so search
+        operators stay meaningful; each result is a fully validated Chunk,
+        and the LIMIT clause bounds one query like the vector path does.
+        """
+        with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute(
+                f"""
+                WITH parsed AS (SELECT websearch_to_tsquery('english', %(query)s) AS terms)
+                SELECT {_CHUNK_COLUMNS}
+                FROM chunks, parsed
+                WHERE content_tsv @@ parsed.terms
+                ORDER BY ts_rank(content_tsv, parsed.terms) DESC, id ASC
+                LIMIT %(limit)s
+                """,
+                {"query": query, "limit": limit},
+            )
+            return [_row_to_chunk(row) for row in cursor.fetchall()]
 
     def count_chunks(self) -> int:
         with self._connection.cursor() as cursor:

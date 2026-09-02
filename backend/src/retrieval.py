@@ -6,6 +6,11 @@ and searches the pgvector store through a search-capable ``Store`` — so tests
 and the Live workflow both depend on the single ``Retriever`` seam at the
 composition root.
 
+The store's second read path — lexical full-text search — enters beside
+``SearchStore`` as its own seam (``LexicalSearchStore``, spec #60, ADR-0012);
+the hybrid retriever (#64) composes both legs without touching the vector
+doubles.
+
 Locked behaviour:
 
 - One retrieval reaches at most ``PER_TARGET_DEPTH`` (~8) Chunks deep: the
@@ -56,6 +61,7 @@ class Retriever(Protocol):
     def retrieve(self, query: str) -> list[Chunk]: ...
 
 
+@runtime_checkable
 class SearchStore(Protocol):
     """The read path of the pgvector store."""
 
@@ -65,6 +71,18 @@ class SearchStore(Protocol):
         limit: int,
         max_distance: float,
     ) -> Sequence[ScoredChunk]: ...
+
+
+@runtime_checkable
+class LexicalSearchStore(Protocol):
+    """The lexical read path of the store (spec #60, ADR-0012).
+
+    A sibling of ``SearchStore``, deliberately a separate seam: the vector
+    doubles and callers stay valid, and the hybrid retriever (#64) composes
+    both legs from one store without either protocol knowing the other.
+    """
+
+    def search_chunks_lexically(self, query: str, limit: int) -> Sequence[Chunk]: ...
 
 
 class VectorRetriever:
