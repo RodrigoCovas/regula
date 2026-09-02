@@ -16,12 +16,20 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import re
 
-from src.corpus import corpus_inventory
+import pytest
 
-# The fixed curated Corpus (ADR-0002): every Article and Annex of all three
-# regulations carries a title, so each source's entry count is pinned by the
-# same structural totals test_chunking pins (test_chunking.EXPECTED_*).
-EXPECTED_ENTRY_COUNTS = {"EU AI Act": 126, "DORA": 64, "GDPR": 99}
+from src.corpus import corpus_inventory
+from test_chunking import EXPECTED_ANNEX_COUNTS, EXPECTED_ARTICLE_COUNTS
+
+# One entry per titled provision: every Article and Annex of the fixed Corpus
+# (ADR-0002) carries a title, so each source's entry count derives from the
+# structural totals test_chunking pins — one pin, never two numbers to keep
+# in step.
+EXPECTED_ENTRY_COUNTS = {
+    "EU AI Act": EXPECTED_ARTICLE_COUNTS["ai-act"] + EXPECTED_ANNEX_COUNTS["ai-act"],
+    "DORA": EXPECTED_ARTICLE_COUNTS["dora"] + EXPECTED_ANNEX_COUNTS["dora"],
+    "GDPR": EXPECTED_ARTICLE_COUNTS["gdpr"] + EXPECTED_ANNEX_COUNTS["gdpr"],
+}
 
 _ENTRY_PATTERN = re.compile(r"^-(?: (Article|Annex) (\d+)(?:: (.+))?)$")
 
@@ -88,3 +96,41 @@ def test_inventory_names_the_ai_act_annexes():
     assert len(annex_entries) == 13
     assert any("Annex 1: List of Union Harmonisation Legislation" in line for line in annex_entries)
     assert any("Annex 3: High-Risk AI Systems Referred to in Article 6(2)" in line for line in annex_entries)
+
+
+def test_inventory_fails_loudly_on_conflicting_titles(monkeypatch):
+    """A provision whose chunks disagree on the title cannot render an honest
+    table of contents: the inventory fails loudly instead of silently picking
+    one — the chunking transform's own duplicate policy."""
+    import src.corpus as corpus
+
+    conflicting = {
+        "metadata": {"id": "synthetic", "shortName": "Synthetic"},
+        "chapters": [
+            {
+                "sections": [
+                    {
+                        "articles": [
+                            {
+                                "id": "art-3-a",
+                                "number": 3,
+                                "title": "Definitions",
+                                "paragraphs": [{"text": "First telling."}],
+                            },
+                            {
+                                "id": "art-3-b",
+                                "number": 3,
+                                "title": "Something else",
+                                "paragraphs": [{"text": "Second telling."}],
+                            },
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+    monkeypatch.setattr(corpus, "_inventory", None)
+    monkeypatch.setattr(corpus, "load_documents", lambda: {"synthetic": conflicting})
+
+    with pytest.raises(ValueError, match="conflicting titles"):
+        corpus_inventory()

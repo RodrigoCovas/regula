@@ -10,7 +10,7 @@ never an error on the request path.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, NamedTuple, Optional
 
 from .chunking import chunk_regulation
 from .models import PROVISION_NOUNS, ProvisionKind
@@ -22,6 +22,15 @@ CORPUS_DIR = Path(__file__).resolve().parents[2] / "data" / "regulations"
 
 _documents: Optional[dict[str, dict]] = None
 _inventory: Optional[str] = None
+
+
+class TitledProvision(NamedTuple):
+    """One titled provision of the Corpus inventory: the Chunk metadata
+    collapsed to a single entry per provision."""
+
+    kind: ProvisionKind
+    number: int
+    title: str
 
 
 def load_documents() -> dict[str, dict]:
@@ -60,22 +69,33 @@ def source_short_names() -> dict[str, str]:
     return names
 
 
-def _titled_provisions(document: Mapping[str, Any]) -> list[tuple[ProvisionKind, int, str]]:
-    """One (kind, number, title) per titled provision of one document, in
-    document order — the Chunk metadata, collapsed to one entry per provision
-    (a multi-part Article shares its title across its Chunks)."""
-    entries: list[tuple[ProvisionKind, int, str]] = []
-    seen: set[tuple[ProvisionKind, int]] = set()
+def _titled_provisions(document: Mapping[str, Any]) -> list[TitledProvision]:
+    """One TitledProvision per titled provision of one document, in document
+    order — the Chunk metadata, collapsed to one entry per provision (a
+    multi-part Article shares its title across its Chunks). A provision whose
+    chunks disagree on the title fails loudly, mirroring the chunking
+    transform's own duplicate policy."""
+    entries: list[TitledProvision] = []
+    titles: dict[tuple[ProvisionKind, int], str] = {}
     for chunk in chunk_regulation(document):
         if chunk.title is None:
             continue  # recitals carry no titles and stay reachable through search
         number = chunk.provision_number
-        assert number is not None  # the Chunk validator enforces exactly-one-target
+        if number is None:  # unreachable: the Chunk validator enforces exactly-one-target
+            raise ValueError(
+                f"titled {chunk.kind.value} chunk of '{chunk.source_id}' carries no provision number"
+            )
         key = (chunk.kind, number)
-        if key in seen:
+        first_title = titles.get(key)
+        if first_title is not None:
+            if first_title != chunk.title:
+                raise ValueError(
+                    f"{chunk.kind.value} {number} of '{chunk.source_id}' carries conflicting titles: "
+                    f"{first_title!r} vs {chunk.title!r}"
+                )
             continue
-        seen.add(key)
-        entries.append((chunk.kind, number, chunk.title))
+        titles[key] = chunk.title
+        entries.append(TitledProvision(chunk.kind, number, chunk.title))
     return entries
 
 
@@ -98,8 +118,8 @@ def corpus_inventory() -> str:
             if not entries:
                 continue
             lines = [f"{name}:"] + [
-                f"- {PROVISION_NOUNS[kind]} {number}: {title}"
-                for kind, number, title in entries
+                f"- {PROVISION_NOUNS[entry.kind]} {entry.number}: {entry.title}"
+                for entry in entries
             ]
             groups.append("\n".join(lines))
         _inventory = "\n\n".join(groups)
