@@ -113,6 +113,20 @@ def test_load_corpus_documents_reads_every_json_file_sorted(tmp_path: Path):
     assert [source_id for source_id, _ in documents] == ["ai-act", "dora"]
 
 
+def test_load_corpus_documents_skips_non_corpus_json(tmp_path: Path):
+    """JSON files that are not corpus documents carry no metadata — the
+    ground-truth citations.json (#51) lives beside the corpus and must be
+    skipped with a logged note, never crash ingestion."""
+    (tmp_path / "gdpr.json").write_text(json.dumps(tiny_document("gdpr")), encoding="utf-8")
+    (tmp_path / "citations.json").write_text(
+        json.dumps({"scenario_1": {"scenario_id": "x", "citations": []}}), encoding="utf-8"
+    )
+
+    documents = load_corpus_documents(tmp_path)
+
+    assert [source_id for source_id, _ in documents] == ["gdpr"]
+
+
 def test_load_corpus_documents_with_no_corpus_fails_loudly(tmp_path: Path):
     with pytest.raises(IngestError) as excinfo:
         load_corpus_documents(tmp_path)

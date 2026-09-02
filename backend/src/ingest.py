@@ -52,20 +52,32 @@ class IngestReport:
 
 
 def load_corpus_documents(data_dir: Path, log=print) -> list[tuple[str, dict]]:
-    """Every lexplorer JSON document in ``data_dir``, ordered by file name."""
+    """Every lexplorer JSON document in ``data_dir``, ordered by file name.
+
+    A file is a corpus document when it carries a ``metadata`` object; JSON
+    files without one (e.g. the ground-truth ``citations.json`` that shares
+    the directory) are skipped with a logged note, never ingested or
+    crashed on.
+    """
     if not data_dir.is_dir():
         raise IngestError(
             f"Corpus directory {data_dir} does not exist. Pass --data-dir or run "
             "from the repository root."
         )
     documents = []
+    skipped = []
     for path in sorted(data_dir.glob("*.json")):
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise IngestError(f"Could not read corpus file {path}: {error}") from error
+        if not isinstance(document, dict) or "metadata" not in document:
+            skipped.append(path.name)
+            continue
         source_id = str(document["metadata"]["id"])
         documents.append((source_id, document))
+    if skipped:
+        log(f"Skipped non-corpus JSON documents: {', '.join(skipped)}")
     if not documents:
         raise IngestError(f"No corpus JSON documents found in {data_dir}.")
     source_ids = [s for s, _ in documents]
