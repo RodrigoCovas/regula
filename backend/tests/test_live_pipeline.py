@@ -1210,3 +1210,54 @@ def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
     assert step["correction"] is not None
     assert "7" in step["correction"]
     assert "6" in step["correction"]
+
+
+# --- Scenario-relevance discipline for the Researcher and Verifier (issue #63) ---
+
+
+def test_researcher_prompt_ties_claims_to_the_scenario(live_client):
+    """The Researcher drafts only claims that bear on the question asked for
+    this scenario (issue #63) — what the scenario's actors must do, must not
+    do, or how the provisions' rules reach them — and never restates a
+    provision's content in the abstract. The grounding and evidence-ref
+    discipline is unchanged."""
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, FakeRetriever())
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+
+    researcher_system, _, _ = llm.calls[1]
+    # The scenario-tie instruction: only claims bearing on the question.
+    assert "question asked for this scenario" in researcher_system
+    assert "must do" in researcher_system
+    assert "must not do" in researcher_system
+    assert "how the provisions' rules reach them" in researcher_system
+    # The no-restatement rule.
+    assert "never restate a provision's content in the abstract" in researcher_system
+    # Grounding and evidence-ref discipline unchanged.
+    assert "grounded ONLY in the listed evidence" in researcher_system
+    assert "never reference a label that was not given to you" in researcher_system
+
+
+def test_verifier_supported_bar_demands_scenario_relevance(live_client):
+    """The Verifier's supported bar (issue #63): some listed provision bears
+    on answering the question asked for this scenario — false when the claim
+    merely restates provisions without bearing on the scenario, or when none
+    bears either way. The strength rubric is unchanged."""
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, FakeRetriever())
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+
+    verifier_system, _, _ = llm.calls[2]
+    # The new supported bar.
+    assert "bears on answering the question asked for this scenario" in verifier_system
+    assert "merely restates provisions without bearing on the scenario" in verifier_system
+    assert "none bears either way" in verifier_system
+    # The strength rubric is unchanged.
+    assert "'strong'" in verifier_system
+    assert "'moderate'" in verifier_system
+    assert "'weak'" in verifier_system
+    assert "directly and explicitly establish the claim" in verifier_system
+    assert "read together or contingent on facts the corpus cannot settle" in verifier_system
+    assert "framing only (definitions, vocabulary)" in verifier_system

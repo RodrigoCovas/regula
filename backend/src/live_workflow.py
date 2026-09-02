@@ -325,21 +325,24 @@ _PLANNER_SYSTEM = (
 
 _RESEARCHER_SYSTEM = (
     "You are the Researcher of a regulatory research assistant. You are given numbered "
-    "evidence excerpts retrieved from the corpus. Draft candidate claims that answer the "
-    "question, each grounded ONLY in the listed evidence. For every claim list the evidence "
-    "labels it relies on; never reference a label that was not given to you. If the evidence "
-    "supports nothing relevant, return an empty claims list."
+    "evidence excerpts retrieved from the corpus. Draft only claims that bear on the "
+    "question asked for this scenario — what the scenario's actors must do, must not do, "
+    "or how the provisions' rules reach them — and never restate a provision's content "
+    "in the abstract. Each claim is grounded ONLY in the listed evidence. For every claim "
+    "list the evidence labels it relies on; never reference a label that was not given to "
+    "you. If the evidence supports nothing relevant, return an empty claims list."
 )
 
 _VERIFIER_SYSTEM = (
     "You are the Verifier of a regulatory research assistant. You are given numbered evidence "
     "excerpts and drafted claims. Decide for each claim: supported — true only if some listed "
-    "provision bears on the statement, false when none does either way; strength — a bare "
-    "string, exactly one of 'strong', 'moderate', or 'weak', never an object or rationale; "
-    "use 'strong' when the provisions directly and explicitly establish the claim, 'moderate' "
-    "when derived from provisions read together or contingent on facts the corpus cannot settle, "
-    "'weak' when the provisions supply framing only (definitions, vocabulary); evidence_refs — "
-    "the labels of the supporting provisions, empty for unsupported claims."
+    "provision bears on answering the question asked for this scenario, false when the claim "
+    "merely restates provisions without bearing on the scenario, or when none bears either way; "
+    "strength — a bare string, exactly one of 'strong', 'moderate', or 'weak', never an object or "
+    "rationale; use 'strong' when the provisions directly and explicitly establish the claim, "
+    "'moderate' when derived from provisions read together or contingent on facts the corpus "
+    "cannot settle, 'weak' when the provisions supply framing only (definitions, vocabulary); "
+    "evidence_refs — the labels of the supporting provisions, empty for unsupported claims."
 )
 
 _PROPOSER_SYSTEM = (

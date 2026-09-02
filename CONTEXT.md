@@ -101,7 +101,7 @@ _Avoid_: Confidence, probability
   _Avoid_: Finding strength, average strength
 
 **Unsupported claim**:
-A statement with no Evidence in the Corpus either way — no provision can be cited for or against it. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
+A statement with no Evidence in the Corpus either way — no provision can be cited for or against it — or one that merely restates provisions without bearing on the question asked for the Scenario. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
 _Avoid_: Unverified claim, speculation
 
 **Insufficient evidence**:
