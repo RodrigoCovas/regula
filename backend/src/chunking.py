@@ -31,7 +31,7 @@ from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any, Callable, Optional
 
-from .models import Chunk, ProvisionKind
+from .models import PROVISION_NOUNS, Chunk, ProvisionKind
 
 MAX_CHUNK_TOKENS = 400
 
@@ -272,7 +272,7 @@ def _chunks_for_provision(
 
 
 def _heading(kind: ProvisionKind, number: int, title: Optional[str]) -> str:
-    label = {"article": "Article", "recital": "Recital", "annex": "Annex"}[kind]
+    label = PROVISION_NOUNS[kind]
     return f"{label} {number}: {title}" if title else f"{label} {number}"
 
 

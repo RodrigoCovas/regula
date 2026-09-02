@@ -47,8 +47,8 @@ PROVISION_NUMBER_FIELDS: dict[ProvisionKind, str] = {
 
 
 # The one map from provision kind to its human-readable provision noun —
-# shared by every citation derivation, inventory render, and label that must
-# agree on how a provision is named.
+# shared by every chunk heading, citation derivation, inventory render, and
+# label that must agree on how a provision is named.
 PROVISION_NOUNS: dict[ProvisionKind, str] = {
     ProvisionKind.article: "Article",
     ProvisionKind.recital: "Recital",

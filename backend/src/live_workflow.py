@@ -109,10 +109,10 @@ SEEK_COUNSEL_ACTION = (
 # (ADR-0004): the sheet is capped, never empty.
 MAX_ACTIONS = 5
 
-# The Planner's declared budget: 1-6 Research targets (ADR-0003 rationale,
-# iteration 5). A provider response over this limit is corrected once by
-# truncation — the Evidence pool derives from the accepted plan, never from an
-# over-limit provider response.
+# The Planner's declared budget: 1-6 Research targets (ADR-0012); the pool
+# deriving from the accepted plan is ADR-0003's rationale. A provider response
+# over this limit is corrected once by truncation — the Evidence pool derives
+# from the accepted plan, never from an over-limit provider response.
 MAX_RESEARCH_TARGETS = 6
 
 

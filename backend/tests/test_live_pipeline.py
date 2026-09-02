@@ -1047,9 +1047,10 @@ def test_planner_prompt_carries_the_corpus_inventory_and_the_target_budget(live_
     resp = post_arbitrary_scenario(live_client)
     assert resp.status_code == 200
 
-    planner_system, planner_user = llm.calls[0][0], llm.calls[0][1]
+    planner_system, planner_user, _ = llm.calls[0]
     # The budget and the decomposition discipline ride the system prompt.
     assert "1-6" in planner_system
+    assert "per regulation" in planner_system
     assert "duty area" in planner_system
     assert "never merge" in planner_system
     assert "guidance, not a constraint" in planner_system
