@@ -13,7 +13,7 @@ from src.eval_harness import (
     evaluate_scenarios,
     run_eval,
 )
-from src.models import AnalyzeResponse, Answer, Citation, Finding, Mode, ProvisionTarget, Strength, Trace, answer_citations
+from src.models import AnalyzeResponse, Answer, Citation, Finding, GroundedSummary, Mode, ProvisionTarget, Strength, Trace, answer_citations
 
 import pytest
 
@@ -109,13 +109,19 @@ def test_scenario_description_and_mode_reach_the_analysis_request():
 # --- The audit dump ---
 
 
-def _respond_with(*findings: Finding, relevance_by_target=None, ratings_by_target=None):
+def _summary(target: ProvisionTarget, relevance: str, strength: Strength | None = None) -> GroundedSummary:
+    """One gate-shaped summaries entry: a rated target always arrives with
+    its relevance, as it does through the Summarizer's gate."""
+    return GroundedSummary(target=target, relevance=relevance, strength=strength)
+
+
+def _respond_with(*findings: Finding, summaries_by_target=None):
     def respond(_request):
         return AnalyzeResponse(
             answer=Answer(
                 findings=list(findings),
                 actions=[],
-                citations=answer_citations(list(findings), relevance_by_target, ratings_by_target),
+                citations=answer_citations(list(findings), summaries_by_target),
             ),
             trace=Trace(workflow="fake", summary="canned"),
         )
@@ -153,12 +159,10 @@ def test_per_case_result_carries_the_produced_versus_expected_dump():
                 strength=Strength.weak,
                 citations=[Citation.model_validate({"source_id": "gdpr", "recital_number": 71, "quote": "snip"})],
             ),
-            relevance_by_target={
-                _target(71, kind="recital"):
-                    "produced relevance",
-            },
-            ratings_by_target={
-                _target(71, kind="recital"): Strength.weak,
+            summaries_by_target={
+                _target(71, kind="recital"): _summary(
+                    _target(71, kind="recital"), "produced relevance", Strength.weak
+                ),
             },
         ),
         mode=Mode.demo,
@@ -243,7 +247,7 @@ def test_the_judge_scores_one_batched_pair_per_aligned_provision():
         )],
         _respond_with(
             _produced_finding(22),
-            relevance_by_target={target22: "produced relevance"},
+            summaries_by_target={target22: _summary(target22, "produced relevance")},
         ),
         mode=Mode.demo,
         judge=judge,
@@ -276,7 +280,7 @@ def test_rubric_edges_land_in_the_case_score(verdict, expected_fidelity):
         )],
         _respond_with(
             _produced_finding(22),
-            relevance_by_target={target22: "produced relevance"},
+            summaries_by_target={target22: _summary(target22, "produced relevance")},
         ),
         mode=Mode.demo,
         judge=ScriptedJudge({"P1": verdict}),
@@ -300,7 +304,10 @@ def test_summary_fidelity_means_over_all_judged_pairs():
         _respond_with(
             _produced_finding(22),
             _produced_finding(25),
-            relevance_by_target={target22: "produced one", target25: "produced two"},
+            summaries_by_target={
+                target22: _summary(target22, "produced one"),
+                target25: _summary(target25, "produced two"),
+            },
         ),
         mode=Mode.demo,
         judge=ScriptedJudge({
@@ -344,9 +351,7 @@ def test_summary_fidelity_is_unmeasured_without_expected_summaries():
         )],
         _respond_with(
             _produced_finding(22),
-            relevance_by_target={
-                _target(22): "produced",
-            },
+            summaries_by_target={_target(22): _summary(_target(22), "produced")},
         ),
         mode=Mode.demo,
         judge=judge,
@@ -365,9 +370,7 @@ def test_summary_fidelity_is_unmeasured_without_a_judge():
         )],
         _respond_with(
             _produced_finding(22),
-            relevance_by_target={
-                _target(22): "produced",
-            },
+            summaries_by_target={_target(22): _summary(_target(22), "produced")},
         ),
         mode=Mode.demo,
     )
@@ -393,7 +396,7 @@ def test_fidelity_pairs_only_provisions_both_sides_touch():
         _respond_with(
             _produced_finding(22),
             _produced_finding(99),
-            relevance_by_target={target22: "produced one"},
+            summaries_by_target={target22: _summary(target22, "produced one")},
         ),
         mode=Mode.demo,
         judge=judge,
@@ -418,7 +421,10 @@ def test_strength_agreement_rides_every_case_and_aggregates_separately():
         _respond_with(
             _produced_finding(22, strength=Strength.strong),
             _produced_finding(25, strength=Strength.moderate),
-            ratings_by_target={target22: Strength.strong, target25: Strength.moderate},
+            summaries_by_target={
+                target22: _summary(target22, "produced", Strength.strong),
+                target25: _summary(target25, "produced", Strength.moderate),
+            },
         ),
         mode=Mode.demo,
     )
@@ -443,7 +449,7 @@ def test_strength_agreement_runs_over_rated_shared_targets_only():
     # Article 22 rated and agreeing; Article 25 unrated — excluded, not zero.
     partial = evaluate_scenarios(
         [EvalScenario(id="case", scenario_id="s", question="What applies?", expected=expected)],
-        _respond_with(*produced, ratings_by_target={target22: Strength.strong}),
+        _respond_with(*produced, summaries_by_target={target22: _summary(target22, "produced", Strength.strong)}),
         mode=Mode.demo,
     )
     assert partial.scenarios[0].strength_agreement == 1.0
@@ -472,10 +478,7 @@ def test_the_report_carries_the_components_separately_and_never_blends_them():
         )],
         _respond_with(
             _produced_finding(22),
-            relevance_by_target={
-                _target(22): "produced",
-            },
-            ratings_by_target={_target(22): Strength.strong},
+            summaries_by_target={_target(22): _summary(_target(22), "produced", Strength.strong)},
         ),
         mode=Mode.demo,
         judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),
@@ -513,7 +516,7 @@ def test_aggregate_component_means_skip_unmeasured_cases():
         ],
         _respond_with(
             _produced_finding(22),
-            relevance_by_target={target22: "produced"},
+            summaries_by_target={target22: _summary(target22, "produced")},
         ),
         mode=Mode.demo,
         judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),

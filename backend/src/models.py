@@ -125,30 +125,42 @@ def max_rule_strengths(
     return strengths
 
 
+class GroundedSummary(BaseModel):
+    """One cited provision's Provision relevance, grounded in the Findings
+    citing it, with the provision's rated Citation strength — the
+    gate-validated Summarizer output the Answer carries (issue #47,
+    ADR-0011). ``strength`` is carried as rated and stays None when the
+    rating was missing or invalid — never defaulted from the citing
+    Findings."""
+
+    target: ProvisionTarget
+    relevance: str
+    strength: Optional[Strength] = None
+
+
 def answer_citations(
     findings: List[Finding],
-    relevance: Optional[Dict[ProvisionTarget, str]] = None,
-    strengths: Optional[Dict[ProvisionTarget, Strength]] = None,
+    summaries: Optional[Dict[ProvisionTarget, GroundedSummary]] = None,
 ) -> List[Citation]:
     """The Answer's flat Citation list (issue #47): one entry per cited
     provision target, in first-mention order, badged with the rated Citation
     strength the Summarizer carried (ADR-0011) and — when produced — the
     provision's grounded Provision relevance. Provision relevance and
     Citation strength are answer-wide, so they attach here and never to the
-    per-Finding Citations the Findings section renders. Only targets the
-    strengths map carries get a badge: a provision whose rating is missing
-    or invalid keeps its relevance but carries no strength — nothing is
-    derived from the citing Findings' Strengths."""
-    known_relevance = relevance or {}
-    known_strengths = strengths or {}
+    per-Finding Citations the Findings section renders. Only provisions the
+    summaries carry get their answer-wide fields: a provision whose rating is
+    missing or invalid keeps its relevance but carries no strength — nothing
+    is derived from the citing Findings' Strengths."""
+    known = summaries or {}
     entries: Dict[ProvisionTarget, Citation] = {}
     for finding in findings:
         for citation in finding.citations:
             target = citation.provision_target
             if target not in entries:
+                summary = known.get(target)
                 entries[target] = citation.model_copy(update={
-                    "strength": known_strengths.get(target),
-                    "relevance": known_relevance.get(target),
+                    "strength": summary.strength if summary else None,
+                    "relevance": summary.relevance if summary else None,
                 })
     return list(entries.values())
 

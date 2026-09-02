@@ -203,10 +203,10 @@ def expected_target_strengths(expected: List[ExpectedFinding]) -> Dict[Provision
     per expected Citation target, the strongest Strength among the
     ground-truth Citations citing it — each Citation's own Strength, the
     operator's per-provision rating transcribed in #56 and the single source
-    of expected Citation strength since #58. The expected half the
-    strength-agreement component (#50) compares against the Summarizer's
-    ratings (ADR-0011), and the source of coverage's strength weights —
-    the max-rule's last remaining role."""
+    of expected Citation strength since #58. One map serves both of the
+    max-rule's remaining roles (ADR-0011 retired it from the produced side):
+    the expected half the strength-agreement component (#50) compares against
+    the Summarizer's ratings, and coverage's strength weights."""
     return max_rule_strengths(
         (parse_provision(citation["source_id"], citation["provision"]), citation["strength"])
         for finding in expected
@@ -251,12 +251,13 @@ def expected_relevance_summaries(expected: List[ExpectedFinding]) -> Dict[Provis
     return summaries
 
 
-def produced_target_ratings(citations: List[Citation]) -> Dict[ProvisionTarget, Strength]:
-    """The produced side's rated Citation strength (ADR-0011): the Answer's
+def produced_target_strengths(citations: List[Citation]) -> Dict[ProvisionTarget, Strength]:
+    """The produced side's Citation strength (ADR-0011): the Answer's
     Citations carry the Summarizer's centrality rating per cited provision —
-    the same value the product badges. Only rated targets enter the map, so
-    a provision whose rating is missing or invalid is excluded from the
-    comparison, never silently defaulted."""
+    the same value the product badges. Unlike the expected side's max-rule
+    map, this one derives nothing: it carries each rated target as given, and
+    only rated targets enter it, so a provision whose rating is missing or
+    invalid is excluded from the comparison, never silently defaulted."""
     return {
         citation.provision_target: citation.strength
         for citation in citations
@@ -1950,14 +1951,13 @@ def _expected_dump(finding: ExpectedFinding) -> ExpectedFindingDump:
 
 
 # The audit-dump form of one produced Finding: the statement as the LLM worded
-# it, its Strength, and each Citation's structural target with its quote, the
-# Answer's Provision relevance for that provision (``None`` where the
-# Summarizer shipped nothing), and the rated Citation strength (``None``
-# where the Summarizer shipped no rating — ADR-0011).
+# it, its Strength, and each Citation's structural target with its quote and
+# the answer-wide fields — Provision relevance and rated Citation strength —
+# read straight off the Answer's own Citation for that target (``None`` where
+# the Summarizer shipped nothing or no rating, ADR-0011).
 def _produced_dump(
     finding: ProducedFinding,
-    answer_relevance: Dict[ProvisionTarget, Optional[str]],
-    answer_ratings: Dict[ProvisionTarget, Strength],
+    citations_by_target: Dict[ProvisionTarget, Citation],
 ) -> ProducedFindingDump:
     return {
         "statement": finding.statement,
@@ -1966,10 +1966,10 @@ def _produced_dump(
             {
                 "target": format_provision_target(c.provision_target),
                 "quote": c.quote,
-                "relevance": answer_relevance.get(c.provision_target),
+                "relevance": citations_by_target[c.provision_target].relevance,
                 "strength": (
-                    rating.value
-                    if (rating := answer_ratings.get(c.provision_target)) is not None
+                    answer_strength.value
+                    if (answer_strength := citations_by_target[c.provision_target].strength) is not None
                     else None
                 ),
             }
@@ -1986,7 +1986,7 @@ def _mean(scores: Iterable[Optional[float]]) -> Optional[float]:
 
 def _summary_fidelity(
     scenario: EvalScenario,
-    answer_relevance: Dict[ProvisionTarget, Optional[str]],
+    citations_by_target: Dict[ProvisionTarget, Citation],
     judge: SummaryJudge,
 ) -> Optional[float]:
     """One case's summary fidelity (ADR-0010): the strict rubric judge over
@@ -1998,6 +1998,8 @@ def _summary_fidelity(
     ground truth summarizes it, the Summarizer shipped nothing — floors its
     share of the score deterministically, with no judge call; a target
     either side never touches is coverage's business, never a fidelity pair.
+    The produced relevance reads off the Answer's own Citations, the bundled
+    carrier of the answer-wide fields.
     """
     expected_summaries = expected_relevance_summaries(scenario.expected)
     if not expected_summaries:
@@ -2005,9 +2007,9 @@ def _summary_fidelity(
     pairs: List[RelevancePair] = []
     floored_count = 0
     for target, expected_relevance in expected_summaries.items():
-        if target not in answer_relevance:
+        if target not in citations_by_target:
             continue
-        produced_relevance = answer_relevance[target]
+        produced_relevance = citations_by_target[target].relevance
         if not produced_relevance:
             # A provision the Answer cites without a relevance statement
             # is infidelitous by construction — the deterministic floor,
@@ -2055,12 +2057,14 @@ def evaluate_scenarios(
             ProducedFinding(statement=f.statement, strength=f.strength, citations=f.citations)
             for f in response.answer.findings
         ]
-        answer_citations_list = list(response.answer.citations)
-        answer_relevance = {citation.provision_target: citation.relevance for citation in answer_citations_list}
-        answer_ratings = produced_target_ratings(answer_citations_list)
+        # The Answer's own Citations are the bundled carrier of the two
+        # answer-wide fields: one map serves the dump and the fidelity judge,
+        # and the produced strengths read straight off it for the comparison.
+        citations_by_target = {c.provision_target: c for c in response.answer.citations}
+        produced_strengths = produced_target_strengths(response.answer.citations)
         expected_strengths = expected_target_strengths(scenario.expected)
         fidelity = (
-            _summary_fidelity(scenario, answer_relevance, judge)
+            _summary_fidelity(scenario, citations_by_target, judge)
             if judge is not None
             else None
         )
@@ -2069,9 +2073,9 @@ def evaluate_scenarios(
                 id=scenario.id,
                 **coverage_scores(scenario.expected, produced, expected_strengths),
                 expected=[_expected_dump(f) for f in scenario.expected],
-                produced=[_produced_dump(f, answer_relevance, answer_ratings) for f in produced],
+                produced=[_produced_dump(f, citations_by_target) for f in produced],
                 summary_fidelity=fidelity,
-                strength_agreement=strength_agreement(expected_strengths, answer_ratings),
+                strength_agreement=strength_agreement(expected_strengths, produced_strengths),
             )
         )
 

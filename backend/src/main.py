@@ -31,7 +31,7 @@ from .db import LazyStore, PgVectorStore, connect
 from .embedder import OllamaEmbedder
 from .llm import Llm, LlmUnreachableError
 from .live_workflow import LIVE_WORKFLOW_MARKER, SEEK_COUNSEL_ACTION, run_live_analysis
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, Mode, ProvisionTarget, Readiness, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, answer_citations, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, ClaimDecision, Finding, Citation, GroundedSummary, Mode, ProvisionTarget, Readiness, Strength, Trace, PROVISION_NUMBER_FIELDS, ProvisionKind, answer_citations, quote_snippet
 from .progress import ProgressSnapshot, progress_registry, progress_sink, unknown_request_response
 from .query_log import (
     STATUS_FAILURE,
@@ -411,8 +411,9 @@ def _run_demo_workflow() -> Dict[str, Any]:
     issue #47, ADR-0011), retrieved passages, and tool calls.
     """
     findings: List[Finding] = []
-    relevance_by_target: Dict[ProvisionTarget, str] = {}
-    strengths_by_target: Dict[ProvisionTarget, Strength] = {}
+    # One carrier per cited provision: the locked relevance and rating ride
+    # together, exactly as the Live gate's GroundedSummary does.
+    summaries_by_target: Dict[ProvisionTarget, GroundedSummary] = {}
     retrieved_passages: List[dict] = []
     tool_calls: List[dict] = []
 
@@ -440,8 +441,11 @@ def _run_demo_workflow() -> Dict[str, Any]:
             citation_kwargs[resolved["field"]] = target["number"]
             citation = Citation(**citation_kwargs)
             finding_citations.append(citation)
-            relevance_by_target[citation.provision_target] = target["relevance"]
-            strengths_by_target[citation.provision_target] = target["strength"]
+            summaries_by_target[citation.provision_target] = GroundedSummary(
+                target=citation.provision_target,
+                relevance=target["relevance"],
+                strength=target["strength"],
+            )
             retrieved_passages.append(
                 {
                     "source_id": target["source_id"],
@@ -464,7 +468,7 @@ def _run_demo_workflow() -> Dict[str, Any]:
 
     return {
         "findings": findings,
-        "citations": answer_citations(findings, relevance_by_target, strengths_by_target),
+        "citations": answer_citations(findings, summaries_by_target),
         "retrieved_passages": retrieved_passages,
         "tool_calls": tool_calls,
     }

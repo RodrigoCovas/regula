@@ -54,7 +54,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
 from .corpus import source_short_names
 from .llm import Llm
-from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, ProvisionKind, ProvisionTarget, STRENGTH_ORDER, Strength, Trace, PROVISION_NUMBER_FIELDS, answer_citations, quote_snippet
+from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, GroundedSummary, ProvisionKind, ProvisionTarget, STRENGTH_ORDER, Strength, Trace, PROVISION_NUMBER_FIELDS, answer_citations, quote_snippet
 from .progress import PhaseReport, ProgressSink
 from .query_log import RequestObservation
 from .retrieval import Retriever
@@ -269,18 +269,6 @@ class Grounding(BaseModel):
 
     citation: Citation
     anchor: Strength
-
-
-class GroundedSummary(BaseModel):
-    """One cited provision's Provision relevance, grounded in the Findings
-    citing it — the gate-validated Summarizer output the Answer carries.
-    ``strength`` is the provision's rated Citation strength (ADR-0011):
-    carried as rated, absent (None) when the rating was missing or invalid —
-    never defaulted from the citing Findings."""
-
-    target: ProvisionTarget
-    relevance: str
-    strength: Optional[Strength] = None
 
 
 class LiveState(BaseModel):
@@ -1046,15 +1034,11 @@ def run_live_analysis(
     findings = sorted(state.kept_findings, key=lambda f: STRENGTH_ORDER.get(f.strength, 1))
     decisions = state.claim_decisions
     discarded = [decision.claim for decision in decisions if decision.status == "rejected"]
-    # The Summarizer's gate-validated relevance, keyed by provision target for
-    # the Answer's one-entry-per-provision citation list. The rated strength
-    # rides beside it (ADR-0011): only rated targets enter the strengths map.
-    grounded_by_target = {grounded.target: grounded for grounded in state.relevance}
-    relevance_by_target = {target: g.relevance for target, g in grounded_by_target.items()}
-    strengths_by_target = {
-        target: g.strength for target, g in grounded_by_target.items() if g.strength is not None
-    }
-    all_citations = answer_citations(findings, relevance_by_target, strengths_by_target)
+    # The Summarizer's gate-validated output, keyed by provision target for
+    # the Answer's one-entry-per-provision citation list (ADR-0011): each
+    # GroundedSummary carries the relevance and the rated strength together.
+    summaries_by_target = {grounded.target: grounded for grounded in state.relevance}
+    all_citations = answer_citations(findings, summaries_by_target)
     retrieved_chunks = [
         {
             "label": item.label,

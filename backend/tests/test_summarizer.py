@@ -18,7 +18,6 @@ sys.path.insert(0, str(ROOT / "backend"))
 import pytest
 
 from src.live_workflow import (
-    GroundedSummary,
     ProvisionSummary,
     Summaries,
     _validate_summaries,
@@ -26,6 +25,7 @@ from src.live_workflow import (
 from src.models import (
     Citation,
     Finding,
+    GroundedSummary,
     ProvisionKind,
     ProvisionTarget,
     Strength,
@@ -120,7 +120,9 @@ def test_answer_citations_carry_the_rated_strength():
         _finding("Strong claim.", Strength.strong, high_risk),
         _finding("Weak framing claim.", Strength.weak, high_risk, definitions),
     ]
-    citations = answer_citations(findings, strengths={high_risk.provision_target: Strength.moderate})
+    citations = answer_citations(findings, {
+        high_risk.provision_target: _grounded(high_risk.provision_target, "rated.", Strength.moderate),
+    })
     strengths = {c.provision_target: c.strength for c in citations}
     assert strengths[ProvisionTarget("ai-act", ProvisionKind.article, 6)] == Strength.moderate
 
@@ -131,7 +133,7 @@ def test_an_unrated_provision_keeps_relevance_but_carries_no_strength():
     derived from Finding strength any more."""
     high_risk = _citation("ai-act", ProvisionKind.article, 6)
     findings = [_finding("Strong claim.", Strength.strong, high_risk)]
-    citations = answer_citations(findings, {high_risk.provision_target: "Names the situation."})
+    citations = answer_citations(findings, {high_risk.provision_target: _grounded(high_risk.provision_target, "Names the situation.")})
     assert citations[0].relevance == "Names the situation."
     assert citations[0].strength is None
 
@@ -140,7 +142,7 @@ def test_answer_citations_attach_the_provisions_relevance():
     high_risk = _citation("ai-act", ProvisionKind.article, 6)
     findings = [_finding("Strong claim.", Strength.strong, high_risk)]
     target = ProvisionTarget("ai-act", ProvisionKind.article, 6)
-    citations = answer_citations(findings, {target: "Names creditworthiness evaluation as high-risk."})
+    citations = answer_citations(findings, {target: _grounded(target, "Names creditworthiness evaluation as high-risk.")})
     assert citations[0].relevance == "Names creditworthiness evaluation as high-risk."
 
 
@@ -156,7 +158,7 @@ def test_answer_citations_never_mutate_the_findings_own_citations():
     never the per-Finding Citations the Findings section renders."""
     high_risk = _citation("ai-act", ProvisionKind.article, 6)
     findings = [_finding("Strong claim.", Strength.strong, high_risk)]
-    answer_citations(findings, {high_risk.provision_target: "relevance"})
+    answer_citations(findings, {high_risk.provision_target: _grounded(high_risk.provision_target, "relevance")})
     assert findings[0].citations[0].relevance is None
     assert findings[0].citations[0].strength is None
 

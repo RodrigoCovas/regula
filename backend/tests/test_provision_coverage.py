@@ -24,7 +24,7 @@ from src.eval_harness import (
     expected_target_weights,
     format_provision_target,
     parse_provision,
-    produced_target_ratings,
+    produced_target_strengths,
     strength_agreement,
 )
 from src.models import Citation, ProvisionKind, ProvisionTarget, Strength
@@ -46,7 +46,8 @@ def _produced(strength: Strength, *targets: dict, source_id: str = "ai-act") -> 
 
 
 def _rated(*targets: tuple[dict, Strength | None], source_id: str = "ai-act") -> list[Citation]:
-    """Answer-shaped Citations, each carrying its rating or none (ADR-0011)."""
+    """Answer-shaped Citations, each carrying its rated strength or none
+    (ADR-0011)."""
     return [
         Citation.model_validate({"source_id": source_id, **target, "strength": rating})
         for target, rating in targets
@@ -157,25 +158,25 @@ def test_a_target_cited_by_several_findings_enters_the_denominator_once():
 # --- Strength agreement's produced side (ADR-0010, ADR-0011) ---
 
 
-def test_produced_ratings_read_from_the_answer_citations():
+def test_produced_strengths_read_from_the_answer_citations():
     """The produced half of the strength-agreement component: the rated
     Citation strength each Answer Citation carries — the Summarizer's
-    rating, the same value the product badges."""
+    rating, carried as given, the same value the product badges."""
     citations = _rated((_article(6), Strength.weak), (_recital(71), Strength.strong), source_id="gdpr")
-    ratings = produced_target_ratings(citations)
-    assert ratings == {
+    strengths = produced_target_strengths(citations)
+    assert strengths == {
         ProvisionTarget("gdpr", ProvisionKind.article, 6): Strength.weak,
         ProvisionTarget("gdpr", ProvisionKind.recital, 71): Strength.strong,
     }
 
 
-def test_unrated_targets_never_enter_the_produced_ratings():
+def test_unrated_targets_never_enter_the_produced_strengths():
     """No default value anywhere (ADR-0011): a provision whose rating is
     missing or invalid is absent from the map, so the agreement can never
     silently compare a default."""
     citations = _rated((_article(6), Strength.strong), (_article(3), None))
-    ratings = produced_target_ratings(citations)
-    assert ratings == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
+    strengths = produced_target_strengths(citations)
+    assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
 
 
 # --- Strength agreement (ADR-0010, ADR-0011) ---
@@ -197,7 +198,7 @@ def test_strength_agreement_compares_both_sides_per_rated_shared_target():
     """Provision-aligned comparison: a target both sides rate agrees when the
     ratings match, whatever those ratings are."""
     expected = expected_target_strengths([_expected(Strength.moderate, "Article 6")])
-    produced = produced_target_ratings(_rated((_article(6), Strength.moderate)))
+    produced = produced_target_strengths(_rated((_article(6), Strength.moderate)))
     assert strength_agreement(expected, produced) == 1.0
 
 
@@ -206,7 +207,7 @@ def test_strength_agreement_means_over_the_rated_shared_targets():
         _expected(Strength.strong, "Article 6"),
         _expected(Strength.weak, "Article 3"),
     ])
-    produced = produced_target_ratings(_rated(
+    produced = produced_target_strengths(_rated(
         (_article(6), Strength.strong),
         (_article(3), Strength.weak),
         (_article(99), Strength.strong),
@@ -215,7 +216,7 @@ def test_strength_agreement_means_over_the_rated_shared_targets():
     # component's — only targets both sides rate take part.
     assert strength_agreement(expected, produced) == 1.0
 
-    produced = produced_target_ratings(_rated(
+    produced = produced_target_strengths(_rated(
         (_article(6), Strength.weak),
         (_article(3), Strength.weak),
     ))
@@ -230,7 +231,7 @@ def test_an_unrated_shared_target_is_excluded_not_defaulted():
         _expected(Strength.strong, "Article 6"),
         _expected(Strength.weak, "Article 3"),
     ])
-    produced = produced_target_ratings(_rated((_article(6), Strength.strong), (_article(3), None)))
+    produced = produced_target_strengths(_rated((_article(6), Strength.strong), (_article(3), None)))
     assert strength_agreement(expected, produced) == 1.0
 
 
@@ -239,10 +240,10 @@ def test_no_rated_shared_target_leaves_strength_agreement_unmeasured():
     fake one; coverage recall already flags the total miss. The same holds
     when targets are shared but none is rated (ADR-0011)."""
     expected = expected_target_strengths([_expected(Strength.strong, "Article 6")])
-    produced = produced_target_ratings(_rated((_article(99), Strength.strong)))
+    produced = produced_target_strengths(_rated((_article(99), Strength.strong)))
     assert strength_agreement(expected, produced) is None
 
-    shared_but_unrated = produced_target_ratings(_rated((_article(6), None)))
+    shared_but_unrated = produced_target_strengths(_rated((_article(6), None)))
     assert strength_agreement(expected, shared_but_unrated) is None
 
 
@@ -251,8 +252,8 @@ def test_strength_disagreement_counts_whatever_the_direction():
     component grades the ratings, not who was generous."""
     expected_strong = expected_target_strengths([_expected(Strength.strong, "Article 6")])
     expected_moderate = expected_target_strengths([_expected(Strength.moderate, "Article 6")])
-    produced_strong = produced_target_ratings(_rated((_article(6), Strength.strong)))
-    produced_moderate = produced_target_ratings(_rated((_article(6), Strength.moderate)))
+    produced_strong = produced_target_strengths(_rated((_article(6), Strength.strong)))
+    produced_moderate = produced_target_strengths(_rated((_article(6), Strength.moderate)))
     assert strength_agreement(expected_strong, produced_moderate) == 0.0
     assert strength_agreement(expected_moderate, produced_strong) == 0.0
 
