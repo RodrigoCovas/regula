@@ -49,13 +49,17 @@ Relevant source text that supports or contradicts a finding.
 The bounded set of Chunks chosen from retrieval to support drafting — the only Evidence the Researcher and Verifier reason over. Its size derives from the plan: every Research target claims `SEATS_PER_TARGET` **seats**, so the pool grows with the number of targets and no target is starved. It surfaces in the Execution trace as the retrieved passages.  
 _Avoid_: Chunk budget, result set, context window
 
+**Corpus inventory**:
+The Corpus's own table of contents — one entry per titled provision (Articles and Annexes), rendered from Chunk metadata and shown to the Planner. It grounds target formulation in the ingested Corpus's actual vocabulary instead of the Planner's prior knowledge.
+_Avoid_: Keyword index, document list, catalogue
+
 **Citation**:
 A reference to one provision of a source document — an Article, a Recital, or an Annex — supporting a Claim; exact quotes are optional.
 _Avoid_: Reference, source link
 
 **Citation strength**:
-How directly a cited provision supports the overall Answer: the strongest Strength among the Findings citing it. Distinct from a Finding's Strength, which is judged per Finding.
-_Avoid_: Confidence, average strength
+How central a cited provision is to the overall Answer, rated at three levels: strong when the provision directly imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor the Answer relies on, weak when it is definitional or framing material. Rated per provision, drawing only on the content of the Findings citing it. Distinct from a Finding's Strength, which judges how directly Evidence supports one Finding.
+_Avoid_: Confidence, derived strength, average strength
 
 **Provision relevance**:
 The answer-wide statement of why one cited provision matters to the overall Answer, aggregating across the Findings that cite it. It draws only on the content of those Findings — never on material outside the Answer.
@@ -93,7 +97,7 @@ _Avoid_: Confidence, probability
   _Avoid_: Citation strength, average strength
 
   **Citation strength**:
-  The Strength of one cited provision for the whole Answer, not for one Finding: the strongest Finding strength among the Findings citing it. Two Findings citing the same provision can carry different Finding strengths; the provision carries one Citation strength.
+  The centrality rating of one cited provision for the whole Answer, not for one Finding: strong when the provision imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor, weak when it is definitional or framing. Two Findings citing the same provision can carry different Finding strengths; the provision carries one Citation strength, rated for the Answer as a whole.
   _Avoid_: Finding strength, average strength
 
 **Unsupported claim**:
