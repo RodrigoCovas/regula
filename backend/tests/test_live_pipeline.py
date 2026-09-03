@@ -192,7 +192,7 @@ def test_scenario_settled_contingency_is_discarded_as_unsupported_and_recorded(l
     verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
     decisions = {d["claim"]: d for d in verifier_steps[0]["claim_decisions"]}
     assert decisions[conditional]["status"] == "rejected"
-    assert "evidence" in decisions[conditional]["reason"].lower()
+    assert decisions[conditional]["reason"] == "no Evidence in the Corpus supports this claim"
     assert decisions[stated]["status"] == "kept"
 
 
@@ -1474,14 +1474,16 @@ def test_verifier_supported_bar_demands_scenario_relevance(live_client):
 # --- The rubrics resolve Scenario facts (ticket #70) -------------------------
 
 
-def recorded_system_prompts(live_client) -> list[str]:
-    """Run one offline scenario and return each agent's system prompt in
-    call order: Planner, Researcher, Verifier, Proposer, Summarizer."""
+def recorded_system_prompts(live_client) -> dict[str, str]:
+    """Run one offline scenario and return each agent's system prompt keyed
+    by agent: planner, researcher, verifier, proposer, summarizer — the
+    ScriptedLlm's call order."""
     llm = make_offline_llm()
     install_fake_pipeline(llm, FakeRetriever())
     resp = post_arbitrary_scenario(live_client)
     assert resp.status_code == 200
-    return [call[0] for call in llm.calls]
+    agent_names = ["planner", "researcher", "verifier", "proposer", "summarizer"]
+    return dict(zip(agent_names, (call[0] for call in llm.calls)))
 
 
 @pytest.fixture
@@ -1501,6 +1503,9 @@ def planner_rubric() -> dict[str, str]:
         "never merge": "never merge two duty areas into one target",
         "duty path": "classification, continuity, post-incident review, and contract provisions",
         "budget": "1-6",
+        "budget priority": "keep every applicability target",
+        "budget competition": "compete for the remaining seats",
+        "operative only": "(articles, annexes)",
         "exact vocabulary": "exact vocabulary",
         "guidance not constraint": "guidance, not a constraint",
     }
@@ -1510,17 +1515,36 @@ def test_planner_rubric_plans_only_for_regulations_the_scenario_does_not_exclude
     """The Planner lets the Scenario's facts draw the perimeter (ticket #70,
     spec #68): Research targets go only to regulations the scenario's facts
     do not exclude — the full-DORA-for-a-retailer drift dies at planning."""
-    planner_system = recorded_system_prompts(live_client)[0]
+    planner_system = recorded_system_prompts(live_client)["planner"]
     assert planner_rubric["exclusion gate"] in planner_system
     # The budget discipline survives the rewrite.
     assert planner_rubric["budget"] in planner_system
+
+
+def test_planner_prompt_points_at_operative_provisions_only(live_client, planner_rubric):
+    """Live-mode retrieval never returns a Recital (the store read-path
+    exclusion, ticket #69), so the Planner must not be told to locate them —
+    its target vocabulary names the operative provisions only."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["operative only"] in planner_system
+    assert "recitals" not in planner_system
+
+
+def test_planner_rubric_spends_the_budget_on_applicability_targets_first(live_client, planner_rubric):
+    """Applicability targets and per-duty-area targets compete for the same
+    1-6 seats: the rubric settles the competition — every applicability
+    target is kept and the confirmed regulations' duty areas take what
+    remains — so an unconfirmed regime's exclusion can never be priced out."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["budget priority"] in planner_system
+    assert planner_rubric["budget competition"] in planner_system
 
 
 def test_planner_rubric_adds_one_applicability_target_per_unconfirmed_regulation(live_client, planner_rubric):
     """A regulation the scenario plausibly implicates but does not confirm
     earns one applicability target for the regime's perimeter provision, so
     that provision is retrieved and an exclusion Finding can cite it."""
-    planner_system = recorded_system_prompts(live_client)[0]
+    planner_system = recorded_system_prompts(live_client)["planner"]
     assert planner_rubric["applicability target"] in planner_system
     assert planner_rubric["unconfirmed"] in planner_system
     assert planner_rubric["perimeter provision"] in planner_system
@@ -1533,7 +1557,7 @@ def test_planner_rubric_keeps_one_target_per_duty_area_of_a_confirmed_regulation
     its own target — never merged — so the regime's whole duty path is
     researched (the DORA incident path: classification, continuity,
     post-incident review, contract provisions)."""
-    planner_system = recorded_system_prompts(live_client)[0]
+    planner_system = recorded_system_prompts(live_client)["planner"]
     assert planner_rubric["confirmed regime"] in planner_system
     assert planner_rubric["per duty area"] in planner_system
     assert planner_rubric["never merge"] in planner_system
@@ -1564,7 +1588,7 @@ def test_researcher_rubric_demands_definite_claims_resolving_the_scenario_facts(
     """The Researcher resolves what the Scenario text states about the
     company's nature, roles, and jurisdiction into the claim itself — the
     claim states the fact, it does not hedge it (ticket #70)."""
-    researcher_system = recorded_system_prompts(live_client)[1]
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
     assert researcher_rubric["definite claims"] in researcher_system
     assert researcher_rubric["resolve scenario facts"] in researcher_system
 
@@ -1572,7 +1596,7 @@ def test_researcher_rubric_demands_definite_claims_resolving_the_scenario_facts(
 def test_researcher_rubric_never_drafts_an_if_claim_where_the_scenario_states_it(live_client, researcher_rubric):
     """Never an 'if X' claim where the scenario states X: the conditional
     form of a settled fact is exactly the hedging the eval penalised."""
-    researcher_system = recorded_system_prompts(live_client)[1]
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
     assert researcher_rubric["no if where stated"] in researcher_system
     # The scenario-tie and grounding discipline survive the rewrite.
     assert researcher_rubric["scenario tie"] in researcher_system
@@ -1602,7 +1626,7 @@ def test_verifier_rubric_keeps_scenario_open_contingencies_eligible_for_moderate
     """A claim contingent on facts the Scenario text leaves open stays
     eligible for 'moderate' — only a professional can settle those facts
     (CONTEXT.md, Strength: moderate)."""
-    verifier_system = recorded_system_prompts(live_client)[2]
+    verifier_system = recorded_system_prompts(live_client)["verifier"]
     assert verifier_rubric["open contingency moderate"] in verifier_system
 
 
@@ -1610,7 +1634,7 @@ def test_verifier_rubric_decides_a_settled_contingency_as_in_scope_or_out(live_c
     """A claim whose contingency the Scenario text settles is judged on the
     stated facts alone: supported only as stated (in scope) or unsupported
     (out of scope) — the conditional drift dies at this gate."""
-    verifier_system = recorded_system_prompts(live_client)[2]
+    verifier_system = recorded_system_prompts(live_client)["verifier"]
     assert verifier_rubric["settled contingency"] in verifier_system
     assert verifier_rubric["in scope as stated"] in verifier_system
     assert verifier_rubric["out of scope"] in verifier_system
@@ -1620,7 +1644,7 @@ def test_verifier_rubric_names_the_exclusion_claim_as_the_supported_form(live_cl
     """The exclusion Finding is the supported form where the perimeter
     provision is in Evidence: a claim that the regime does not reach the
     scenario, citing who the regime covers, is kept — never discarded."""
-    verifier_system = recorded_system_prompts(live_client)[2]
+    verifier_system = recorded_system_prompts(live_client)["verifier"]
     assert verifier_rubric["perimeter form"] in verifier_system
     assert verifier_rubric["exclusion supported"] in verifier_system
     # The supported bar and the bare-string contract survive the rewrite.

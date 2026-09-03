@@ -35,6 +35,14 @@ A question asking what rules, obligations, or risks may apply in a scenario. It 
 One regulation-scoped line of inquiry the Planner derives from the Regulatory question; a question decomposes into one or more targets. The Evidence pool is sized so every target keeps representation.  
 _Avoid_: Source, query, sub-question
 
+**Applicability target**:
+The one Research target the Planner aims at a Regulation the Scenario plausibly implicates but does not confirm; it retrieves that Regulation's perimeter provision so an exclusion can cite it.
+_Avoid_: Scope check, applicability question
+
+**Perimeter provision**:
+The provision of a Regulation that decides who the Regulation covers — typically its scope Article — and the Citation an exclusion Finding rests on.
+_Avoid_: Scope provision, applicability clause
+
 **Corpus**:
 The fixed curated set of source documents Regula reasons over in the MVP.  
 _Avoid_: Knowledge base, dataset
@@ -96,8 +104,12 @@ _Avoid_: Confidence, probability
   The Strength of one Finding: how directly that Finding's own Evidence supports that Finding's claim. Judged per Finding, on the provisions that Finding cites.
   _Avoid_: Citation strength, average strength
 
+**Exclusion Finding**:
+A Finding that a Regulation does not reach the Scenario, kept when the Evidence pool holds that Regulation's perimeter provision.
+_Avoid_: Negative finding, out-of-scope finding
+
 **Unsupported claim**:
-A statement with no Evidence in the Corpus either way — no provision can be cited for or against it — or one that merely restates provisions without bearing on the question asked for the Scenario. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
+A statement with no Evidence in the Corpus either way — no provision can be cited for or against it; one that merely restates provisions without bearing on the question asked for the Scenario; or one whose contingency the Scenario text settles out of scope. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
 _Avoid_: Unverified claim, speculation
 
 **Insufficient evidence**:
@@ -108,7 +120,7 @@ _Avoid_: No results, empty answer
 The user-facing conclusions: the Findings, the Citations with their Provision relevance, and the Actions. The API returns the Answer, the Execution trace, the detailed trace, and the Known limitations as siblings — workflow machinery never nests inside the Answer.
 
 **Action**:
-A pointer that aids legal professionals acting on an Answer: it names something only they can settle — a fact the Scenario text leaves open that only a professional can determine, or verification of the cited provisions against the company's actual situation. An Action never presumes a Regulation applies to the Scenario and never substitutes for professional judgment.
+A pointer that aids legal professionals acting on an Answer: it names something only they can settle — a fact the Scenario text leaves open, or verification of the cited provisions against the company's actual situation. An Action never presumes a Regulation applies to the Scenario and never substitutes for professional judgment.
 _Avoid_: Legal advice, recommendation, compliance task
 
 **Action proposal**:
@@ -123,7 +135,7 @@ A compact, user-visible summary of the workflow steps, retrieved passages, and t
 _Avoid_: Chain-of-thought
 
 **Claim**:
-A statement the answer makes about what a regulation says or implies. A Claim becomes a Finding when supported by Evidence that bears on the question asked for the Scenario; a Claim with no Evidence, or one that merely restates provisions without bearing on that question, is an Unsupported claim and is discarded.
+A statement the answer makes about what a regulation says or implies. A Claim becomes a Finding when supported by Evidence that bears on the question asked for the Scenario; a Claim with no Evidence, one that merely restates provisions without bearing on that question, or one whose contingency the Scenario text settles out of scope is an Unsupported claim and is discarded.
 
 **Demo mode**:
 The keyless path that serves the canonical Spanish fintech Scenario from fixed content — no LLM calls, no vector retrieval. Mode is an explicit per-run choice, never inferred from the Scenario's text or id.
