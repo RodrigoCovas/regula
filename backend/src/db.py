@@ -2,10 +2,11 @@
 
 The store owns the schema, one idempotent write path, and the two read paths
 the retrieval service calls — vector search and lexical full-text search
-(spec #60, ADR-0012) — and commits after every write so ingested rows
-survive the process that wrote them. Raw SQL over psycopg2 keeps the surface
-small — no ORM, no migrations framework: ``ensure_schema`` creates everything
-IF NOT EXISTS.
+(spec #60, ADR-0012) — each carrying the service's pushed-down provision-kind
+exclusion in its WHERE clause (ticket #69) — and commits after every write so
+ingested rows survive the process that wrote them. Raw SQL over psycopg2
+keeps the surface small — no ORM, no migrations framework: ``ensure_schema``
+creates everything IF NOT EXISTS.
 """
 
 from dataclasses import dataclass
@@ -173,17 +174,22 @@ class LazyStore:
         query_embedding: Sequence[float],
         limit: int,
         max_distance: float,
+        excluded_kinds: Sequence[ProvisionKind] = (),
     ) -> list[ScoredChunk]:
         return PgVectorStore(self._ensure_connection()).search_chunks(
             query_embedding=query_embedding,
             limit=limit,
             max_distance=max_distance,
+            excluded_kinds=excluded_kinds,
         )
 
-    def search_chunks_lexically(self, query: str, limit: int) -> list[Chunk]:
+    def search_chunks_lexically(
+        self, query: str, limit: int, excluded_kinds: Sequence[ProvisionKind] = ()
+    ) -> list[Chunk]:
         return PgVectorStore(self._ensure_connection()).search_chunks_lexically(
             query=query,
             limit=limit,
+            excluded_kinds=excluded_kinds,
         )
 
     def close(self) -> None:
@@ -258,13 +264,17 @@ class PgVectorStore:
         query_embedding: Sequence[float],
         limit: int,
         max_distance: float,
+        excluded_kinds: Sequence[ProvisionKind] = (),
     ) -> list[ScoredChunk]:
         """Nearest Chunks to a query vector, nearest first, within max_distance.
 
         Cosine distance (pgvector ``<=>``) is the ranking metric; results
         beyond ``max_distance`` are excluded entirely rather than returned as
-        junk. Each result wraps its fully validated Chunk with the distance
-        that scored it.
+        junk. The pushed-down ``excluded_kinds`` joins the WHERE clause: a
+        provision kind named there never returns, however close its vector
+        sits, so the LIMIT is spent on operative provisions (ticket #69) —
+        an empty exclusion changes nothing. Each result wraps its fully
+        validated Chunk with the distance that scored it.
         """
         with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute(
@@ -273,6 +283,7 @@ class PgVectorStore:
                        embedding <=> %(query)s::vector AS distance
                 FROM chunks
                 WHERE embedding <=> %(query)s::vector <= %(max_distance)s
+                  AND kind <> ALL(%(excluded_kinds)s::text[])
                 ORDER BY distance ASC, id ASC
                 LIMIT %(limit)s
                 """,
@@ -280,11 +291,14 @@ class PgVectorStore:
                     "query": _to_pgvector(query_embedding),
                     "max_distance": max_distance,
                     "limit": limit,
+                    "excluded_kinds": [kind.value for kind in excluded_kinds],
                 },
             )
             return [_row_to_scored_chunk(row) for row in cursor.fetchall()]
 
-    def search_chunks_lexically(self, query: str, limit: int) -> list[Chunk]:
+    def search_chunks_lexically(
+        self, query: str, limit: int, excluded_kinds: Sequence[ProvisionKind] = ()
+    ) -> list[Chunk]:
         """Chunks whose content matches the query's terms, best rank first.
 
         Postgres full-text search over the generated tsvector is the ranking
@@ -292,7 +306,9 @@ class PgVectorStore:
         highest first — the lexical leg of hybrid retrieval (ADR-0012). The
         query parses with ``websearch_to_tsquery`` so search operators stay
         meaningful; each result is a fully validated Chunk, and the LIMIT
-        clause bounds one query like the vector path does.
+        clause bounds one query like the vector path does. The pushed-down
+        ``excluded_kinds`` joins the WHERE clause exactly as the vector
+        path's does (ticket #69); an empty exclusion changes nothing.
         """
         with self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute(
@@ -301,10 +317,15 @@ class PgVectorStore:
                 SELECT {_CHUNK_COLUMNS}
                 FROM chunks, parsed
                 WHERE content_tsv @@ parsed.terms
+                  AND kind <> ALL(%(excluded_kinds)s::text[])
                 ORDER BY ts_rank(content_tsv, parsed.terms) DESC, id ASC
                 LIMIT %(limit)s
                 """,
-                {"query": query, "limit": limit},
+                {
+                    "query": query,
+                    "limit": limit,
+                    "excluded_kinds": [kind.value for kind in excluded_kinds],
+                },
             )
             return [_row_to_chunk(row) for row in cursor.fetchall()]
 

@@ -24,6 +24,13 @@ Locked behaviour:
   the pool, and the junk-only guarantee the floor once provided alone is
   deliberately weakened — the tightened Researcher and Verifier are the
   second line of defense (ADR-0012).
+- Both legs exclude Recital Chunks (spec #68, ticket #69): Recitals are
+  framing, not operative provisions, so the exclusion rides both legs'
+  pushed-down parameters into the store's SQL and is re-checked here like
+  the relevance floor — a Recital Chunk never consumes vector leg depth,
+  lexical leg depth, or Evidence pool seats. Recitals stay ingested; Demo
+  mode serves fixed content and retrieves nothing, so the canonical ground
+  truth that cites a GDPR Recital is grandfathered.
 - The ranked legs fuse by Reciprocal Rank Fusion (k = ``RRF_K``): each Chunk
   scores 1/(k + rank) per leg that found it, summed — rank-based, so cosine
   distance and ts_rank never need calibrating against each other. A Chunk
@@ -40,7 +47,7 @@ sits far above junk matches.
 from typing import Protocol, runtime_checkable, Sequence
 
 from .embedder import Embedder
-from .models import Chunk, ChunkIdentity, ScoredChunk
+from .models import Chunk, ChunkIdentity, ProvisionKind, ScoredChunk
 
 # The vector leg's per-target depth (ADR-0012): how deep the vector search
 # reaches — the store's LIMIT for the vector query, whatever the plan looks
@@ -67,6 +74,13 @@ RRF_K = 60
 # (similarity = 1 - distance), so this converts once at the boundary.
 DEFAULT_MIN_SIMILARITY = 0.55
 
+# The provision kinds Live retrieval never returns (spec #68, ticket #69):
+# Recitals are framing, not operative provisions, so they are excluded on
+# both legs — pushed down into the store's SQL and re-checked at this seam —
+# and the legs' depth and the Evidence pool's seats go to operative
+# provisions. Recitals stay ingested; only the read path filters.
+EXCLUDED_KINDS: tuple[ProvisionKind, ...] = (ProvisionKind.recital,)
+
 
 @runtime_checkable
 class Retriever(Protocol):
@@ -84,6 +98,7 @@ class SearchStore(Protocol):
         query_embedding: Sequence[float],
         limit: int,
         max_distance: float,
+        excluded_kinds: Sequence[ProvisionKind],
     ) -> Sequence[ScoredChunk]: ...
 
 
@@ -96,7 +111,9 @@ class LexicalSearchStore(Protocol):
     both legs from one store without either protocol knowing the other.
     """
 
-    def search_chunks_lexically(self, query: str, limit: int) -> Sequence[Chunk]: ...
+    def search_chunks_lexically(
+        self, query: str, limit: int, excluded_kinds: Sequence[ProvisionKind]
+    ) -> Sequence[Chunk]: ...
 
 
 @runtime_checkable
@@ -130,11 +147,17 @@ class VectorRetriever:
             query_embedding=query_embedding,
             limit=self._depth,
             max_distance=self._max_distance,
+            excluded_kinds=EXCLUDED_KINDS,
         )
-        # The floor is enforced here, not only in the store's SQL: whatever a
-        # Store implementation returns, no Chunk beyond the relevance floor
-        # can cross this seam and become Evidence.
-        return [hit.chunk for hit in hits if hit.distance <= self._max_distance]
+        # The floor and the Recital exclusion are enforced here, not only in
+        # the store's SQL: whatever a Store implementation returns, no Chunk
+        # beyond the relevance floor — and no excluded provision kind — can
+        # cross this seam and become Evidence.
+        return [
+            hit.chunk
+            for hit in hits
+            if hit.distance <= self._max_distance and hit.chunk.kind not in EXCLUDED_KINDS
+        ]
 
 
 def _rrf_fuse(legs: list[list[Chunk]], k: int) -> list[Chunk]:
@@ -189,7 +212,12 @@ class HybridRetriever:
 
     def retrieve(self, query: str) -> list[Chunk]:
         vector_results = self._vector_leg.retrieve(query)
-        lexical_results = list(
-            self._store.search_chunks_lexically(query, self._lexical_depth)
+        lexical_hits = self._store.search_chunks_lexically(
+            query, self._lexical_depth, excluded_kinds=EXCLUDED_KINDS
         )
+        # The exclusion is re-checked on the lexical leg too: a store that
+        # ignores the pushed-down kinds cannot seat a Recital through fusion.
+        lexical_results = [
+            chunk for chunk in lexical_hits if chunk.kind not in EXCLUDED_KINDS
+        ]
         return _rrf_fuse([vector_results, lexical_results], k=RRF_K)

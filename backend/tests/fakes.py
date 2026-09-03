@@ -53,15 +53,17 @@ class FakeEmbedder:
 
 
 class FakeSearchStore:
-    """Records search calls; replays canned hits regardless of any bound.
+    """Records search calls, pushed-down bounds included; replays canned hits
+    regardless of any of them.
 
     That blind replay is what makes it usable as an adversarial store too:
     handed junk-only hits, it returns them whatever max_distance the caller
     pushes down — exactly the situation the seam-side relevance floor (#18)
-    must survive. The lexical read path (spec #64) replays the same way:
-    the hybrid retriever's per-leg caps are verified by assertion, never by
-    the fake enforcing them. With no ``lexical_hits`` given, the lexical leg
-    matches nothing — tests opt in to lexical Evidence.
+    must survive; handed Recital hits, it returns them whatever
+    ``excluded_kinds`` arrive (ticket #69). The lexical read path (spec #64)
+    replays the same way: the hybrid retriever's per-leg caps are verified by
+    assertion, never by the fake enforcing them. With no ``lexical_hits``
+    given, the lexical leg matches nothing — tests opt in to lexical Evidence.
     """
 
     def __init__(self, hits, lexical_hits=None):
@@ -70,18 +72,21 @@ class FakeSearchStore:
         self.calls: list[dict] = []
         self.lexical_calls: list[dict] = []
 
-    def search_chunks(self, query_embedding, limit, max_distance):
+    def search_chunks(self, query_embedding, limit, max_distance, excluded_kinds=()):
         self.calls.append(
             {
                 "query_embedding": query_embedding,
                 "limit": limit,
                 "max_distance": max_distance,
+                "excluded_kinds": excluded_kinds,
             }
         )
         return self.hits
 
-    def search_chunks_lexically(self, query, limit):
-        self.lexical_calls.append({"query": query, "limit": limit})
+    def search_chunks_lexically(self, query, limit, excluded_kinds=()):
+        self.lexical_calls.append(
+            {"query": query, "limit": limit, "excluded_kinds": excluded_kinds}
+        )
         return self.lexical_hits
 
 

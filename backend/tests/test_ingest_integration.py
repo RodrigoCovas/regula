@@ -490,6 +490,77 @@ def test_chunks_ingested_before_the_lexical_column_are_searchable_after_upgrade(
     assert hit.text == "Records of processing activities shall be maintained."
 
 
+# --- Recital exclusion: the read paths never return a Recital (ticket #69) ----
+
+
+def test_vector_search_never_returns_a_recital_chunk(store):
+    """The pushed-down Recital exclusion binds at the SQL level (ticket #69):
+    a Recital Chunk whose vector matches best still never returns — the LIMIT
+    is spent on operative provisions, never on the Recital. The row itself
+    stays ingested: only the read path filters."""
+    store.upsert_chunks(
+        [
+            make_record(kind=ProvisionKind.recital, number=71, text="Recital 71 body", embedding=unit_vector(0)),
+            make_record(number=1, text="Article 1", embedding=unit_vector(0)),
+        ]
+    )
+    assert {row["kind"] for row in store.fetch_provisions(source_id="it-doc")} == {"article", "recital"}
+
+    unfiltered = store.search_chunks(
+        query_embedding=unit_vector(0), limit=8, max_distance=0.5, excluded_kinds=()
+    )
+    assert [hit.chunk.kind for hit in unfiltered] == [ProvisionKind.recital, ProvisionKind.article], (
+        "the seeded Recital is genuinely retrievable, so the exclusion below is what filters it"
+    )
+
+    hits = store.search_chunks(
+        query_embedding=unit_vector(0),
+        limit=8,
+        max_distance=0.5,
+        excluded_kinds=(ProvisionKind.recital,),
+    )
+    assert [hit.chunk.kind for hit in hits] == [ProvisionKind.article]
+    assert hits[0].chunk.article_number == 1
+
+
+def test_lexical_search_never_returns_a_recital_chunk(store):
+    """Same pushed-down exclusion on the lexical read path (ticket #69): the
+    Recital's own phrasing matches the query terms outright, yet no search
+    with the exclusion ever returns it."""
+    store.upsert_chunks(
+        [
+            make_record(
+                kind=ProvisionKind.recital,
+                number=71,
+                text=(
+                    "Records of processing activities. The controller shall maintain "
+                    "records of processing activities for each processing activity."
+                ),
+            ),
+            make_record(
+                number=30,
+                index=1,
+                text="The controller shall maintain records of processing activities.",
+            ),
+        ]
+    )
+
+    unfiltered = store.search_chunks_lexically(
+        query="records of processing activities", limit=8, excluded_kinds=()
+    )
+    assert ProvisionKind.recital in [hit.kind for hit in unfiltered], (
+        "the seeded Recital genuinely matches the query, so the exclusion below is what filters it"
+    )
+
+    hits = store.search_chunks_lexically(
+        query="records of processing activities",
+        limit=8,
+        excluded_kinds=(ProvisionKind.recital,),
+    )
+    assert [hit.kind for hit in hits] == [ProvisionKind.article]
+    assert hits[0].article_number == 30
+
+
 # --- Durability: ingested rows survive the connection that wrote them --------
 
 

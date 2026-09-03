@@ -31,7 +31,7 @@ from src.live_workflow import (
     Summaries,
 )
 from src.main import app
-from src.models import Strength
+from src.models import ProvisionKind, Strength
 from src.retrieval import LEXICAL_LEG_DEPTH, VECTOR_LEG_DEPTH, HybridRetriever
 
 from conftest import install_fake_pipeline
@@ -431,6 +431,49 @@ def test_lexical_only_evidence_still_produces_findings_and_citations():
     assert all(c["source_id"] == "gdpr" for c in data["answer"]["citations"])
     assert [r["source_id"] for r in served_evidence(data)] == ["gdpr"], "the pool filled from the lexical leg alone"
     assert not any("nothing relevant" in line.lower() for line in data["known_limitations"])
+
+
+# --- Recitals never enter Evidence or Citations (ticket #69) -------------------
+
+
+def test_recital_hits_from_an_adversarial_store_never_reach_evidence_or_citations():
+    """End-to-end (ticket #69): a store that ignores the pushed-down Recital
+    exclusion cannot seat a Recital Chunk — the retriever re-checks both legs
+    at the seam, so a Recital Chunk surfacing in the Evidence pool never
+    becomes a Citation and the pool's seats go to operative provisions."""
+    retriever = HybridRetriever(
+        store=FakeSearchStore(
+            hits=[
+                chunk_hit(source_id="gdpr", kind="recital", number=71, text="Recital 71 body", distance=0.05),
+                chunk_hit(source_id="gdpr", number=22, text="Automated individual decision-making.", distance=0.1),
+            ],
+            lexical_hits=[
+                make_chunk(source_id="gdpr", kind=ProvisionKind.recital, number=70, text="Recital 70 body"),
+                make_chunk(source_id="gdpr", number=13, text="Transparent information and obligations."),
+            ],
+        ),
+        embedder=FakeEmbedder(),
+    )
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, retriever)
+
+    with TestClient(app) as client:
+        resp = post_arbitrary_scenario(client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    served = served_evidence(data)
+    assert served, "the store's operative chunks still fill the pool"
+    assert all(item["kind"] != "recital" for item in served), "no Recital Chunk surfaces in the Evidence pool"
+    assert [item["number"] for item in served] == [22, 13], "operative provisions took the seats"
+
+    citations = data["answer"]["citations"]
+    assert citations, "the operative Evidence still yields Citations"
+    for citation in citations:
+        assert citation["recital_number"] is None
+    for finding in data["answer"]["findings"]:
+        for citation in finding["citations"]:
+            assert citation["recital_number"] is None
 
 
 # --- Proposer: referral Actions grounded in kept Findings (ticket #24) --------

@@ -70,9 +70,9 @@ def test_retrieve_embeds_the_query_and_searches_the_store_with_its_vector():
 def test_retrieve_returns_each_hits_chunk_with_metadata_intact():
     hit = chunk_hit(
         source_id="gdpr",
-        kind="recital",
-        number=71,
-        text="Recital 71 body",
+        kind="annex",
+        number=3,
+        text="Annex III body",
         distance=0.25,
     )
     retriever, _, _ = make_retriever(hits=[hit])
@@ -81,10 +81,10 @@ def test_retrieve_returns_each_hits_chunk_with_metadata_intact():
 
     (chunk,) = chunks
     assert chunk.source_id == "gdpr"
-    assert chunk.kind is ProvisionKind.recital
-    assert chunk.recital_number == 71
-    assert chunk.article_number is None and chunk.annex_number is None
-    assert chunk.text == "Recital 71 body"
+    assert chunk.kind is ProvisionKind.annex
+    assert chunk.annex_number == 3
+    assert chunk.article_number is None and chunk.recital_number is None
+    assert chunk.text == "Annex III body"
 
 
 # --- Depth: the vector leg's per-target depth is what gets requested ----------
@@ -134,7 +134,7 @@ def test_retrieve_drops_every_hit_beyond_the_relevance_floor():
 def test_retrieve_keeps_thin_but_usable_hits_and_drops_junk():
     """The threshold separates 'nothing relevant' from 'thin but usable':
     a marginal hit just inside the floor survives, junk beyond it does not."""
-    thin_but_usable = chunk_hit(source_id="gdpr", kind="recital", number=71, distance=0.45)
+    thin_but_usable = chunk_hit(source_id="gdpr", kind="annex", number=4, distance=0.45)
     junk = chunk_hit(source_id="spam", number=1, distance=0.51)
     retriever, _, _ = make_retriever(hits=[thin_but_usable, junk], min_similarity=0.5)
 
@@ -280,6 +280,70 @@ def test_hybrid_requests_each_legs_own_cap_from_the_store():
     assert store.calls[0]["limit"] == VECTOR_LEG_DEPTH == 12
     assert store.lexical_calls[0]["limit"] == LEXICAL_LEG_DEPTH == 8
     assert store.lexical_calls[0]["query"] == "oversight duties"
+
+
+# --- Recital exclusion: operative provisions only (ticket #69) -----------------
+
+
+def test_vector_leg_pushes_the_recital_exclusion_down_to_the_store():
+    """The Recital exclusion rides the vector leg's pushed-down parameters
+    (ticket #69): the store's SQL can filter before its LIMIT is spent, so a
+    Recital Chunk never consumes vector leg depth — operative provisions take
+    those seats instead."""
+    retriever, _, store = make_retriever(hits=[])
+
+    retriever.retrieve("oversight duties")
+
+    assert store.calls[0]["excluded_kinds"] == (ProvisionKind.recital,)
+
+
+def test_lexical_leg_pushes_the_recital_exclusion_down_to_the_store():
+    """The same pushed-down exclusion on the lexical leg: neither read path
+    can seat a Recital Chunk ahead of an operative provision (ticket #69)."""
+    retriever, store = make_hybrid(vector_hits=[], lexical_hits=[])
+
+    retriever.retrieve("oversight duties")
+
+    assert store.lexical_calls[0]["excluded_kinds"] == (ProvisionKind.recital,)
+
+
+def test_vector_leg_drops_recital_hits_a_store_returns_anyway():
+    """A Store implementation that ignores the pushed-down exclusion cannot
+    smuggle a Recital through the seam: like the relevance floor, the
+    exclusion is re-checked here, so a Recital Chunk never crosses into
+    Evidence (ticket #69)."""
+    retriever, _, _ = make_retriever(
+        hits=[
+            chunk_hit(source_id="gdpr", kind="recital", number=71, distance=0.1),
+            chunk_hit(source_id="ai-act", number=6, distance=0.2),
+        ]
+    )
+
+    chunks = retriever.retrieve("automated decisions")
+
+    assert [c.source_id for c in chunks] == ["ai-act"]
+    assert all(c.kind is not ProvisionKind.recital for c in chunks)
+
+
+def test_hybrid_drops_recital_hits_returned_by_either_leg():
+    """Both legs are re-checked at the seam (ticket #69): Recitals a store
+    returns anyway are dropped before fusion, and the operative provisions
+    around them keep their fused order."""
+    retriever, _ = make_hybrid(
+        vector_hits=[
+            chunk_hit(source_id="gdpr", kind="recital", number=71, distance=0.1),
+            chunk_hit(source_id="ai-act", number=6),
+        ],
+        lexical_hits=[
+            make_chunk(source_id="gdpr", kind=ProvisionKind.recital, number=70),
+            make_chunk(source_id="gdpr", number=30),
+        ],
+    )
+
+    chunks = retriever.retrieve("oversight duties")
+
+    assert [c.source_id for c in chunks] == ["ai-act", "gdpr"]
+    assert all(c.kind is not ProvisionKind.recital for c in chunks)
 
 
 def test_hybrid_returns_empty_when_both_legs_come_back_empty():
