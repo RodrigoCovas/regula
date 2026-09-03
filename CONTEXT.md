@@ -87,7 +87,7 @@ A conclusion drawn from Evidence about what likely applies or matters in the Sce
 **Strength**:
 How directly the cited Evidence supports a Finding, at three levels:
 - **strong**: the cited provisions directly and explicitly support the claim — they name the exact situation, use case, or obligation (e.g. Annex III point 5(b) names creditworthiness evaluation as high-risk).
-- **moderate**: the claim is derived from the cited provisions read together, or is contingent on facts the Corpus cannot settle (e.g. whether the company is a licensed financial entity under DORA).
+- **moderate**: the claim is derived from the cited provisions read together, or is contingent on facts the Scenario text leaves open (e.g. a financial-entity licence status the Scenario does not state).
 - **weak**: the cited provisions are framing only — they supply vocabulary or context (e.g. a definitions Article) without establishing an obligation on their own.
 Every Finding carries Evidence and stays in the Answer, badged with its Strength. A statement with no Evidence is not a Finding and never appears in the Answer.
 _Avoid_: Confidence, probability
@@ -108,7 +108,7 @@ _Avoid_: No results, empty answer
 The user-facing conclusions: the Findings, the Citations with their Provision relevance, and the Actions. The API returns the Answer, the Execution trace, the detailed trace, and the Known limitations as siblings — workflow machinery never nests inside the Answer.
 
 **Action**:
-A pointer that aids legal professionals acting on an Answer: it names something only they can settle — a fact the Scenario hinges on that the Corpus cannot determine, or verification of the cited provisions against the company's actual situation. An Action never presumes a Regulation applies to the Scenario and never substitutes for professional judgment.
+A pointer that aids legal professionals acting on an Answer: it names something only they can settle — a fact the Scenario text leaves open that only a professional can determine, or verification of the cited provisions against the company's actual situation. An Action never presumes a Regulation applies to the Scenario and never substitutes for professional judgment.
 _Avoid_: Legal advice, recommendation, compliance task
 
 **Action proposal**:

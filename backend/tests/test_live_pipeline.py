@@ -135,6 +135,131 @@ def test_unsupported_claims_absent_from_answer_recorded_in_trace(live_client):
     assert "evidence" in rejected_claim["reason"].lower()
 
 
+# --- The rubrics resolve Scenario facts at the HTTP seam (ticket #70) --------
+
+
+def test_scenario_settled_contingency_is_discarded_as_unsupported_and_recorded(live_client):
+    """A claim whose contingency the scenario text settles is judged on the
+    stated facts (ticket #70): the Verifier marks the conditional 'if the
+    company were a financial entity' form out of scope, the pipeline discards
+    it as an Unsupported claim, and the Execution trace records it — while
+    the same duty stated as the scenario states it stays in the Answer."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
+
+    conditional = (
+        "If the company were a financial entity, its major ICT incidents would fall "
+        "under DORA's incident-reporting regime."
+    )
+    stated = "The company's major ICT incidents fall under DORA's incident-reporting regime."
+    incident_chunk = make_chunk(
+        source_id="dora",
+        number=19,
+        text="Financial entities must classify and report major ICT-related incidents.",
+        title="Reporting of major ICT-related incidents",
+    )
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="ICT incident reporting")])
+    llm.claims = DraftClaims(claims=[
+        DraftClaim(statement=conditional, evidence_refs=["E1"]),
+        DraftClaim(statement=stated, evidence_refs=["E1"]),
+    ])
+    llm.verdicts = Verdicts(verdicts=[
+        Verdict(statement=conditional, supported=False),
+        Verdict(statement=stated, supported=True, strength=Strength.strong, evidence_refs=["E1"]),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    install_fake_pipeline(llm, FakeRetriever(per_query={"ICT incident reporting": [incident_chunk]}))
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "licensed-lender",
+                "description": "An online lender evaluating loan applications automatically, licensed as a credit institution in Spain",
+            },
+            "question": "What incident-reporting duties bind the company?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert stated in statements, "the claim as the scenario states it stays in the Answer"
+    assert conditional not in statements, "the conditional form of a settled fact never appears"
+
+    discarded = data["trace"]["unsupported_claims_discarded"]
+    assert conditional in discarded
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decisions = {d["claim"]: d for d in verifier_steps[0]["claim_decisions"]}
+    assert decisions[conditional]["status"] == "rejected"
+    assert "evidence" in decisions[conditional]["reason"].lower()
+    assert decisions[stated]["status"] == "kept"
+
+
+def test_exclusion_finding_appears_when_the_pool_holds_a_perimeter_provision(live_client):
+    """The applicability target seats the regime's perimeter provision in the
+    Evidence pool, and the exclusion claim it supports becomes a Finding
+    (ticket #70): the Answer explains why the excluded regime is left out,
+    citing the perimeter provision."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
+
+    scope_chunk = make_chunk(
+        source_id="dora",
+        number=2,
+        text="This Regulation applies to financial entities.",
+        title="Scope",
+    )
+    exclusion = (
+        "DORA's incident regime covers financial entities only, and the company is an "
+        "online shop rather than a financial entity, so the regime does not reach it."
+    )
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="DORA applicability financial entities")])
+    llm.claims = DraftClaims(claims=[DraftClaim(statement=exclusion, evidence_refs=["E1"])])
+    llm.verdicts = Verdicts(verdicts=[
+        Verdict(statement=exclusion, supported=True, strength=Strength.moderate, evidence_refs=["E1"]),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    llm.summaries = Summaries(summaries=[
+        ProvisionSummary(
+            ref="P1",
+            relevance=(
+                "Article 2 sets DORA's perimeter — who the regime covers — which is "
+                "what the Answer's exclusion conclusion turns on."
+            ),
+            strength=Strength.moderate,
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={"DORA applicability financial entities": [scope_chunk]}))
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "electronics-shop",
+                "description": "An online shop selling consumer electronics from Madrid",
+            },
+            "question": "Do DORA's ICT incident duties apply to the company?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # The perimeter provision rode the applicability target into the pool.
+    retrieved = served_evidence(data)
+    assert [(r["source_id"], r["number"]) for r in retrieved] == [("dora", 2)]
+
+    findings = data["answer"]["findings"]
+    assert len(findings) == 1
+    assert findings[0]["statement"] == exclusion
+    assert findings[0]["strength"] == "moderate"
+    assert [(c["source_id"], c["article_number"]) for c in findings[0]["citations"]] == [("dora", 2)]
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decisions = verifier_steps[0]["claim_decisions"]
+    assert decisions[0]["status"] == "kept", "the exclusion claim is the supported form, never a discard"
+    assert data["trace"]["unsupported_claims_discarded"] == []
+
+
 def test_weak_framing_finding_stays_in_the_answer(live_client):
     resp = post_arbitrary_scenario(live_client)
     data = resp.json()
@@ -1326,7 +1451,8 @@ def test_verifier_supported_bar_demands_scenario_relevance(live_client):
     """The Verifier's supported bar (issue #63): some listed provision bears
     on answering the question asked for this scenario — false when the claim
     merely restates provisions without bearing on the scenario, or when none
-    bears either way. The strength rubric is unchanged."""
+    bears either way. The strength levels and the bare-string contract are
+    unchanged (ticket #70 turns the moderate clause toward the Scenario)."""
     llm = make_offline_llm()
     install_fake_pipeline(llm, FakeRetriever())
     resp = post_arbitrary_scenario(live_client)
@@ -1337,10 +1463,168 @@ def test_verifier_supported_bar_demands_scenario_relevance(live_client):
     assert "bears on answering the question asked for this scenario" in verifier_system
     assert "merely restates provisions without bearing on the scenario" in verifier_system
     assert "none bears either way" in verifier_system
-    # The strength rubric is unchanged.
+    # The strength rubric keeps its levels and the bare-string contract.
     assert "'strong'" in verifier_system
     assert "'moderate'" in verifier_system
     assert "'weak'" in verifier_system
     assert "directly and explicitly establish the claim" in verifier_system
-    assert "read together or contingent on facts the corpus cannot settle" in verifier_system
     assert "framing only (definitions, vocabulary)" in verifier_system
+
+
+# --- The rubrics resolve Scenario facts (ticket #70) -------------------------
+
+
+def recorded_system_prompts(live_client) -> list[str]:
+    """Run one offline scenario and return each agent's system prompt in
+    call order: Planner, Researcher, Verifier, Proposer, Summarizer."""
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, FakeRetriever())
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    return [call[0] for call in llm.calls]
+
+
+@pytest.fixture
+def planner_rubric() -> dict[str, str]:
+    """The one place the Planner rubric's load-bearing phrases live (prior
+    art: the Summarizer's rubric fixture): each test pins its rule through
+    this mapping, so a wording edit that preserves intent updates this dict
+    and nothing else."""
+    return {
+        "exclusion gate": "only for regulations the scenario's facts do not exclude",
+        "applicability target": "one applicability target per regulation",
+        "unconfirmed": "plausibly implicates but does not confirm",
+        "perimeter provision": "perimeter provision",
+        "exclusion citable": "citable for an exclusion Finding",
+        "confirmed regime": "For each confirmed regulation",
+        "per duty area": "per operational duty area involved",
+        "never merge": "never merge two duty areas into one target",
+        "duty path": "classification, continuity, post-incident review, and contract provisions",
+        "budget": "1-6",
+        "exact vocabulary": "exact vocabulary",
+        "guidance not constraint": "guidance, not a constraint",
+    }
+
+
+def test_planner_rubric_plans_only_for_regulations_the_scenario_does_not_exclude(live_client, planner_rubric):
+    """The Planner lets the Scenario's facts draw the perimeter (ticket #70,
+    spec #68): Research targets go only to regulations the scenario's facts
+    do not exclude — the full-DORA-for-a-retailer drift dies at planning."""
+    planner_system = recorded_system_prompts(live_client)[0]
+    assert planner_rubric["exclusion gate"] in planner_system
+    # The budget discipline survives the rewrite.
+    assert planner_rubric["budget"] in planner_system
+
+
+def test_planner_rubric_adds_one_applicability_target_per_unconfirmed_regulation(live_client, planner_rubric):
+    """A regulation the scenario plausibly implicates but does not confirm
+    earns one applicability target for the regime's perimeter provision, so
+    that provision is retrieved and an exclusion Finding can cite it."""
+    planner_system = recorded_system_prompts(live_client)[0]
+    assert planner_rubric["applicability target"] in planner_system
+    assert planner_rubric["unconfirmed"] in planner_system
+    assert planner_rubric["perimeter provision"] in planner_system
+    assert planner_rubric["exclusion citable"] in planner_system
+
+
+def test_planner_rubric_keeps_one_target_per_duty_area_of_a_confirmed_regulation(live_client, planner_rubric):
+    """The per-duty-area instruction survives (issue #62), sharpened with the
+    confirmed-regime framing: each duty area of a confirmed regulation gets
+    its own target — never merged — so the regime's whole duty path is
+    researched (the DORA incident path: classification, continuity,
+    post-incident review, contract provisions)."""
+    planner_system = recorded_system_prompts(live_client)[0]
+    assert planner_rubric["confirmed regime"] in planner_system
+    assert planner_rubric["per duty area"] in planner_system
+    assert planner_rubric["never merge"] in planner_system
+    assert planner_rubric["duty path"] in planner_system
+    # The vocabulary-lifting discipline survives the rewrite.
+    assert planner_rubric["exact vocabulary"] in planner_system
+    assert planner_rubric["guidance not constraint"] in planner_system
+
+
+@pytest.fixture
+def researcher_rubric() -> dict[str, str]:
+    """The Researcher rubric's load-bearing phrases (ticket #70)."""
+    return {
+        "definite claims": "Draft definite claims",
+        "resolve scenario facts": (
+            "resolve what the scenario text states about the company's nature, "
+            "roles, and jurisdiction into the claim itself"
+        ),
+        "no if where stated": "'if X' claim where the scenario states X",
+        "scenario tie": "question asked for this scenario",
+        "no restatement": "never restate a provision's content in the abstract",
+        "grounded only": "grounded ONLY in the listed evidence",
+        "given labels only": "never reference a label that was not given to you",
+    }
+
+
+def test_researcher_rubric_demands_definite_claims_resolving_the_scenario_facts(live_client, researcher_rubric):
+    """The Researcher resolves what the Scenario text states about the
+    company's nature, roles, and jurisdiction into the claim itself — the
+    claim states the fact, it does not hedge it (ticket #70)."""
+    researcher_system = recorded_system_prompts(live_client)[1]
+    assert researcher_rubric["definite claims"] in researcher_system
+    assert researcher_rubric["resolve scenario facts"] in researcher_system
+
+
+def test_researcher_rubric_never_drafts_an_if_claim_where_the_scenario_states_it(live_client, researcher_rubric):
+    """Never an 'if X' claim where the scenario states X: the conditional
+    form of a settled fact is exactly the hedging the eval penalised."""
+    researcher_system = recorded_system_prompts(live_client)[1]
+    assert researcher_rubric["no if where stated"] in researcher_system
+    # The scenario-tie and grounding discipline survive the rewrite.
+    assert researcher_rubric["scenario tie"] in researcher_system
+    assert researcher_rubric["no restatement"] in researcher_system
+    assert researcher_rubric["grounded only"] in researcher_system
+    assert researcher_rubric["given labels only"] in researcher_system
+
+
+@pytest.fixture
+def verifier_rubric() -> dict[str, str]:
+    """The Verifier rubric's load-bearing phrases (ticket #70)."""
+    return {
+        "open contingency moderate": "contingent on facts the scenario text leaves open",
+        "settled contingency": "whose contingency the scenario text settles",
+        "in scope as stated": "supported only as stated",
+        "out of scope": "unsupported when they fall out of scope",
+        "perimeter form": "perimeter provision",
+        "exclusion supported": "does not reach the scenario is the supported form",
+        "supported bar": "bears on answering the question asked for this scenario",
+        "strong": "directly and explicitly establish the claim",
+        "weak": "framing only (definitions, vocabulary)",
+        "bare string": "never an object or rationale",
+    }
+
+
+def test_verifier_rubric_keeps_scenario_open_contingencies_eligible_for_moderate(live_client, verifier_rubric):
+    """A claim contingent on facts the Scenario text leaves open stays
+    eligible for 'moderate' — only a professional can settle those facts
+    (CONTEXT.md, Strength: moderate)."""
+    verifier_system = recorded_system_prompts(live_client)[2]
+    assert verifier_rubric["open contingency moderate"] in verifier_system
+
+
+def test_verifier_rubric_decides_a_settled_contingency_as_in_scope_or_out(live_client, verifier_rubric):
+    """A claim whose contingency the Scenario text settles is judged on the
+    stated facts alone: supported only as stated (in scope) or unsupported
+    (out of scope) — the conditional drift dies at this gate."""
+    verifier_system = recorded_system_prompts(live_client)[2]
+    assert verifier_rubric["settled contingency"] in verifier_system
+    assert verifier_rubric["in scope as stated"] in verifier_system
+    assert verifier_rubric["out of scope"] in verifier_system
+
+
+def test_verifier_rubric_names_the_exclusion_claim_as_the_supported_form(live_client, verifier_rubric):
+    """The exclusion Finding is the supported form where the perimeter
+    provision is in Evidence: a claim that the regime does not reach the
+    scenario, citing who the regime covers, is kept — never discarded."""
+    verifier_system = recorded_system_prompts(live_client)[2]
+    assert verifier_rubric["perimeter form"] in verifier_system
+    assert verifier_rubric["exclusion supported"] in verifier_system
+    # The supported bar and the bare-string contract survive the rewrite.
+    assert verifier_rubric["supported bar"] in verifier_system
+    assert verifier_rubric["strong"] in verifier_system
+    assert verifier_rubric["weak"] in verifier_system
+    assert verifier_rubric["bare string"] in verifier_system
