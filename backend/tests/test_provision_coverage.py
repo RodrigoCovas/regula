@@ -5,10 +5,9 @@ number, never label strings. Recall is strength-weighted on the expected
 side; precision counts off-target produced targets against itself. Statement
 similarity gates nothing: produced-versus-expected statements ride only in
 the per-case audit dump (its shape is pinned with the harness suite in
-test_eval_harness.py). The file also pins the pure pieces the second
-component reads: the expected-relevance collection the summary-fidelity
-judge compares against, and the max-rule strengths coverage's recall
-weights ride.
+test_eval_harness.py). The file also pins the pure pieces the components
+read: the max-rule strengths coverage's recall weights ride, and the
+expected-relevance collection the summary-fidelity judge compares against.
 """
 
 import pytest
