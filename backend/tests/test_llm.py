@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT / "backend"))
 import pytest
 from pydantic import BaseModel
 
-from src.llm import LlmError, OpenRouterClient
+import src.llm as llm_module
+from src.llm import LlmError, LlmTransientError, OpenRouterClient
 
 
 class Plan(BaseModel):
@@ -31,9 +32,25 @@ class FakeTransport:
 
     def __call__(self, url: str, headers: dict, payload: dict) -> dict:
         if self.error is not None:
+            self.calls.append((url, headers, payload))
             raise self.error
         self.calls.append((url, headers, payload))
         return self.responses[len(self.calls) - 1]
+
+
+class SequenceTransport:
+    """Replays responses and exceptions strictly in sequence."""
+
+    def __init__(self, *items):
+        self.items = list(items)
+        self.calls = 0
+
+    def __call__(self, url: str, headers: dict, payload: dict) -> dict:
+        self.calls += 1
+        item = self.items.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 def chat_response(content: str) -> dict:
@@ -42,6 +59,33 @@ def chat_response(content: str) -> dict:
 
 def make_client(transport) -> OpenRouterClient:
     return OpenRouterClient(api_key="sk-or-test", transport=transport)
+
+
+def http_error(status: int, body: bytes = b'{"error": {"message": "Rate limit exceeded"}}'):
+    import requests
+
+    response = requests.Response()
+    response.status_code = status
+    response._content = body
+    return requests.HTTPError(response=response)
+
+
+def provider_error_body() -> dict:
+    """The body OpenRouter returns when an upstream provider dies
+    mid-generation: HTTP 200, finish_reason='error', content null, the real
+    failure in the choice's error object, the routed provider named at the
+    top level (queries-glm53_v4.jsonl 2026-09-03, GMICloud)."""
+    body = chat_response('{"targets": ["x"]}')
+    body["choices"][0]["message"]["content"] = None
+    body["choices"][0]["finish_reason"] = "error"
+    body["choices"][0]["error"] = {
+        "code": 502,
+        "message": "Provider disconnected mid-stream",
+        "metadata": {"error_type": "provider_unavailable"},
+    }
+    body["provider"] = "GMICloud"
+    body["usage"] = {"prompt_tokens": 5, "completion_tokens": 0, "total_tokens": 5}
+    return body
 
 
 def test_complete_returns_validated_schema_parsed_from_json_content():
@@ -235,19 +279,103 @@ def test_null_content_with_length_finish_reason_still_reports_the_budget():
     assert "length" in str(excinfo.value)
 
 
-def test_http_error_surfaces_status_and_body_snippet_as_llm_error():
-    import requests
-
-    response = requests.Response()
-    response.status_code = 429
-    response._content = b'{"error": {"message": "Rate limit exceeded"}}'
-    transport = FakeTransport(error=requests.HTTPError(response=response))
+def test_http_error_surfaces_status_and_body_snippet_as_llm_error(monkeypatch):
+    monkeypatch.setattr(llm_module, "_RETRY_BACKOFF_SECONDS", 0)
+    transport = FakeTransport(error=http_error(429))
     client = make_client(transport)
 
     with pytest.raises(LlmError) as excinfo:
         client.complete(system="s", user="u", schema=Plan)
     assert "429" in str(excinfo.value)
     assert "Rate limit" in str(excinfo.value)
+    # A rate limit is transient: every attempt is spent before the error
+    # surfaces.
+    assert len(transport.calls) == llm_module._MAX_ATTEMPTS
+
+
+def test_http_5xx_is_retried_then_succeeds(monkeypatch):
+    monkeypatch.setattr(llm_module, "_RETRY_BACKOFF_SECONDS", 0)
+    transport = SequenceTransport(http_error(500), chat_response('{"targets": ["a"]}'))
+    client = make_client(transport)
+
+    assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["a"])
+    assert transport.calls == 2
+
+
+def test_http_4xx_is_not_retried():
+    transport = SequenceTransport(http_error(400, b'{"error": {"message": "bad request"}}'))
+    client = make_client(transport)
+
+    with pytest.raises(LlmError) as excinfo:
+        client.complete(system="s", user="u", schema=Plan)
+    assert "400" in str(excinfo.value)
+    assert transport.calls == 1
+
+
+def test_an_upstream_error_body_is_retried_and_then_succeeds(monkeypatch):
+    """finish_reason='error' is OpenRouter's marker for an upstream that died
+    mid-generation; OpenRouter re-routes on the next attempt, so the retry
+    recovers what one GMICloud drop used to abort
+    (queries-glm53_v4.jsonl 2026-09-03). The failed attempt still records the
+    tokens it spent."""
+    monkeypatch.setattr(llm_module, "_RETRY_BACKOFF_SECONDS", 0)
+    transport = FakeTransport(responses=[provider_error_body(), chat_response('{"targets": ["a"]}')])
+    client = make_client(transport)
+
+    assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["a"])
+    assert len(transport.calls) == 2
+    assert client.usage == [{"prompt_tokens": 5, "completion_tokens": 0, "total_tokens": 5}]
+
+
+def test_exhausted_upstream_retries_surface_the_provider_error_verbatim(monkeypatch):
+    monkeypatch.setattr(llm_module, "_RETRY_BACKOFF_SECONDS", 0)
+    transport = FakeTransport(responses=[provider_error_body()] * llm_module._MAX_ATTEMPTS)
+    client = make_client(transport)
+
+    with pytest.raises(LlmTransientError) as excinfo:
+        client.complete(system="s", user="u", schema=Plan)
+    assert "finish_reason='error'" in str(excinfo.value)
+    assert "GMICloud" in str(excinfo.value)
+    assert "Provider disconnected mid-stream" in str(excinfo.value)
+    assert len(transport.calls) == llm_module._MAX_ATTEMPTS
+
+
+def test_a_partial_content_upstream_error_is_retried_not_parsed(monkeypatch):
+    """An upstream that died mid-stream may still carry partial content: the
+    error finish reason wins — the fragment is garbage, never parsed or
+    repaired."""
+    monkeypatch.setattr(llm_module, "_RETRY_BACKOFF_SECONDS", 0)
+    body = chat_response('{"targets": ["x"')
+    body["choices"][0]["finish_reason"] = "error"
+    body["choices"][0]["error"] = {"code": 502, "message": "Provider disconnected mid-stream"}
+    transport = FakeTransport(responses=[body, chat_response('{"targets": ["a"]}')])
+    client = make_client(transport)
+
+    assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["a"])
+    assert len(transport.calls) == 2
+
+
+def test_the_configured_provider_preference_rides_the_payload():
+    transport = FakeTransport(responses=[chat_response('{"targets": []}')])
+    client = OpenRouterClient(api_key="sk-or-test", provider="deepinfra", transport=transport)
+
+    client.complete(system="s", user="u", schema=Plan)
+
+    _, _, payload = transport.calls[0]
+    assert payload["provider"] == {"order": ["deepinfra"]}
+
+
+def test_no_provider_preference_rides_the_payload_by_default():
+    """Without a routing preference the payload stays plain OpenAI
+    chat-completions — the convention other OpenAI-compatible providers
+    assume."""
+    transport = FakeTransport(responses=[chat_response('{"targets": []}')])
+    client = make_client(transport)
+
+    client.complete(system="s", user="u", schema=Plan)
+
+    _, _, payload = transport.calls[0]
+    assert "provider" not in payload
 
 
 def test_connection_error_names_the_provider_url_and_the_fix():

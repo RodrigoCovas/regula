@@ -48,6 +48,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-upstage/solar-pro4}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepinfra}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16}
       REGULA_MODE: ${REGULA_MODE:-demo}
     depends_on:

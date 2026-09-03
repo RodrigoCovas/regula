@@ -323,8 +323,8 @@ def test_summary_fidelity_reaches_the_report_through_a_scripted_judge(ingested_s
 
 def test_the_default_judge_is_built_from_the_configured_provider(monkeypatch, ingested_store, query_log_path):
     """ADR-0009: the judge reads the same environment configuration as the
-    workflow — model, base URL, and the unwrapped key — through the one
-    chat_client recipe both share."""
+    workflow — model, base URL, provider routing preference, and the
+    unwrapped key — through the one chat_client recipe both share."""
     import src.config as config
 
     install_fake_pipeline(_on_target_llm(), _on_target_retriever())
@@ -344,6 +344,7 @@ def test_the_default_judge_is_built_from_the_configured_provider(monkeypatch, in
     assert captured["api_key"] == "sk-or-test"
     assert captured["model"] == settings.llm_model
     assert captured["base_url"] == settings.llm_base_url
+    assert captured["provider"] == settings.llm_provider
 
 
 def test_main_aborts_clearly_when_the_judge_cannot_be_reached(monkeypatch, capsys, tmp_path):

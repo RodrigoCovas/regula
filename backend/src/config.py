@@ -21,7 +21,7 @@ from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings
 
 from .embedder import DEFAULT_MODEL as DEFAULT_EMBEDDING_MODEL
-from .llm import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL, OpenRouterClient
+from .llm import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, OpenRouterClient
 from .models import Mode
 from .query_log import DEFAULT_QUERY_LOG_PATH
 
@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # OpenAI-compatible base URL, ending at the version root; the client
     # appends the chat-completions path. Default: OpenRouter (the tested path).
     llm_base_url: str = DEFAULT_LLM_BASE_URL
+    # The OpenRouter provider routing preference (ADR-0009): the provider slug
+    # OpenRouter tries first for every completion, keeping its usual fallbacks.
+    # Empty sends no routing preference at all — for a base URL other than
+    # OpenRouter, which does not know the field.
+    llm_provider: str = DEFAULT_LLM_PROVIDER
     # The embedding model used at ingest and query time — one setting shared
     # with the ingest CLI so both ends of the vector path agree. Changing it
     # requires re-ingest (documented in .env.example).
@@ -85,9 +90,9 @@ def chat_client(settings: Settings) -> OpenRouterClient:
     """The chat-completions client wired to the configured provider (ADR-0009).
 
     The one recipe both consumers share — the workflow's composition root and
-    the eval's fidelity judge — so model, base URL, and the unwrapped key can
-    never disagree between the pipeline that answers and the judge that
-    scores it.
+    the eval's fidelity judge — so model, base URL, provider routing
+    preference, and the unwrapped key can never disagree between the pipeline
+    that answers and the judge that scores it.
     """
     return OpenRouterClient(
         api_key=(
@@ -95,6 +100,7 @@ def chat_client(settings: Settings) -> OpenRouterClient:
         ),
         model=settings.llm_model,
         base_url=settings.llm_base_url,
+        provider=settings.llm_provider or None,
     )
 
 
