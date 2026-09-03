@@ -810,6 +810,52 @@ def test_resume_keeps_the_original_run_start_in_the_checkpoint(ingested_store, q
     assert data["started_at"] == "2026-09-03T10:00:00+00:00"
 
 
+def test_resume_refuses_when_a_completed_record_has_no_hash(ingested_store, query_log_path, tmp_path):
+    """A completed record without its definition hash is corruption, not an
+    edited case: the refusal must say the file is unreadable, never blame the
+    ground truth (ADR-0013)."""
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[_completed_result("first-case")],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="unreadable"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=[_bare_case("first-case")],
+        )
+
+
+def test_resume_refuses_when_a_checkpointed_score_is_not_a_number(ingested_store, query_log_path, tmp_path):
+    """Dataclasses validate nothing, so a record with the right keys but a
+    wrong-typed value must be caught at load: refusing as unreadable, never
+    crashing later mid-print (ADR-0013)."""
+    from src.eval_harness import scenario_definition_hash
+
+    case = _completed_result("first-case")
+    case["precision"] = "not-a-number"
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[case],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(_bare_case("first-case"))},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="unreadable"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=[_bare_case("first-case")],
+        )
+
+
 def test_resume_serves_a_fully_checkpointed_run_without_preconditions(query_log_path, tmp_path):
     """A checkpoint covering every case is a finished measurement: the report
     is served from it alone — no key check, no store probe, no provider call.
@@ -882,6 +928,17 @@ class _dies_on_second_plan:
         return self._inner.complete(system, user, schema)
 
 
+def _wire_live_cli(monkeypatch, llm=None, retriever=None):
+    """The operator-CLI preamble every checkpointed-command test shares:
+    ingested-store probe, operator env, fakes at the composition root."""
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    install_fake_pipeline(llm if llm is not None else _on_target_llm(), retriever if retriever is not None else _on_target_retriever())
+
+
 def _two_cli_cases(monkeypatch):
     """Point the CLI at two bare cases so a provider that dies on the second
     Plan call aborts mid-run."""
@@ -891,12 +948,7 @@ def _two_cli_cases(monkeypatch):
 
 
 def test_main_run_id_prints_the_checkpoint_and_keeps_it_without_output(monkeypatch, capsys, tmp_path):
-    import src.availability as availability
-
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
-    monkeypatch.setenv("REGULA_MODE", "demo")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    _wire_live_cli(monkeypatch)
     checkpoint_dir = tmp_path / "eval-runs"
 
     exit_code = main(["--run-id", "cli-run"])
@@ -910,12 +962,7 @@ def test_main_run_id_prints_the_checkpoint_and_keeps_it_without_output(monkeypat
 
 
 def test_main_deletes_the_checkpoint_when_the_artifact_supersedes_it(monkeypatch, capsys, tmp_path):
-    import src.availability as availability
-
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
-    monkeypatch.setenv("REGULA_MODE", "demo")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    _wire_live_cli(monkeypatch)
     checkpoint_dir = tmp_path / "eval-runs"
     out_path = tmp_path / "live-eval.json"
 
@@ -929,12 +976,7 @@ def test_main_deletes_the_checkpoint_when_the_artifact_supersedes_it(monkeypatch
 def test_main_mints_a_run_id_when_none_is_given(monkeypatch, capsys, tmp_path):
     import re
 
-    import src.availability as availability
-
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
-    monkeypatch.setenv("REGULA_MODE", "demo")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    _wire_live_cli(monkeypatch)
     checkpoint_dir = tmp_path / "eval-runs"
 
     exit_code = main([])
@@ -948,17 +990,25 @@ def test_main_mints_a_run_id_when_none_is_given(monkeypatch, capsys, tmp_path):
     assert (checkpoint_dir / f"{minted.group(1)}.json").exists()
 
 
+def test_main_refuses_a_run_id_that_is_not_a_plain_filename(monkeypatch, capsys, tmp_path):
+    """The run id names a file under data/eval-runs/: anything that could
+    traverse out of it — slashes, leading dots — is refused before any work,
+    never written (ADR-0013)."""
+    _wire_live_cli(monkeypatch)
+
+    exit_code = main(["--run-id", "../escape"])
+
+    assert exit_code == 1
+    assert "invalid --run-id" in capsys.readouterr().err
+    assert not (tmp_path / "escape.json").exists()
+
+
 def test_main_aborts_mid_run_with_completed_numbers_and_a_resume_hint(monkeypatch, capsys, tmp_path):
     """The provider dies on the second case: exit 1, the completed first
     case's numbers are printed and checkpointed, the artifact is not written,
     and stderr tells the operator exactly how to resume (ADR-0013)."""
-    import src.availability as availability
-
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
-    monkeypatch.setenv("REGULA_MODE", "demo")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     _two_cli_cases(monkeypatch)
-    install_fake_pipeline(_dies_on_second_plan(_on_target_llm(), LlmError("provider died mid-run")), _on_target_retriever())
+    _wire_live_cli(monkeypatch, llm=_dies_on_second_plan(_on_target_llm(), LlmError("provider died mid-run")))
     checkpoint_dir = tmp_path / "eval-runs"
     out_path = tmp_path / "live-eval.json"
 
@@ -980,13 +1030,8 @@ def test_main_aborts_mid_run_with_completed_numbers_and_a_resume_hint(monkeypatc
 def test_main_interrupted_mid_run_pauses_with_a_resume_hint_and_exits_130(monkeypatch, capsys, tmp_path):
     """Ctrl-C mid-run is a first-class pause, not a crash: the checkpoint
     holds the completed cases and stderr says how to pick the run back up."""
-    import src.availability as availability
-
-    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
-    monkeypatch.setenv("REGULA_MODE", "demo")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     _two_cli_cases(monkeypatch)
-    install_fake_pipeline(_dies_on_second_plan(_on_target_llm(), KeyboardInterrupt()), _on_target_retriever())
+    _wire_live_cli(monkeypatch, llm=_dies_on_second_plan(_on_target_llm(), KeyboardInterrupt()))
     checkpoint_dir = tmp_path / "eval-runs"
     out_path = tmp_path / "live-eval.json"
 
@@ -1000,3 +1045,35 @@ def test_main_interrupted_mid_run_pauses_with_a_resume_hint_and_exits_130(monkey
     assert not out_path.exists()
     data = json.loads((checkpoint_dir / "cli-run.json").read_text())
     assert [case["id"] for case in data["scenarios"]] == ["first-case"]
+
+
+def test_failed_run_resumes_end_to_end_from_the_checkpoint(monkeypatch, capsys, tmp_path, query_log_path):
+    """The operator flow ADR-0013 exists for, end to end: a run dies on the
+    last case, the printed command picks it back up under the same id, only
+    the pending case crosses the provider, and the artifact supersedes the
+    checkpoint."""
+    _two_cli_cases(monkeypatch)
+    _wire_live_cli(monkeypatch, llm=_dies_on_second_plan(_on_target_llm(), LlmError("provider died mid-run")))
+    checkpoint_dir = tmp_path / "eval-runs"
+    out_path = tmp_path / "final-report.json"
+
+    assert main(["--run-id", "chain-run", "--output", str(out_path)]) == 1
+    assert not out_path.exists()
+
+    # Same command, same id, healthy provider: the resume.
+    query_log_path.unlink(missing_ok=True)
+    _wire_live_cli(monkeypatch)
+    exit_code = main(["--run-id", "chain-run", "--output", str(out_path)])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "first-case" in out and "second-case" in out
+    records = [
+        json.loads(line) for line in query_log_path.read_text().splitlines() if line.strip()
+    ]
+    # The resume crosses the provider for the pending case only: the
+    # checkpointed first case never re-ran.
+    assert len(records) == 1
+    artifact = json.loads(out_path.read_text())
+    assert [case["id"] for case in artifact["scenarios"]] == ["first-case", "second-case"]
+    assert not (checkpoint_dir / "chain-run.json").exists()

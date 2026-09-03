@@ -61,6 +61,7 @@ Resume an interrupted or failed run by re-running it with the same
 
 import argparse
 import json
+import re
 import secrets
 import sys
 from dataclasses import asdict
@@ -106,6 +107,46 @@ def checkpoint_path(run_id: str, checkpoint_dir: Optional[Path] = None) -> Path:
     return (checkpoint_dir if checkpoint_dir is not None else CHECKPOINT_DIR) / f"{run_id}.json"
 
 
+# A run id names a file under data/eval-runs/, so it must be a plain filename
+# component: no separators, no traversal, no hidden files.
+_RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+
+# The case-record shape the checkpoint stores — EvalScenarioResult exactly as
+# the artifact renders one.
+_RESULT_KEYS = {
+    "id", "precision", "recall", "f1", "expected", "produced",
+    "summary_fidelity", "strength_agreement",
+}
+
+
+def _unreadable_checkpoint(path: Path, detail: object) -> LiveEvalRefused:
+    """The one refusal every malformed checkpoint raises (ADR-0013): when it
+    happens something else is wrong, so the operator decides — delete the
+    file or resume under a different id."""
+    return LiveEvalRefused(
+        f"Checkpoint file {path} is unreadable ({detail}). "
+        "Delete it or resume under a different --run-id."
+    )
+
+
+def _parse_result(case: object, path: Path) -> EvalScenarioResult:
+    """One checkpointed record reconstructed and shape-checked: dataclasses
+    validate nothing, so a wrong-typed score must refuse here as unreadable —
+    never crash later, mid-print (ADR-0013)."""
+    if not isinstance(case, dict) or set(case) != _RESULT_KEYS:
+        raise _unreadable_checkpoint(path, "a case record does not match the stored shape")
+    if not isinstance(case["id"], str):
+        raise _unreadable_checkpoint(path, "a case id is not a string")
+    for field in ("precision", "recall", "f1", "summary_fidelity", "strength_agreement"):
+        value = case[field]
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise _unreadable_checkpoint(path, f"case {case['id']!r} has a non-numeric {field}")
+    for field in ("expected", "produced"):
+        if not isinstance(case[field], list):
+            raise _unreadable_checkpoint(path, f"case {case['id']!r} has a non-list {field} dump")
+    return EvalScenarioResult(**case)
+
+
 def _load_document(path: Path) -> dict:
     """Parse a checkpoint document, converting every malformed payload —
     truncated JSON, a non-object, missing metadata — into the same clear
@@ -123,13 +164,10 @@ def _load_document(path: Path) -> dict:
             raise TypeError("checkpoint is missing its metadata fields")
         return data
     except (json.JSONDecodeError, OSError, TypeError) as error:
-        raise LiveEvalRefused(
-            f"Checkpoint file {path} is unreadable ({error}). "
-            "Delete it or resume under a different --run-id."
-        ) from error
+        raise _unreadable_checkpoint(path, error) from error
 
 
-def _report_over(cases: List[EvalScenarioResult]) -> EvalReport:
+def _aggregated_report(cases: List[EvalScenarioResult]) -> EvalReport:
     """The aggregate report over a non-empty set of case results — the one
     means computation both the stitched report and the partial re-print use.
     An unmeasured component averages over the cases where it measured, never
@@ -189,26 +227,20 @@ class CheckpointedRun:
             # resume adopts the original start instead of re-stamping.
             self.started_at = stored_start
         for case in data["scenarios"]:
-            try:
-                case_id: str = case["id"]
-            except (KeyError, TypeError) as error:
-                raise LiveEvalRefused(
-                    f"Checkpoint file {self.path} is unreadable ({error}). "
-                    "Delete it or resume under a different --run-id."
-                ) from error
+            case_id = case.get("id") if isinstance(case, dict) else None
+            if not isinstance(case_id, str):
+                raise _unreadable_checkpoint(self.path, "a case record has no string id")
             scenario = self._cases.get(case_id)
             if scenario is None:
                 # The case left the live list since this record landed: the
                 # current list wins, so the record simply goes unused.
                 continue
-            try:
-                result = EvalScenarioResult(**case)
-            except TypeError as error:
-                raise LiveEvalRefused(
-                    f"Checkpoint file {self.path} is unreadable ({error}). "
-                    "Delete it or resume under a different --run-id."
-                ) from error
-            if data["scenario_hashes"].get(case_id) != scenario_definition_hash(scenario):
+            result = _parse_result(case, self.path)
+            if case_id not in data["scenario_hashes"]:
+                # A completed record without its definition hash is corruption,
+                # not an edited case: refuse as unreadable, never misdiagnose.
+                raise _unreadable_checkpoint(self.path, f"case {case_id!r} has no definition hash")
+            if data["scenario_hashes"][case_id] != scenario_definition_hash(scenario):
                 raise LiveEvalRefused(
                     f"Live case {case_id!r} changed since run {self.path.stem!r} started "
                     "(question, description, or ground truth edited), so its checkpointed "
@@ -234,7 +266,7 @@ class CheckpointedRun:
         merged = dict(self.results)
         if fresh is not None:
             merged.update({result.id: result for result in fresh.scenarios})
-        return _report_over([merged[case_id] for case_id in self._order if case_id in merged])
+        return _aggregated_report([merged[case_id] for case_id in self._order if case_id in merged])
 
     def artifact(self) -> dict:
         """The checkpoint document: run metadata over the completed cases."""
@@ -457,11 +489,20 @@ def _print_partial_progress(path: Path) -> None:
     skipped — the abort message and the resume hint still stand."""
     try:
         data = _load_document(path)
-        cases = [EvalScenarioResult(**case) for case in data["scenarios"]]
-    except (LiveEvalRefused, TypeError):
+        cases = [_parse_result(case, path) for case in data["scenarios"]]
+    except LiveEvalRefused:
         return
     if cases:
-        print_report(_report_over(cases), llm_model=data["llm_model"])
+        print_report(_aggregated_report(cases), llm_model=data["llm_model"])
+
+
+def _pause_with_resume_hint(run_id: str, checkpoint_file: Path, headline: str) -> None:
+    """The shared tail of every mid-run stop that is not a refusal: what
+    happened, the numbers already banked, and the command that picks the run
+    back up (ADR-0013)."""
+    print(headline, file=sys.stderr)
+    _print_partial_progress(checkpoint_file)
+    print(_resume_hint(run_id), file=sys.stderr)
 
 
 def main(argv: list | None = None) -> int:
@@ -497,6 +538,13 @@ def main(argv: list | None = None) -> int:
     args = parser.parse_args(argv)
 
     run_id = args.run_id or _mint_run_id()
+    if not _RUN_ID_PATTERN.fullmatch(run_id):
+        print(
+            f"Live eval refused: invalid --run-id {run_id!r} — use letters, digits, "
+            "dots, dashes, or underscores, starting with a letter or digit.",
+            file=sys.stderr,
+        )
+        return 1
     checkpoint_file = checkpoint_path(run_id)
     print(f"Run id: {run_id} (checkpoint: {checkpoint_file})")
 
@@ -507,14 +555,14 @@ def main(argv: list | None = None) -> int:
         print(f"Live eval refused: {error}", file=sys.stderr)
         return 1
     except LlmError as error:
-        print(f"Live eval aborted: an LLM call failed — {error}", file=sys.stderr)
-        _print_partial_progress(checkpoint_file)
-        print(_resume_hint(run_id), file=sys.stderr)
+        _pause_with_resume_hint(
+            run_id, checkpoint_file, f"Live eval aborted: an LLM call failed — {error}"
+        )
         return 1
     except KeyboardInterrupt:
-        print("Live eval paused: interrupted — completed cases are checkpointed.", file=sys.stderr)
-        _print_partial_progress(checkpoint_file)
-        print(_resume_hint(run_id), file=sys.stderr)
+        _pause_with_resume_hint(
+            run_id, checkpoint_file, "Live eval paused: interrupted — completed cases are checkpointed."
+        )
         return 130
     print_report(report, llm_model=settings.llm_model)
     if args.output is not None:
