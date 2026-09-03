@@ -37,6 +37,7 @@ rule: they score 1.0 only when nothing was produced; any production is
 spurious leakage and scores 0.0 across the board.
 """
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -1943,6 +1944,22 @@ def _expected_dump(finding: ExpectedFinding) -> ExpectedFindingDump:
     }
 
 
+def scenario_definition_hash(scenario: EvalScenario) -> str:
+    """SHA-256 over a case's full definition — id, routing id, question,
+    description, and the expected findings exactly as the audit dump renders
+    them. A checkpointed result records its case's hash so a later resume can
+    refuse a stale one: ground truth that changed under a run id must never
+    be silently substituted for the work already measured."""
+    payload = json.dumps({
+        "id": scenario.id,
+        "scenario_id": scenario.scenario_id,
+        "question": scenario.question,
+        "description": scenario.description,
+        "expected": [_expected_dump(f) for f in scenario.expected],
+    }, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 # The audit-dump form of one produced Finding: the statement as the LLM worded
 # it, its Strength, and each Citation's structural target with its quote and
 # the answer-wide fields — Provision relevance and rated Citation strength —
@@ -2026,6 +2043,7 @@ def evaluate_scenarios(
     respond: Callable[[AnalyzeRequest], AnalyzeResponse],
     mode: Mode,
     judge: Optional[SummaryJudge] = None,
+    on_result: Optional[Callable[[EvalScenarioResult], None]] = None,
 ) -> EvalReport:
     """Run each Scenario through ``respond`` and score the produced Findings.
 
@@ -2037,6 +2055,11 @@ def evaluate_scenarios(
     (ADR-0008): every request carries it explicitly. Summary fidelity runs
     only where a judge is supplied (the Demo tripwires run judgeless); the
     fidelity judge is called at most once per case (ADR-0010).
+
+    ``on_result`` is the checkpoint seam: invoked with each case's result the
+    moment it is scored, before the next case starts, so the Live runner can
+    persist progress mid-run without the harness ever touching the
+    filesystem — a callback parameter, no I/O here.
     """
     scenario_results: List[EvalScenarioResult] = []
     for scenario in scenarios:
@@ -2061,16 +2084,17 @@ def evaluate_scenarios(
             if judge is not None
             else None
         )
-        scenario_results.append(
-            EvalScenarioResult(
-                id=scenario.id,
-                **coverage_scores(scenario.expected, produced, expected_strengths),
-                expected=[_expected_dump(f) for f in scenario.expected],
-                produced=[_produced_dump(f, citations_by_target) for f in produced],
-                summary_fidelity=fidelity,
-                strength_agreement=strength_agreement(expected_strengths, produced_strengths),
-            )
+        result = EvalScenarioResult(
+            id=scenario.id,
+            **coverage_scores(scenario.expected, produced, expected_strengths),
+            expected=[_expected_dump(f) for f in scenario.expected],
+            produced=[_produced_dump(f, citations_by_target) for f in produced],
+            summary_fidelity=fidelity,
+            strength_agreement=strength_agreement(expected_strengths, produced_strengths),
         )
+        scenario_results.append(result)
+        if on_result is not None:
+            on_result(result)
 
     return EvalReport(
         scenarios=scenario_results,

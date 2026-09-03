@@ -58,6 +58,15 @@ def ingested_store(monkeypatch):
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_checkpoints(tmp_path, monkeypatch):
+    """The CLI always checkpoints (ADR-0013): redirect the checkpoint
+    directory into tmp_path so tests never write into the repository."""
+    import src.live_eval as live_eval
+
+    monkeypatch.setattr(live_eval, "CHECKPOINT_DIR", tmp_path / "eval-runs")
+
+
 # The one Finding the on-target pipeline produces, shared by every scripted
 # variant: wording is irrelevant to coverage scoring (ADR-0010), so it need
 # not mirror the expectation's text.
@@ -571,3 +580,423 @@ def test_refusal_writes_no_artifact(monkeypatch, capsys, tmp_path):
     assert exit_code == 1
     assert "OPENROUTER_API_KEY" in capsys.readouterr().err
     assert not out_path.exists()
+
+
+# --- Checkpointed runs: resume by run id (ADR-0013) --------------------------------
+
+
+def _bare_case(case_id: str) -> EvalScenario:
+    """A minimal Live case whose ground truth carries no relevance summaries —
+    the fidelity judge is never woken for it, so tests need no scripted judge."""
+    return EvalScenario(
+        id=case_id,
+        scenario_id="some-live-scenario",
+        description="A company uses an AI system to score loan applicants.",
+        question="What applies?",
+        expected=[ExpectedFinding(
+            statement="expected statement",
+            citations=[{"source_id": "gdpr", "provision": "Article 33", "strength": Strength.strong}],
+        )],
+    )
+
+
+def test_checkpoint_records_each_completed_case(ingested_store, query_log_path, tmp_path):
+    """With a run id the runner checkpoints: every completed case's full
+    EvalScenarioResult lands on disk before the next case starts — a run that
+    dies mid-flight never loses measured work (ADR-0013)."""
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    checkpoint_dir = tmp_path / "eval-runs"
+
+    run_live_eval(
+        live_settings(query_log_path),
+        run_id="test-run",
+        checkpoint_dir=checkpoint_dir,
+        scenarios=[_bare_case("first-case"), _bare_case("second-case")],
+    )
+
+    data = json.loads((checkpoint_dir / "test-run.json").read_text())
+    assert data["run_id"] == "test-run"
+    assert data["mode"] == "live"
+    assert data["started_at"]
+    assert data["llm_model"] == live_settings(query_log_path).llm_model
+    assert [case["id"] for case in data["scenarios"]] == ["first-case", "second-case"]
+    assert set(data["scenarios"][0]) == {
+        "id", "precision", "recall", "f1", "expected", "produced",
+        "summary_fidelity", "strength_agreement",
+    }
+    # Each completed case carries the hash of the definition that produced it —
+    # the staleness guard a later resume reads (ADR-0013).
+    assert set(data["scenario_hashes"]) == {"first-case", "second-case"}
+
+
+def _checkpoint_document(tmp_path, cases, llm_model, hashes):
+    """A hand-written checkpoint document for one run id, as the runner saves it."""
+    document = {
+        "run_id": "resumed-run",
+        "mode": "live",
+        "started_at": "2026-09-03T10:00:00+00:00",
+        "llm_model": llm_model,
+        "scenario_hashes": hashes,
+        "scenarios": cases,
+    }
+    checkpoint_dir = tmp_path / "eval-runs"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    (checkpoint_dir / "resumed-run.json").write_text(json.dumps(document, indent=2) + "\n")
+    return checkpoint_dir
+
+
+def _completed_result(case_id):
+    """One obviously-checkpointed result: numbers the on-target pipeline can
+    never produce, so a substitution reads unambiguously in the report."""
+    return {
+        "id": case_id,
+        "precision": 0.25,
+        "recall": 0.5,
+        "f1": 0.333333,
+        "expected": [{"statement": "expected statement", "citations": [
+            {"label": "gdpr Article 33", "relevance": None, "strength": "strong"},
+        ]}],
+        "produced": [],
+        "summary_fidelity": None,
+        "strength_agreement": None,
+    }
+
+
+def test_resume_skips_checkpointed_cases_and_stitches_the_report(ingested_store, query_log_path, tmp_path):
+    """Resuming a run id re-runs only the pending cases: checkpointed results
+    are substituted verbatim (never re-measured), fresh ones fill the rest,
+    and the report keeps today's case-list order throughout."""
+    from src.eval_harness import scenario_definition_hash
+
+    cases = [_bare_case("first-case"), _bare_case("second-case")]
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[_completed_result("first-case")],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(cases[0])},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    report = run_live_eval(
+        live_settings(query_log_path),
+        run_id="resumed-run",
+        checkpoint_dir=checkpoint_dir,
+        scenarios=cases,
+    )
+
+    # The checkpointed case was substituted, not re-run: its impossible-from-
+    # -the-pipeline numbers survive into the report, in list order.
+    assert [result.id for result in report.scenarios] == ["first-case", "second-case"]
+    assert report.scenarios[0].precision == 0.25
+    assert report.scenarios[0].f1 == pytest.approx(0.333333)
+    # Fresh: the on-target pipeline ran, hitting the expected target plus one
+    # spurious one — precision 0.5, recall 1.0.
+    assert report.scenarios[1].precision == 0.5
+    # Only the pending case crossed the endpoint — the checkpointed one
+    # cost no LLM work at all.
+    records = [
+        json.loads(line) for line in query_log_path.read_text().splitlines() if line.strip()
+    ]
+    assert len(records) == 1
+    # The resume re-persisted the full set: both cases now checkpointed.
+    data = json.loads((checkpoint_dir / "resumed-run.json").read_text())
+    assert [case["id"] for case in data["scenarios"]] == ["first-case", "second-case"]
+
+
+def test_resume_refuses_when_a_completed_case_changed_under_the_run_id(ingested_store, query_log_path, tmp_path):
+    """A case edited since its result was checkpointed makes the record stale:
+    the resume refuses instead of quietly substituting old numbers (ADR-0013)."""
+    cases = [_bare_case("first-case")]
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[_completed_result("first-case")],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": "stale-hash"},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="changed since run"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=cases,
+        )
+
+
+def test_resume_refuses_when_the_configured_model_differs(ingested_store, query_log_path, tmp_path):
+    """Results are model-sensitive (ADR-0009): a checkpoint produced by one
+    model must never be stitched into a run configured for another."""
+    cases = [_bare_case("first-case")]
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[_completed_result("first-case")],
+        llm_model="some-other-model",
+        hashes={"first-case": "whatever"},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="model-sensitive"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=cases,
+        )
+
+
+def test_resume_refuses_when_the_checkpoint_file_is_unreadable(ingested_store, query_log_path, tmp_path):
+    """A corrupt checkpoint aborts with a clear message instead of silently
+    re-running ten paid cases (ADR-0013): when it happens, something else is
+    wrong and the operator decides."""
+    checkpoint_dir = tmp_path / "eval-runs"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "resumed-run.json").write_text('{"llm_model": "test-model-9", "scen')
+
+    with pytest.raises(LiveEvalRefused, match="unreadable"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=[_bare_case("first-case")],
+        )
+
+
+def test_resume_refuses_when_a_checkpointed_record_is_malformed(ingested_store, query_log_path, tmp_path):
+    """Parseable JSON with a garbage case record is as unreadable as truncated
+    JSON: the resume refuses with the same message, never a traceback."""
+    from src.eval_harness import scenario_definition_hash
+
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[{"id": "first-case", "precision": "not-a-number"}],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(_bare_case("first-case"))},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="unreadable"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=[_bare_case("first-case")],
+        )
+
+
+def test_resume_keeps_the_original_run_start_in_the_checkpoint(ingested_store, query_log_path, tmp_path):
+    """The checkpoint's metadata describes the run that measured the cases:
+    resuming adopts the stored started_at instead of re-stamping the resume
+    time over it (ADR-0013)."""
+    from src.eval_harness import scenario_definition_hash
+
+    case = _bare_case("first-case")
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[_completed_result("first-case")],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(case)},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    run_live_eval(
+        live_settings(query_log_path),
+        run_id="resumed-run",
+        checkpoint_dir=checkpoint_dir,
+        scenarios=[case, _bare_case("second-case")],
+    )
+
+    data = json.loads((checkpoint_dir / "resumed-run.json").read_text())
+    assert data["started_at"] == "2026-09-03T10:00:00+00:00"
+
+
+def test_resume_serves_a_fully_checkpointed_run_without_preconditions(query_log_path, tmp_path):
+    """A checkpoint covering every case is a finished measurement: the report
+    is served from it alone — no key check, no store probe, no provider call.
+    The operator can re-print numbers from a machine that could no longer run
+    a single case."""
+    from src.eval_harness import scenario_definition_hash
+
+    case = _bare_case("first-case")
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[_completed_result("first-case")],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(case)},
+    )
+    # No key, no ingested store, no pipeline installed: a probe or request
+    # would refuse or crash — the serve must never reach for either.
+    settings = Settings(regula_mode=Mode.demo, openrouter_api_key=None, query_log_path=str(query_log_path))
+
+    report = run_live_eval(settings, run_id="resumed-run", checkpoint_dir=checkpoint_dir, scenarios=[case])
+
+    assert [result.id for result in report.scenarios] == ["first-case"]
+    assert report.scenarios[0].precision == 0.25
+    assert not query_log_path.exists()
+
+
+def test_resume_ignores_records_for_cases_no_longer_in_the_list(ingested_store, query_log_path, tmp_path):
+    """The current case list wins (ADR-0013): a record for a case that left
+    the list goes unused — it neither fails the resume nor reaches the report."""
+    from src.eval_harness import scenario_definition_hash
+
+    cases = [_bare_case("first-case")]
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[_completed_result("ghost-case")],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"ghost-case": scenario_definition_hash(_bare_case("ghost-case"))},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    report = run_live_eval(
+        live_settings(query_log_path),
+        run_id="resumed-run",
+        checkpoint_dir=checkpoint_dir,
+        scenarios=cases,
+    )
+
+    assert [result.id for result in report.scenarios] == ["first-case"]
+    data = json.loads((checkpoint_dir / "resumed-run.json").read_text())
+    assert [case["id"] for case in data["scenarios"]] == ["first-case"]
+
+
+# --- The checkpointed CLI: every command is resumable (ADR-0013) --------------------
+
+
+class _dies_on_second_plan:
+    """The provider seam that serves the first request whole, then dies on the
+    second — with an LlmError (infrastructure failure) or a KeyboardInterrupt
+    (the operator pausing the run). One Plan call per request, so the second
+    Plan is the second case."""
+    def __init__(self, inner, error):
+        self._inner = inner
+        self._error = error
+        self._plans = 0
+
+    def complete(self, system, user, schema):
+        if schema is Plan:
+            self._plans += 1
+            if self._plans == 2:
+                raise self._error
+        return self._inner.complete(system, user, schema)
+
+
+def _two_cli_cases(monkeypatch):
+    """Point the CLI at two bare cases so a provider that dies on the second
+    Plan call aborts mid-run."""
+    import src.live_eval as live_eval
+
+    monkeypatch.setattr(live_eval, "LIVE_EVAL_SCENARIOS", [_bare_case("first-case"), _bare_case("second-case")])
+
+
+def test_main_run_id_prints_the_checkpoint_and_keeps_it_without_output(monkeypatch, capsys, tmp_path):
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    checkpoint_dir = tmp_path / "eval-runs"
+
+    exit_code = main(["--run-id", "cli-run"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Run id: cli-run" in out
+    assert str(checkpoint_dir / "cli-run.json") in out
+    # No --output: the checkpoint file is the run's only record, so it stays.
+    assert (checkpoint_dir / "cli-run.json").exists()
+
+
+def test_main_deletes_the_checkpoint_when_the_artifact_supersedes_it(monkeypatch, capsys, tmp_path):
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    checkpoint_dir = tmp_path / "eval-runs"
+    out_path = tmp_path / "live-eval.json"
+
+    exit_code = main(["--run-id", "cli-run", "--output", str(out_path)])
+
+    assert exit_code == 0
+    assert out_path.exists()
+    assert not (checkpoint_dir / "cli-run.json").exists()
+
+
+def test_main_mints_a_run_id_when_none_is_given(monkeypatch, capsys, tmp_path):
+    import re
+
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+    checkpoint_dir = tmp_path / "eval-runs"
+
+    exit_code = main([])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    # UTC timestamp plus four random hex characters: sortable, collision-free
+    # even when two runs start in the same second.
+    minted = re.search(r"Run id: (\d{8}-\d{6}-[0-9a-f]{4})", out)
+    assert minted, f"no minted run id in: {out}"
+    assert (checkpoint_dir / f"{minted.group(1)}.json").exists()
+
+
+def test_main_aborts_mid_run_with_completed_numbers_and_a_resume_hint(monkeypatch, capsys, tmp_path):
+    """The provider dies on the second case: exit 1, the completed first
+    case's numbers are printed and checkpointed, the artifact is not written,
+    and stderr tells the operator exactly how to resume (ADR-0013)."""
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    _two_cli_cases(monkeypatch)
+    install_fake_pipeline(_dies_on_second_plan(_on_target_llm(), LlmError("provider died mid-run")), _on_target_retriever())
+    checkpoint_dir = tmp_path / "eval-runs"
+    out_path = tmp_path / "live-eval.json"
+
+    exit_code = main(["--run-id", "cli-run", "--output", str(out_path)])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Live eval aborted" in captured.err
+    assert "provider died mid-run" in captured.err
+    assert "Resume with: python -m backend.src.live_eval --run-id cli-run" in captured.err
+    # The measured work survives — visible and on disk.
+    assert "first-case" in captured.out
+    assert "second-case" not in captured.out
+    assert not out_path.exists()
+    data = json.loads((checkpoint_dir / "cli-run.json").read_text())
+    assert [case["id"] for case in data["scenarios"]] == ["first-case"]
+
+
+def test_main_interrupted_mid_run_pauses_with_a_resume_hint_and_exits_130(monkeypatch, capsys, tmp_path):
+    """Ctrl-C mid-run is a first-class pause, not a crash: the checkpoint
+    holds the completed cases and stderr says how to pick the run back up."""
+    import src.availability as availability
+
+    monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
+    monkeypatch.setenv("REGULA_MODE", "demo")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    _two_cli_cases(monkeypatch)
+    install_fake_pipeline(_dies_on_second_plan(_on_target_llm(), KeyboardInterrupt()), _on_target_retriever())
+    checkpoint_dir = tmp_path / "eval-runs"
+    out_path = tmp_path / "live-eval.json"
+
+    exit_code = main(["--run-id", "cli-run", "--output", str(out_path)])
+
+    assert exit_code == 130
+    captured = capsys.readouterr()
+    assert "paused" in captured.err
+    assert "Resume with: python -m backend.src.live_eval --run-id cli-run" in captured.err
+    assert "first-case" in captured.out
+    assert not out_path.exists()
+    data = json.loads((checkpoint_dir / "cli-run.json").read_text())
+    assert [case["id"] for case in data["scenarios"]] == ["first-case"]

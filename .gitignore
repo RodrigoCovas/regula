@@ -62,5 +62,6 @@ htmlcov/
 # Data
 data/embeddings/
 data/chunks.db
+data/eval-runs/
 
 .agents/
