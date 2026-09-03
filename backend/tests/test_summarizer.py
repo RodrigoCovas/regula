@@ -20,6 +20,7 @@ import pytest
 from src.live_workflow import (
     ProvisionSummary,
     Summaries,
+    _SUMMARIZER_SYSTEM,
     _validate_summaries,
 )
 from src.models import (
@@ -345,3 +346,45 @@ def test_a_finding_citing_one_provision_twice_is_listed_once():
     block, targets_by_ref = _labelled_provisions(findings)
     assert list(targets_by_ref.values()) == [ProvisionTarget("ai-act", ProvisionKind.article, 6)]
     assert block.count(statement) == 1
+
+
+# --- The Summarizer's rubric (issue #67: the all-strong calibration bias) ---
+
+
+def test_the_rubric_sets_the_scale_against_the_whole_cited_set():
+    """The all-strong bias came from rating each provision in isolation: the
+    rubric must set the scale against the whole cited set, so a provision is
+    judged relative to what else the Answer cites, not on its own."""
+    assert "whole cited set" in _SUMMARIZER_SYSTEM
+    assert "isolation" in _SUMMARIZER_SYSTEM
+
+
+def test_the_rubric_reserves_strong_for_the_provisions_the_answer_turns_on():
+    """Strong is scarce by definition — the provisions the Answer's
+    conclusions stand on — so the rubric must say what strong is reserved
+    for, not merely what it means."""
+    assert "Reserve 'strong'" in _SUMMARIZER_SYSTEM
+    assert "turn on" in _SUMMARIZER_SYSTEM
+
+
+def test_the_rubric_names_an_all_strong_ratings_set_as_a_failure():
+    """The exact failure the eval surfaced (~90% strong, run
+    glm53-v5-2026-09-03) is named in the rubric as what it is: proof the
+    provisions were not weighed against each other."""
+    assert "all 'strong'" in _SUMMARIZER_SYSTEM
+
+
+def test_the_rubric_keeps_weak_for_definitional_or_framing_provisions():
+    """A definitional or framing provision stays 'weak' no matter how often
+    its citing Findings lean on its vocabulary — the rubric must hold that
+    line explicitly, or heavily-cited definitions rate strong."""
+    assert "definitional or framing" in _SUMMARIZER_SYSTEM
+    assert "no matter how" in _SUMMARIZER_SYSTEM
+
+
+def test_the_rubric_keeps_the_three_levels_and_the_bare_string_contract():
+    """The recalibration tightens the scale, never the schema: a bare
+    strong/moderate/weak string, never an object or rationale (ADR-0011)."""
+    assert "Citation strength" in _SUMMARIZER_SYSTEM
+    assert "exactly one of 'strong', 'moderate', " in _SUMMARIZER_SYSTEM
+    assert "or 'weak', never an object or rationale" in _SUMMARIZER_SYSTEM

@@ -58,7 +58,7 @@ A reference to one provision of a source document — an Article, a Recital, or 
 _Avoid_: Reference, source link
 
 **Citation strength**:
-How central a cited provision is to the overall Answer, rated at three levels: strong when the provision directly imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor the Answer relies on, weak when it is definitional or framing material. Rated per provision, drawing only on the content of the Findings citing it. Distinct from a Finding's Strength, which judges how directly Evidence supports one Finding.
+How central a cited provision is to the overall Answer, rated at three levels: strong when the provision directly imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor the Answer relies on, weak when it is definitional or framing. Rated per provision for the whole Answer, drawing only on the content of the Findings citing it. Two Findings citing the same provision can carry different Finding strengths; the provision carries one Citation strength. Distinct from a Finding's Strength, which judges how directly Evidence supports one Finding.
 _Avoid_: Confidence, derived strength, average strength
 
 **Provision relevance**:
@@ -95,10 +95,6 @@ _Avoid_: Confidence, probability
   **Finding strength**:
   The Strength of one Finding: how directly that Finding's own Evidence supports that Finding's claim. Judged per Finding, on the provisions that Finding cites.
   _Avoid_: Citation strength, average strength
-
-  **Citation strength**:
-  The centrality rating of one cited provision for the whole Answer, not for one Finding: strong when the provision imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor, weak when it is definitional or framing. Two Findings citing the same provision can carry different Finding strengths; the provision carries one Citation strength, rated for the Answer as a whole.
-  _Avoid_: Finding strength, average strength
 
 **Unsupported claim**:
 A statement with no Evidence in the Corpus either way — no provision can be cited for or against it — or one that merely restates provisions without bearing on the question asked for the Scenario. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
