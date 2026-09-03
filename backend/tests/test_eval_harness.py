@@ -2,7 +2,7 @@
 per-request mode contract, and the audit dump that rides each case's
 result. The scoring arithmetic itself is covered at the pure seam in
 test_provision_coverage.py, the rubric judge in test_eval_judge.py
-(ADR-0010); here the three components meet the evaluation loop — scripted
+(ADR-0010); here the two components meet the evaluation loop — scripted
 judge in, per-case and aggregate numbers out, never blended."""
 
 from src.eval_harness import (
@@ -40,19 +40,13 @@ def test_deterministic_demo_scores_perfect_on_all_curated_scenarios():
 
 def test_demo_report_keeps_the_components_separate():
     """The Demo tripwire runs judgeless (no provider in CI), so summary
-    fidelity is unmeasured there — while strength agreement, which needs no
-    judge, reads perfectly on every producing case: the locked demo
-    strengths mirror ground truth. Non-producing cases share no target with
-    their empty expectation, so the component is unmeasured there."""
+    fidelity is unmeasured on every case — the authored relevance summaries
+    have no judge to face. Coverage, needing no judge, still scores the
+    tripwire (test_deterministic_demo_scores_perfect_on_all_curated_scenarios)."""
     report = run_eval()
     for scenario in report.scenarios:
         assert scenario.summary_fidelity is None
-        if scenario.id.startswith("canonical"):
-            assert scenario.strength_agreement == 1.0
-        else:
-            assert scenario.strength_agreement is None
     assert report.mean_summary_fidelity is None
-    assert report.mean_strength_agreement == 1.0
 
 
 def test_eval_pins_demo_mode_per_request_even_when_app_boots_live(monkeypatch):
@@ -211,7 +205,7 @@ def test_an_unrated_provision_dumps_no_strength():
     assert produced["citations"][0]["strength"] is None
 
 
-# --- The three components at the evaluation loop (ADR-0010, issue #50) ---
+# --- The two components at the evaluation loop (ADR-0010, issue #50) ---
 
 
 def _target(number: int, kind: str = "article", source_id: str = "gdpr") -> ProvisionTarget:
@@ -406,67 +400,10 @@ def test_fidelity_pairs_only_provisions_both_sides_touch():
     assert report.scenarios[0].summary_fidelity == 1.0
 
 
-def test_strength_agreement_rides_every_case_and_aggregates_separately():
-    """The produced side is the ratings the Answer's Citations badge
-    (ADR-0011): Article 22 agrees (strong/strong), Article 25 disagrees
-    (weak/moderate) — and the mean covers the cases that measured."""
-    target22 = _target(22)
-    target25 = _target(25)
-    expected = [
-        _expected_finding("Article 22", strength=Strength.strong),
-        _expected_finding("Article 25", strength=Strength.weak),
-    ]
-    report = evaluate_scenarios(
-        [EvalScenario(id="case", scenario_id="s", question="What applies?", expected=expected)],
-        _respond_with(
-            _produced_finding(22, strength=Strength.strong),
-            _produced_finding(25, strength=Strength.moderate),
-            summaries_by_target={
-                target22: _summary(target22, "produced", Strength.strong),
-                target25: _summary(target25, "produced", Strength.moderate),
-            },
-        ),
-        mode=Mode.demo,
-    )
-    assert report.scenarios[0].strength_agreement == pytest.approx(0.5)
-    assert report.mean_strength_agreement == pytest.approx(0.5)
-
-
-def test_strength_agreement_runs_over_rated_shared_targets_only():
-    """A shared target the Summarizer left unrated drops out of the case's
-    agreement, never defaulted (ADR-0011); no rated shared target at all
-    leaves the component unmeasured."""
-    target22 = _target(22)
-    target25 = _target(25)
-    expected = [
-        _expected_finding("Article 22", strength=Strength.strong),
-        _expected_finding("Article 25", strength=Strength.weak),
-    ]
-    produced = [
-        _produced_finding(22, strength=Strength.strong),
-        _produced_finding(25, strength=Strength.strong),
-    ]
-    # Article 22 rated and agreeing; Article 25 unrated — excluded, not zero.
-    partial = evaluate_scenarios(
-        [EvalScenario(id="case", scenario_id="s", question="What applies?", expected=expected)],
-        _respond_with(*produced, summaries_by_target={target22: _summary(target22, "produced", Strength.strong)}),
-        mode=Mode.demo,
-    )
-    assert partial.scenarios[0].strength_agreement == 1.0
-
-    # No rating anywhere: nothing to compare, no number.
-    unmeasured = evaluate_scenarios(
-        [EvalScenario(id="case", scenario_id="s", question="What applies?", expected=expected)],
-        _respond_with(*produced),
-        mode=Mode.demo,
-    )
-    assert unmeasured.scenarios[0].strength_agreement is None
-    assert unmeasured.mean_strength_agreement is None
-
-
 def test_the_report_carries_the_components_separately_and_never_blends_them():
-    """ADR-0010: three per-case numbers, three aggregates — no field blends
-    them into one opaque score."""
+    """ADR-0010: per-case numbers and an aggregate mean per component — no
+    field blends them into one opaque score, and no strength-agreement
+    metric rides the report at all."""
     import dataclasses
 
     report = evaluate_scenarios(
@@ -484,15 +421,14 @@ def test_the_report_carries_the_components_separately_and_never_blends_them():
         judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),
     )
     assert set(f.name for f in dataclasses.fields(report)) == {
-        "scenarios", "mean_f1", "mean_summary_fidelity", "mean_strength_agreement",
+        "scenarios", "mean_f1", "mean_summary_fidelity",
     }
     assert set(f.name for f in dataclasses.fields(report.scenarios[0])) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity", "strength_agreement",
+        "summary_fidelity",
     }
     assert report.mean_f1 == 1.0
     assert report.mean_summary_fidelity == 1.0
-    assert report.mean_strength_agreement == 1.0
 
 
 def test_aggregate_component_means_skip_unmeasured_cases():

@@ -314,11 +314,7 @@ def test_summary_fidelity_reaches_the_report_through_a_scripted_judge(ingested_s
     assert len(judge.calls) == 1
     assert [pair.ref for pair in judge.calls[0]] == ["P1", "P2"]
     assert report.scenarios[0].summary_fidelity == pytest.approx((1.0 + 0.0) / 2)
-    # The strength component rides the same case: the operator's ratings
-    # against the Summarizer's (ADR-0011) — here they agree.
-    assert report.scenarios[0].strength_agreement == 1.0
     assert report.mean_summary_fidelity == pytest.approx(0.5)
-    assert report.mean_strength_agreement == 1.0
 
 
 def test_the_default_judge_is_built_from_the_configured_provider(monkeypatch, ingested_store, query_log_path):
@@ -438,7 +434,7 @@ def test_main_aborts_clearly_when_a_workflow_llm_call_fails(monkeypatch, capsys)
     assert "judge" not in err.lower()
 
 
-def test_main_prints_all_three_components_with_their_aggregates(monkeypatch, capsys):
+def test_main_prints_both_components_with_their_aggregates(monkeypatch, capsys):
     import src.availability as availability
 
     monkeypatch.setattr(availability, "stored_chunk_count", lambda _database_url: 42)
@@ -453,15 +449,17 @@ def test_main_prints_all_three_components_with_their_aggregates(monkeypatch, cap
     out = capsys.readouterr().out
     assert "coverage precision" in out
     assert "summary fidelity" in out
-    assert "strength agreement" in out
     assert "mean coverage" in out.lower()
     assert "mean summary fidelity" in out.lower()
-    assert "mean strength agreement" in out.lower()
+    # The strength-agreement metric is gone from the eval contract: neither
+    # the per-case line nor the aggregates may print it.
+    assert "strength agreement" not in out.lower()
     # The operator output names the model that produced the numbers —
     # results are model-sensitive by design (ADR-0009).
     assert "Model: test-model-9" in out
-    # No judge and no authored summaries: the unmeasured component reads as
-    # n/a, never as a fake zero.
+    # The cases whose expected provisions the canned Finding never cites
+    # measure no fidelity: the unmeasured component reads as n/a, never as
+    # a fake zero.
     assert "n/a" in out
 
 
@@ -483,11 +481,9 @@ def test_report_artifact_shape_at_the_pure_seam():
             expected=[{"statement": "expected", "citations": [{"label": "gdpr Article 22", "relevance": "expected relevance", "strength": "strong"}]}],
             produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None, "relevance": "produced relevance", "strength": None}]}],
             summary_fidelity=0.75,
-            strength_agreement=1.0,
         )],
         mean_f1=0.666666,
         mean_summary_fidelity=0.75,
-        mean_strength_agreement=1.0,
     )
 
     artifact = report_artifact(report, llm_model="upstage/solar-pro4")
@@ -497,11 +493,11 @@ def test_report_artifact_shape_at_the_pure_seam():
     assert artifact["llm_model"] == "upstage/solar-pro4"
     assert artifact["mean_f1"] == pytest.approx(0.666666)
     assert artifact["mean_summary_fidelity"] == pytest.approx(0.75)
-    assert artifact["mean_strength_agreement"] == pytest.approx(1.0)
+    assert "mean_strength_agreement" not in artifact
     (case,) = artifact["scenarios"]
     assert set(case) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity", "strength_agreement",
+        "summary_fidelity",
     }
 
 
@@ -552,7 +548,7 @@ def test_main_writes_the_report_artifact_when_given_an_output_path(monkeypatch, 
     assert first["id"] == LIVE_EVAL_SCENARIOS[0].id
     assert set(first) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity", "strength_agreement",
+        "summary_fidelity",
     }
     assert first["expected"] and first["produced"]
     # No judge ran, and the canned pipeline ships no relevance summaries for
@@ -623,7 +619,7 @@ def test_checkpoint_records_each_completed_case(ingested_store, query_log_path, 
     assert [case["id"] for case in data["scenarios"]] == ["first-case", "second-case"]
     assert set(data["scenarios"][0]) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity", "strength_agreement",
+        "summary_fidelity",
     }
     # Each completed case carries the hash of the definition that produced it —
     # the staleness guard a later resume reads (ADR-0013).
@@ -659,7 +655,6 @@ def _completed_result(case_id):
         ]}],
         "produced": [],
         "summary_fidelity": None,
-        "strength_agreement": None,
     }
 
 

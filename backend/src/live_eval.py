@@ -3,22 +3,18 @@
 One command measures Live-mode answer quality: it runs the curated Live
 cases (``eval_harness.LIVE_EVAL_SCENARIOS``, hand-authored ground truth)
 through the analysis endpoint in Live mode and scores each produced Answer
-with the three never-blended components of ADR-0010: provision coverage
+with the two never-blended components of ADR-0010: provision coverage
 (deterministic set F1 over Citation targets, strength-weighted on the
-expected side), summary fidelity (the strict rubric judge of
-``eval_judge``, one batched call per case, schema-validated verdicts), and
-strength agreement (the operator's expected ratings against the
-Summarizer's produced ratings, ADR-0011, over rated shared targets only,
-read at small weight). It prints all three per case plus the aggregate
-means.
+expected side), and summary fidelity (the strict rubric judge of
+``eval_judge``, one batched call per case, schema-validated verdicts). It
+prints both per case plus the aggregate means.
 
 Summary fidelity measures where the ground truth summarizes a cited
 provision (the labels #51 authored, one per cited provision); elsewhere it
-reports unmeasured, and
-the judge is never woken for nothing. The judge is the configured provider
-itself (ADR-0009): if any LLM call fails mid-run — the workflow's or the
-judge's, an unreachable provider or a reply that fails its schema — the run
-aborts with the detail, never scoring silence.
+reports unmeasured, and the judge is never woken for nothing. The judge is
+the configured provider itself (ADR-0009): if any LLM call fails mid-run —
+the workflow's or the judge's, an unreachable provider or a reply that
+fails its schema — the run aborts with the detail, never scoring silence.
 
 With ``--output PATH`` the command also writes a JSON artifact: the run's
 metadata, the per-case component scores, and the produced-versus-expected
@@ -117,7 +113,7 @@ _RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 # the artifact renders one.
 _RESULT_KEYS = {
     "id", "precision", "recall", "f1", "expected", "produced",
-    "summary_fidelity", "strength_agreement",
+    "summary_fidelity",
 }
 
 
@@ -139,7 +135,7 @@ def _parse_result(case: object, path: Path) -> EvalScenarioResult:
         raise _unreadable_checkpoint(path, "a case record does not match the stored shape")
     if not isinstance(case["id"], str):
         raise _unreadable_checkpoint(path, "a case id is not a string")
-    for field in ("precision", "recall", "f1", "summary_fidelity", "strength_agreement"):
+    for field in ("precision", "recall", "f1", "summary_fidelity"):
         value = case[field]
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
             raise _unreadable_checkpoint(path, f"case {case['id']!r} has a non-numeric {field}")
@@ -175,12 +171,10 @@ def _aggregated_report(cases: List[EvalScenarioResult]) -> EvalReport:
     An unmeasured component averages over the cases where it measured, never
     over all of them."""
     measured_fidelity = [case.summary_fidelity for case in cases if case.summary_fidelity is not None]
-    measured_agreement = [case.strength_agreement for case in cases if case.strength_agreement is not None]
     return EvalReport(
         scenarios=list(cases),
         mean_f1=sum(case.f1 for case in cases) / len(cases),
         mean_summary_fidelity=sum(measured_fidelity) / len(measured_fidelity) if measured_fidelity else None,
-        mean_strength_agreement=sum(measured_agreement) / len(measured_agreement) if measured_agreement else None,
     )
 
 
@@ -445,21 +439,19 @@ def _fmt(score: Optional[float]) -> str:
 
 def print_report(report: EvalReport, llm_model: str) -> None:
     """Per-case component scores, then the aggregates — the operator-facing
-    output. Three components, three means, never blended (ADR-0010). The
-    model that produced the numbers is named: results are model-sensitive
-    by design (ADR-0009)."""
+    output. Two components, two means, never blended (ADR-0010). The model
+    that produced the numbers is named: results are model-sensitive by
+    design (ADR-0009)."""
     print(f"Live eval: {len(report.scenarios)} case(s) through /api/analyze in Live mode")
     print(f"Model: {llm_model}")
     for result in report.scenarios:
         print(
             f"  {result.id}: coverage precision={result.precision:.3f} "
             f"recall={result.recall:.3f} F1={result.f1:.3f} | "
-            f"summary fidelity={_fmt(result.summary_fidelity)} | "
-            f"strength agreement={_fmt(result.strength_agreement)}"
+            f"summary fidelity={_fmt(result.summary_fidelity)}"
         )
     print(f"Aggregate mean coverage F1: {report.mean_f1:.3f}")
     print(f"Aggregate mean summary fidelity: {_fmt(report.mean_summary_fidelity)}")
-    print(f"Aggregate mean strength agreement: {_fmt(report.mean_strength_agreement)}")
 
 
 def report_artifact(report: EvalReport, llm_model: str) -> dict:

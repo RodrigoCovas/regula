@@ -126,15 +126,16 @@ The backend is the backstop: a Live request that races readiness, or a direct AP
 
 ## Evaluation
 
-Answer quality is scored as three components, reported separately and **never blended** (ADR-0010):
+Answer quality is scored as two components, reported separately and **never blended** (ADR-0010):
 
 - **Provision coverage** — a deterministic weighted set precision/recall/F1 over Citation targets (provision kind + number, never label strings). The expected side is weighted by the operator's per-provision Strength ratings (strong = 50, moderate = 5, weak = 1; expected side only — the produced side's ratings never touch coverage); every off-target produced Citation counts against precision.
 - **Summary fidelity** — a strict rubric judge (the same configured provider, one batched call per case, schema-validated verdicts) compares provision-aligned Provision relevance against hand-authored ground-truth summaries; a contradiction between the two forces the floor score.
-- **Strength agreement** — the operator's per-provision ratings on the expected side compared against the Summarizer's *rated* Citation strength on the produced side (ADR-0011). The Summarizer rates each cited provision's centrality — strong when the provision directly imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor, weak when it is definitional or framing — and the same rating shows on the citation badges, so the eval grades what the product shows. Agreement is computed over the provisions both sides rate: a provision the Summarizer leaves unrated keeps its relevance but carries no strength and is excluded, never defaulted, and a case with no rated shared target reports no number. It is reported as its own number and read at small weight: it grades only the Citation strength ratings, while coverage and fidelity grade the substance.
+
+The Summarizer still rates each cited provision's centrality (ADR-0011) — strong when the provision directly imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor, weak when it is definitional or framing — and the same rating shows on the citation badges and in the audit dump. The ratings feed no scored metric: the operator's ratings weight recall on the expected side only, and the produced ratings are read by eye in the dump, never scored against them.
 
 ### Results
 
-A run's numbers are produced by the command under [Reproduce](#reproduce) and recorded in its report artifact: per-case coverage, summary fidelity, and strength agreement plus each component's aggregate mean, the produced-versus-expected dump for the human audit, and the `llm_model` that produced them. This page deliberately freezes no snapshot — the eval baseline moves as the system improves, and the artifact, not the README, is the record of what a run measured. A run meets the project's "works" bar when coverage mean precision ≥ 0.50, coverage mean F1 ≥ 0.20, summary fidelity mean ≥ 0.75, and strength agreement mean ≥ 0.50; check the artifact's aggregate means against it.
+A run's numbers are produced by the command under [Reproduce](#reproduce) and recorded in its report artifact: per-case coverage and summary fidelity plus each component's aggregate mean, the produced-versus-expected dump for the human audit, and the `llm_model` that produced them. This page deliberately freezes no snapshot — the eval baseline moves as the system improves, and the artifact, not the README, is the record of what a run measured. A run meets the project's "works" bar when coverage mean precision ≥ 0.50, coverage mean F1 ≥ 0.20, and summary fidelity mean ≥ 0.75; check the artifact's aggregate means against it.
 
 Reading any run's numbers:
 
@@ -150,7 +151,7 @@ With the stack running and the Live prerequisites in place (provider key, embedd
 docker compose exec backend python -m backend.src.live_eval --output logs/live-eval-report.json
 ```
 
-The CLI runs the ground-truth cases through `/api/analyze` in Live mode, prints per-case coverage, summary fidelity, and strength agreement plus the aggregate mean of each, and writes a JSON report artifact to `./logs` on the host — per-case scores, the produced-versus-expected dump for the human audit, and the `llm_model` that produced the numbers. Every run also checkpoints per scenario (ADR-0013): an LLM failure or an interrupt keeps the completed cases, and the abort message prints the exact resume command, so re-invoking it runs only the pending cases; on success the `--output` artifact supersedes the checkpoint. Without a key or an ingested Corpus it refuses with the fix instead of measuring garbage.
+The CLI runs the ground-truth cases through `/api/analyze` in Live mode, prints per-case coverage and summary fidelity plus the aggregate mean of each, and writes a JSON report artifact to `./logs` on the host — per-case scores, the produced-versus-expected dump for the human audit, and the `llm_model` that produced the numbers. Every run also checkpoints per scenario (ADR-0013): an LLM failure or an interrupt keeps the completed cases, and the abort message prints the exact resume command, so re-invoking it runs only the pending cases; on success the `--output` artifact supersedes the checkpoint. Without a key or an ingested Corpus it refuses with the fix instead of measuring garbage.
 
 Demo-mode cases are functional tripwires (ADR-0001), scored by the same harness: Demo production derives its Citations from the same locked targets its ground truth transcribes, so mean F1 is 1.0 by construction — any drop signals a regression, not poor quality.
 
@@ -223,7 +224,7 @@ regula/
 │   │   ├── progress.py             # In-memory progress registry for workflow phases
 │   │   ├── query_log.py            # Query logging to queries.jsonl
 │   │   ├── live_workflow.py        # Live-mode workflow (Planner → Researcher → Verifier → Proposer → Summarizer)
-│   │   ├── eval_harness.py         # Provision-coverage and strength-agreement harness and Demo tripwires
+│   │   ├── eval_harness.py         # Provision-coverage harness and Demo tripwires
 │   │   ├── eval_judge.py           # Strict rubric judge (summary fidelity)
 │   │   └── live_eval.py            # Live-mode evaluation CLI
 │   ├── tests/                      # pytest test suite

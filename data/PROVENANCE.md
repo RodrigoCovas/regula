@@ -57,5 +57,5 @@ conventions:
   strong when a provision names the situation outright, moderate where the
   claim is derived or contingent on facts the Corpus cannot settle (entity
   status, designation), weak where provisions only supply framing. These
-  ratings are the expected half of both strength-bearing components —
-  coverage recall and strength agreement.
+  ratings are the expected half of the one strength-bearing score —
+  coverage recall.
