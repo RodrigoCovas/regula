@@ -1047,6 +1047,27 @@ def test_main_interrupted_mid_run_pauses_with_a_resume_hint_and_exits_130(monkey
     assert [case["id"] for case in data["scenarios"]] == ["first-case"]
 
 
+def test_main_checkpoints_beside_the_logs_when_data_is_read_only(monkeypatch, capsys, tmp_path):
+    """The stack mounts data/ read-only (the Corpus lives there): the CLI
+    then checkpoints under logs/eval-runs/ — beside the artifacts — instead
+    of dying on the first completed case, and the printed line names the
+    resolved location (ADR-0013)."""
+    import src.live_eval as live_eval
+
+    _wire_live_cli(monkeypatch)
+    blocker = tmp_path / "data"
+    blocker.write_text("not a directory, so eval-runs cannot be created here")
+    monkeypatch.setattr(live_eval, "CHECKPOINT_DIR", blocker / "eval-runs")
+    fallback = tmp_path / "logs" / "eval-runs"
+
+    exit_code = main(["--run-id", "ro-run"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert str(fallback / "ro-run.json") in out
+    assert (fallback / "ro-run.json").exists()
+
+
 def test_failed_run_resumes_end_to_end_from_the_checkpoint(monkeypatch, capsys, tmp_path, query_log_path):
     """The operator flow ADR-0013 exists for, end to end: a run dies on the
     last case, the printed command picks it back up under the same id, only

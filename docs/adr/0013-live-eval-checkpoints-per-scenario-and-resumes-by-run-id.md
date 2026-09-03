@@ -14,5 +14,5 @@ The Live eval is the one command that measures answer quality against the real p
 
 - `run_live_eval` grows `run_id` / `checkpoint_dir` optional parameters; `None` (every existing caller and test) behaves exactly as before checkpointing existed.
 - A fully-checkpointed resume serves the report without `ensure_runnable` — a finished measurement can be re-printed from a machine that could no longer run a single case (no key, no store).
-- `data/eval-runs/` is gitignored; checkpoint files are operator-local working state, not artifacts.
+- `data/eval-runs/` is gitignored; checkpoint files are operator-local working state, not artifacts. Inside the stack `data/` is mounted read-only (the Corpus lives there), so the CLI checkpoints under `logs/eval-runs/` in that venue — resolved and named on the printed run-id line before the first request — and `--checkpoint-dir` overrides both.
 - The harness's `evaluate_scenarios` gains an optional pure `on_result` callback; Demo scoring is unchanged (it passes nothing).

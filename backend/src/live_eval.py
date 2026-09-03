@@ -28,7 +28,9 @@ numbers are quoted.
 
 Every command checkpoints (ADR-0013): a run id — given via ``--run-id`` or
 minted on the spot (UTC timestamp plus four random hex characters) — names
-a JSON file under ``data/eval-runs/`` that records each completed case the
+a JSON file under ``data/eval-runs/`` (or ``logs/eval-runs/`` where
+``data/`` is read-only, as in the stack, where the Corpus mount is
+read-only; ``--checkpoint-dir`` overrides) that records each completed case the
 moment it is scored, so a run that dies mid-flight (a provider outage, an
 operator Ctrl-C) resumes from the printed command instead of starting over
 and re-paying for the cases already measured. A resume re-runs only the
@@ -284,11 +286,19 @@ class CheckpointedRun:
     def _save(self) -> None:
         """Rewrite the checkpoint atomically: a half-written file must never
         masquerade as progress, so the payload lands as a temp file renamed
-        into place."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.path.with_name(self.path.name + ".tmp")
-        temp.write_text(json.dumps(self.artifact(), indent=2) + "\n")
-        temp.replace(self.path)
+        into place. A save that the filesystem refuses is a refusal, not a
+        traceback — the run must not keep spending provider calls it cannot
+        protect (ADR-0013)."""
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.path.with_name(self.path.name + ".tmp")
+            temp.write_text(json.dumps(self.artifact(), indent=2) + "\n")
+            temp.replace(self.path)
+        except OSError as error:
+            raise LiveEvalRefused(
+                f"Cannot write the checkpoint file at {self.path} ({error}). "
+                "Point --checkpoint-dir at a writable location and re-run."
+            ) from error
 
 
 def _judge_naming_its_failures(judge: SummaryJudge) -> SummaryJudge:
@@ -477,6 +487,24 @@ def _mint_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
 
 
+def _resolve_checkpoint_dir() -> Path:
+    """The checkpoint home that works in this venue (ADR-0013): the repo's
+    ``data/eval-runs/`` where that is writable, falling back to
+    ``logs/eval-runs/`` beside the query logs and artifacts — the stack
+    mounts ``data/`` read-only (the Corpus lives there), and the first
+    completed case must never die on its own save."""
+    try:
+        CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+        probe = CHECKPOINT_DIR / ".writable"
+        probe.touch()
+        probe.unlink()
+        return CHECKPOINT_DIR
+    except OSError:
+        fallback = CHECKPOINT_DIR.parents[1] / "logs" / "eval-runs"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
 def _resume_hint(run_id: str) -> str:
     """The one command that picks an interrupted run back up."""
     return f"Resume with: python -m backend.src.live_eval --run-id {run_id}"
@@ -535,6 +563,13 @@ def main(argv: list | None = None) -> int:
         default=None,
         help="checkpoint (and resume) under this run id; minted when omitted (ADR-0013)",
     )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=None,
+        help="where checkpoint files live; defaults to data/eval-runs/, "
+        "falling back to logs/eval-runs/ when data/ is read-only (ADR-0013)",
+    )
     args = parser.parse_args(argv)
 
     run_id = args.run_id or _mint_run_id()
@@ -545,12 +580,13 @@ def main(argv: list | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    checkpoint_file = checkpoint_path(run_id)
+    checkpoint_dir = args.checkpoint_dir if args.checkpoint_dir is not None else _resolve_checkpoint_dir()
+    checkpoint_file = checkpoint_path(run_id, checkpoint_dir)
     print(f"Run id: {run_id} (checkpoint: {checkpoint_file})")
 
     try:
         settings = load_settings()
-        report = run_live_eval(settings, run_id=run_id)
+        report = run_live_eval(settings, run_id=run_id, checkpoint_dir=checkpoint_dir)
     except (LiveEvalRefused, ConfigurationError) as error:
         print(f"Live eval refused: {error}", file=sys.stderr)
         return 1
