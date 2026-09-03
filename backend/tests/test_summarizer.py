@@ -369,12 +369,14 @@ def test_the_rubric_reserves_strong_for_the_provisions_the_answer_turns_on():
 
 def test_the_rubric_names_an_all_strong_ratings_set_as_a_failure():
     """The exact failure the eval surfaced (~90% strong, run
-    glm53-v5-2026-09-03) is named in the rubric as what it is: proof the
-    provisions were not weighed against each other. Weighing first, then
-    honest ratings, keeps the clause from forcing the inverse bias — a
-    cited set that is genuinely load-bearing stays all 'strong'."""
-    assert "all 'strong'" in _SUMMARIZER_SYSTEM
+    glm53-v5-2026-09-03) is named in the rubric as what it is: an
+    all-'strong' set produced *without weighing*. The clause stays
+    conditional, never categorical — a small cited set that is genuinely
+    load-bearing throughout is correctly all 'strong', so the clause cannot
+    force the inverse bias (everything moderate/weak)."""
+    assert "all 'strong' because nothing was weighed" in _SUMMARIZER_SYSTEM
     assert "rate each honestly" in _SUMMARIZER_SYSTEM
+    assert "correctly all 'strong'" in _SUMMARIZER_SYSTEM
 
 
 def test_the_rubric_widens_the_scale_never_the_grounding():
