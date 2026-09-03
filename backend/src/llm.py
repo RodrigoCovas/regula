@@ -252,6 +252,17 @@ class OpenRouterClient:
             content = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
             raise LlmError(f"The LLM provider returned an unexpected response body: {body!r}") from error
+        if not isinstance(content, str):
+            # Reasoning models occasionally spend the whole turn on hidden
+            # reasoning and emit no answer at all (live z-ai/glm-5.3-flash,
+            # queries-glm53_v2.jsonl 2026-09-02T22:36:44): content arrives
+            # as null. There is nothing to parse or repair — report the
+            # finish_reason verbatim instead of crashing the parser.
+            raise LlmError(
+                f"Model '{self._model}' returned no content (finish_reason="
+                f"{choice.get('finish_reason')!r}); the turn likely went entirely "
+                f"to hidden reasoning. Body: {str(body)[:300]!r}"
+            )
         if choice.get("finish_reason") == "length":
             raise LlmError(
                 f"Model '{self._model}' hit the {MAX_COMPLETION_TOKENS}-token completion "

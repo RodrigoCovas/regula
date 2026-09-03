@@ -200,6 +200,41 @@ def test_stop_completions_are_not_flagged_as_truncated():
     assert client.complete(system="s", user="u", schema=Plan) == Plan(targets=["x"])
 
 
+def test_null_content_reply_is_reported_as_llm_error_not_a_parser_crash():
+    """A reasoning model (live z-ai/glm-5.3-flash) sometimes returns
+    content=null with finish_reason='stop' — the turn went entirely to
+    hidden reasoning. The client reports it as an LlmError naming the
+    finish_reason instead of crashing the JSON parser with an
+    AttributeError (queries-glm53_v2.jsonl 2026-09-02T22:36:44,
+    employee-productivity-monitoring)."""
+    body = chat_response('{"targets": ["x"]}')
+    body["choices"][0]["message"]["content"] = None
+    body["choices"][0]["finish_reason"] = "stop"
+    transport = FakeTransport(responses=[body])
+    client = make_client(transport)
+
+    with pytest.raises(LlmError) as excinfo:
+        client.complete(system="s", user="u", schema=Plan)
+    assert "returned no content" in str(excinfo.value)
+    assert "stop" in str(excinfo.value)
+
+
+def test_null_content_with_length_finish_reason_still_reports_the_budget():
+    """finish_reason='length' with content=null means every token went to
+    reasoning before any answer started — the error still names the
+    finish_reason, not a TypeError from slicing the null content."""
+    body = chat_response('{"targets": ["x"]}')
+    body["choices"][0]["message"]["content"] = None
+    body["choices"][0]["finish_reason"] = "length"
+    transport = FakeTransport(responses=[body])
+    client = make_client(transport)
+
+    with pytest.raises(LlmError) as excinfo:
+        client.complete(system="s", user="u", schema=Plan)
+    assert "returned no content" in str(excinfo.value)
+    assert "length" in str(excinfo.value)
+
+
 def test_http_error_surfaces_status_and_body_snippet_as_llm_error():
     import requests
 
