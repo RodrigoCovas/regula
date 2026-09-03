@@ -364,14 +364,26 @@ def test_the_rubric_reserves_strong_for_the_provisions_the_answer_turns_on():
     conclusions stand on — so the rubric must say what strong is reserved
     for, not merely what it means."""
     assert "Reserve 'strong'" in _SUMMARIZER_SYSTEM
-    assert "turn on" in _SUMMARIZER_SYSTEM
+    assert "the obligations the Answer turns on" in _SUMMARIZER_SYSTEM
 
 
 def test_the_rubric_names_an_all_strong_ratings_set_as_a_failure():
     """The exact failure the eval surfaced (~90% strong, run
     glm53-v5-2026-09-03) is named in the rubric as what it is: proof the
-    provisions were not weighed against each other."""
+    provisions were not weighed against each other. Weighing first, then
+    honest ratings, keeps the clause from forcing the inverse bias — a
+    cited set that is genuinely load-bearing stays all 'strong'."""
     assert "all 'strong'" in _SUMMARIZER_SYSTEM
+    assert "rate each honestly" in _SUMMARIZER_SYSTEM
+
+
+def test_the_rubric_widens_the_scale_never_the_grounding():
+    """Setting the scale against the whole cited set is calibration, not new
+    material: statements and ratings stay grounded in the content of the
+    Findings citing their own provision, and other provisions stay out
+    (CONTEXT.md; ADR-0011)."""
+    assert "never on other provisions" in _SUMMARIZER_SYSTEM
+    assert "the cited set calibrates the scale, never the grounding" in _SUMMARIZER_SYSTEM
 
 
 def test_the_rubric_keeps_weak_for_definitional_or_framing_provisions():
