@@ -58,8 +58,8 @@ A reference to one provision of a source document — an Article, a Recital, or 
 _Avoid_: Reference, source link
 
 **Citation strength**:
-How central a cited provision is to the overall Answer, rated at three levels: strong when the provision directly imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor the Answer relies on, weak when it is definitional or framing. Rated per provision for the whole Answer, drawing only on the content of the Findings citing it. Two Findings citing the same provision can carry different Finding strengths; the provision carries one Citation strength. Distinct from a Finding's Strength, which judges how directly Evidence supports one Finding.
-_Avoid_: Confidence, derived strength, average strength
+How central a cited provision is to the overall Answer, rated at three levels: strong when the provision directly imposes or decides the obligations the Answer turns on, moderate when it is a supporting duty or factor the Answer relies on, weak when it is definitional or framing. Rated per provision for the whole Answer, calibrated against the whole cited set — strong is reserved for the few provisions the Answer would collapse without — and drawing only on the content of the Findings citing it. Two Findings citing the same provision can carry different Finding strengths; the provision carries one Citation strength. Distinct from a Finding's Strength, which judges how directly Evidence supports one Finding.
+_Avoid_: Confidence, derived strength, average strength, Finding strength
 
 **Provision relevance**:
 The answer-wide statement of why one cited provision matters to the overall Answer, aggregating across the Findings that cite it. It draws only on the content of those Findings — never on material outside the Answer.

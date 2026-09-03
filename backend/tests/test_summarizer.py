@@ -351,54 +351,89 @@ def test_a_finding_citing_one_provision_twice_is_listed_once():
 # --- The Summarizer's rubric (issue #67: the all-strong calibration bias) ---
 
 
-def test_the_rubric_sets_the_scale_against_the_whole_cited_set():
+@pytest.fixture
+def rubric() -> dict[str, str]:
+    """The one place the recalibrated rubric's load-bearing phrases live:
+    each test pins its rule through this mapping, so a wording edit that
+    preserves intent updates this dict and nothing else."""
+    return {
+        "scale": "whole cited set",
+        "not in isolation": "isolation",
+        "reserve strong": "Reserve 'strong'",
+        "strong per glossary": "the obligations the Answer turns on",
+        "levels used": "The levels exist to be used",
+        "no default upward": "defaulting upward",
+        "weighed failure": "all 'strong' because nothing was weighed",
+        "honest ratings": "rate each honestly",
+        "honest all-strong": "correctly all 'strong'",
+        "definitional weak": "definitional or framing",
+        "weak however cited": "no matter how",
+        "grounding per provision": "never on other provisions",
+        "scale not grounding": "the cited set calibrates the scale, never the grounding",
+        "named": "Citation strength",
+        "three levels": "exactly one of 'strong', 'moderate', ",
+        "bare string": "or 'weak', never an object or rationale",
+    }
+
+
+def test_the_rubric_sets_the_scale_against_the_whole_cited_set(rubric):
     """The all-strong bias came from rating each provision in isolation: the
     rubric must set the scale against the whole cited set, so a provision is
     judged relative to what else the Answer cites, not on its own."""
-    assert "whole cited set" in _SUMMARIZER_SYSTEM
-    assert "isolation" in _SUMMARIZER_SYSTEM
+    assert rubric["scale"] in _SUMMARIZER_SYSTEM
+    assert rubric["not in isolation"] in _SUMMARIZER_SYSTEM
 
 
-def test_the_rubric_reserves_strong_for_the_provisions_the_answer_turns_on():
+def test_the_rubric_reserves_strong_for_the_provisions_the_answer_turns_on(rubric):
     """Strong is scarce by definition — the provisions the Answer's
     conclusions stand on — so the rubric must say what strong is reserved
-    for, not merely what it means."""
-    assert "Reserve 'strong'" in _SUMMARIZER_SYSTEM
-    assert "the obligations the Answer turns on" in _SUMMARIZER_SYSTEM
+    for, not merely what it means, in the glossary's own words."""
+    assert rubric["reserve strong"] in _SUMMARIZER_SYSTEM
+    assert rubric["strong per glossary"] in _SUMMARIZER_SYSTEM
 
 
-def test_the_rubric_names_an_all_strong_ratings_set_as_a_failure():
+def test_the_rubric_makes_moderate_and_weak_actually_occur(rubric):
+    """The issue's ask is occurrence, not merely scarcity: the rubric maps
+    the levels onto the material — supporting duties rate 'moderate' rather
+    than defaulting upward to 'strong', definitional or framing material
+    rates 'weak' — so both levels occur whenever their material does, while
+    the honesty clause keeps genuine load-bearers 'strong'."""
+    assert rubric["levels used"] in _SUMMARIZER_SYSTEM
+    assert rubric["no default upward"] in _SUMMARIZER_SYSTEM
+
+
+def test_the_rubric_names_an_all_strong_ratings_set_as_a_failure(rubric):
     """The exact failure the eval surfaced (~90% strong, run
     glm53-v5-2026-09-03) is named in the rubric as what it is: an
     all-'strong' set produced *without weighing*. The clause stays
     conditional, never categorical — a small cited set that is genuinely
     load-bearing throughout is correctly all 'strong', so the clause cannot
     force the inverse bias (everything moderate/weak)."""
-    assert "all 'strong' because nothing was weighed" in _SUMMARIZER_SYSTEM
-    assert "rate each honestly" in _SUMMARIZER_SYSTEM
-    assert "correctly all 'strong'" in _SUMMARIZER_SYSTEM
+    assert rubric["weighed failure"] in _SUMMARIZER_SYSTEM
+    assert rubric["honest ratings"] in _SUMMARIZER_SYSTEM
+    assert rubric["honest all-strong"] in _SUMMARIZER_SYSTEM
 
 
-def test_the_rubric_widens_the_scale_never_the_grounding():
+def test_the_rubric_widens_the_scale_never_the_grounding(rubric):
     """Setting the scale against the whole cited set is calibration, not new
     material: statements and ratings stay grounded in the content of the
     Findings citing their own provision, and other provisions stay out
     (CONTEXT.md; ADR-0011)."""
-    assert "never on other provisions" in _SUMMARIZER_SYSTEM
-    assert "the cited set calibrates the scale, never the grounding" in _SUMMARIZER_SYSTEM
+    assert rubric["grounding per provision"] in _SUMMARIZER_SYSTEM
+    assert rubric["scale not grounding"] in _SUMMARIZER_SYSTEM
 
 
-def test_the_rubric_keeps_weak_for_definitional_or_framing_provisions():
+def test_the_rubric_keeps_weak_for_definitional_or_framing_provisions(rubric):
     """A definitional or framing provision stays 'weak' no matter how often
     its citing Findings lean on its vocabulary — the rubric must hold that
     line explicitly, or heavily-cited definitions rate strong."""
-    assert "definitional or framing" in _SUMMARIZER_SYSTEM
-    assert "no matter how" in _SUMMARIZER_SYSTEM
+    assert rubric["definitional weak"] in _SUMMARIZER_SYSTEM
+    assert rubric["weak however cited"] in _SUMMARIZER_SYSTEM
 
 
-def test_the_rubric_keeps_the_three_levels_and_the_bare_string_contract():
+def test_the_rubric_keeps_the_three_levels_and_the_bare_string_contract(rubric):
     """The recalibration tightens the scale, never the schema: a bare
     strong/moderate/weak string, never an object or rationale (ADR-0011)."""
-    assert "Citation strength" in _SUMMARIZER_SYSTEM
-    assert "exactly one of 'strong', 'moderate', " in _SUMMARIZER_SYSTEM
-    assert "or 'weak', never an object or rationale" in _SUMMARIZER_SYSTEM
+    assert rubric["named"] in _SUMMARIZER_SYSTEM
+    assert rubric["three levels"] in _SUMMARIZER_SYSTEM
+    assert rubric["bare string"] in _SUMMARIZER_SYSTEM
