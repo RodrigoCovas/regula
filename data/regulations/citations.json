@@ -65,6 +65,18 @@
       "provision": "Article 2",
       "relevance": "Article 2's financial-entity list marks DORA's perimeter, which keeps an online retailer's breach response a GDPR matter for this scenario.",
       "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 58",
+      "relevance": "Article 58 lists the corrective powers - ordering the breach's communication to data subjects, limiting or banning processing, ordering rectification or erasure, imposing fines, and suspending data flows - the retailer must anticipate as the breach response's enforcement exposure.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 77",
+      "relevance": "Article 77 gives affected customers the right to lodge a complaint with a supervisory authority over the breach, so the retailer should anticipate and respond to breach-related complaints and keep the complainant informed of progress and outcome.",
+      "strength": "weak"
     }
   ],
   "scenario_2": [
@@ -235,6 +247,18 @@
       "provision": "Article 113",
       "relevance": "Article 113(2) fixes 2 August 2026 as the application date, confirming the high-risk deployer duties for the recruitment system are in force at the time of use.",
       "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 2",
+      "relevance": "Article 2's material scope covers the automated collection, filtering, and scoring of CVs and video interviews as processing of personal data wholly or partly by automated means, bringing the recruitment pipeline within the GDPR.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 3",
+      "relevance": "Article 3's territorial scope reaches the company's candidate-data processing through its Union establishment or, where it is established elsewhere, through its offering of services to candidates in the Union.",
+      "strength": "weak"
     }
   ],
   "scenario_3": [
@@ -363,6 +387,24 @@
       "provision": "Article 30",
       "relevance": "Article 30 requires the cloud contract to secure incident assistance, notification of material developments, and tested contingency plans from the provider, the provisions the bank invokes during and after the outage.",
       "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 22",
+      "relevance": "Article 22 provides that the bank remains fully responsible for the incident's handling and its consequences notwithstanding any supervisory feedback or guidance the competent authority gives on its notification and reports.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 58",
+      "relevance": "Article 58's corrective powers - ordering the breach's communication to data subjects, limiting or banning processing, and imposing administrative fines - hang over the conditional GDPR track the outage could open.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 16",
+      "relevance": "Article 16's simplified ICT risk-management framework is not open to a credit institution, so the bank must comply with the general framework of Articles 5 to 15, calibrating which obligations bite.",
+      "strength": "weak"
     }
   ],
   "scenario_4": [
@@ -533,6 +575,36 @@
       "provision": "Article 86",
       "relevance": "Article 86 gives employees adversely affected by score-based decisions a right to explanations of the AI system's role, which the employer must deliver in performance evaluations.",
       "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 50",
+      "relevance": "Article 50(3) obliges the deployer of an emotion recognition system to inform the natural persons exposed to it of the system's operation, the transparency complement to the Article 5 prohibition the employer checks for.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 2",
+      "relevance": "Article 2's material scope covers the automated recording and scoring as processing of personal data wholly or partly by automated means, bringing the monitoring pipeline within the GDPR.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 3",
+      "relevance": "Article 3's territorial scope reaches the employer's employee-data processing through its Union establishment, the applicability gateway for the monitoring duties.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 25",
+      "relevance": "Article 25 requires the monitoring to embed data protection by design and by default, so the recording of applications, websites, and time worked must be minimised to what the scoring purpose needs, with pseudonymisation where possible and the productivity scores inaccessible by default.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32",
+      "relevance": "Article 32 obliges the employer to secure the recorded activity and productivity scores with technical and organisational measures proportionate to the risk, a direct duty over the monitoring pipeline's logs and outputs.",
+      "strength": "moderate"
     }
   ],
   "scenario_5": [
@@ -642,6 +714,30 @@
       "source_id": "dora",
       "provision": "Article 2",
       "relevance": "Article 2 defines DORA's financial-entity perimeter, which assigns the telecom's chatbot duties to the GDPR and AI Act for this deployment.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 25",
+      "relevance": "Article 25 requires the chatbot to embed data protection by design and by default, minimising what the conversations capture and pseudonymising where possible, with stored data inaccessible by default.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 15",
+      "relevance": "Article 15 gives customers access to the personal data the chatbot processing holds, including the safeguards information for any transfers, a rights channel the telecom must facilitate.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 18",
+      "relevance": "Article 18 lets customers obtain restriction of the chatbot processing where accuracy is contested, processing is unlawful, or objection is pending, a rights channel the telecom must honour.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 44",
+      "relevance": "Article 44 conditions any transfer of chatbot-derived personal data to a third country - for instance where the underlying model or its hosting sits outside the EEA - on compliance with the GDPR's transfer chapter, a location question to settle before operating the service.",
       "strength": "weak"
     }
   ],
@@ -915,6 +1011,54 @@
       "provision": "Article 30",
       "relevance": "Article 30 would prescribe the contractual provisions for ICT services supporting the loan platform, including locations, data protection, and incident assistance.",
       "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 14",
+      "relevance": "Article 14 extends the transparency duties to applicant data the fintech obtains from other sources, such as credit-bureau records, completing coverage across the assessment pipeline.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 25",
+      "relevance": "Article 25 makes the fintech the provider - subject to the Article 16 obligations and any new conformity assessment - where it substantially modifies the loan system, puts its own name or trademark on it, or changes its intended purpose so the system becomes high-risk, the role-flip risk for a fintech adapting a vendor system.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 21",
+      "relevance": "Article 21 gives applicants the right to object to processing based on legitimate interests, including the profiling behind the loan assessment, a right the fintech must bring to their attention explicitly at the latest at the time of first communication.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 18",
+      "relevance": "Article 18 lets applicants obtain restriction of the assessment processing where accuracy is contested, processing is unlawful, or objection is pending.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 20",
+      "relevance": "Article 20 lets applicants receive data they provided in a structured, commonly used, machine-readable format where the processing rests on consent or contract and is carried out by automated means.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 25",
+      "relevance": "Article 25 requires the loan assessment to embed data protection by design and by default, minimising the financial data drawn into the scoring and pseudonymising where possible.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32",
+      "relevance": "Article 32 obliges the fintech to secure applicants' financial data across the assessment pipeline with technical and organisational measures proportionate to the risk.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 30",
+      "relevance": "Article 30 requires the loan-assessment processing to appear in the fintech's records of activities, covering purposes, categories of data subjects and personal data, recipients, and a description of the security measures.",
+      "strength": "weak"
     }
   ],
   "scenario_7": [
@@ -1079,6 +1223,18 @@
       "provision": "Article 2",
       "relevance": "Article 2(1)(n) confirms the insurer is a financial entity within DORA's scope, whose ICT-resilience duties attach to its operations while the scenario's AI and health-data questions are governed by the GDPR and AI Act.",
       "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 9",
+      "relevance": "Article 9's continuous, lifecycle-wide risk management system is the foundation behind the conformity markers, covering identified and foreseeable risks across the pricing system's life, which the insurer verifies in vendor due diligence.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 25",
+      "relevance": "Article 25 requires the underwriting to embed data protection by design and by default, minimising the medical and personal data drawn into eligibility and premium determination and pseudonymising where possible.",
+      "strength": "moderate"
     }
   ],
   "scenario_8": [
@@ -1200,6 +1356,12 @@
       "source_id": "dora",
       "provision": "Article 22",
       "relevance": "Article 22 provides for the authority's acknowledgement and feedback on the incident reports, the supervisory loop supporting the firm's handling.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 5",
+      "relevance": "Article 5 places the management body over the follow-up: it must approve, oversee, and periodically review the revised ICT business continuity policy and response and recovery plans the post-incident review produces.",
       "strength": "weak"
     }
   ],
@@ -1323,6 +1485,24 @@
       "provision": "Article 30",
       "relevance": "Article 30 prescribes the contract content the institution must secure, covering locations and data-processing venues, personal-data protection, data return, incident assistance at defined cost, notification of material developments, tested contingency plans, and ongoing performance-monitoring rights, the toolkit for restoring visibility into the service.",
       "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 2",
+      "relevance": "Article 2's material scope covers the assistant's processing of customer conversations as processing of personal data wholly or partly by automated means, bringing the service within the GDPR.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 25",
+      "relevance": "Article 25 requires the assistant to embed data protection by design and by default, minimising what the conversations capture and pseudonymising where possible, with stored data inaccessible by default.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 8",
+      "relevance": "Article 8 requires the institution to identify and document all processes dependent on ICT third-party providers and to run ICT risk assessments before and after connecting technologies such as the AI assistant, the identification step grounding the third-party analysis.",
+      "strength": "weak"
     }
   ],
   "scenario_10": [
@@ -1481,6 +1661,18 @@
       "provision": "Article 30",
       "relevance": "Article 30 requires the cloud contract to secure incident assistance, notification of material developments, tested contingency plans, and ongoing performance monitoring, the provisions the firm invokes during and after the attack.",
       "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 5",
+      "relevance": "Article 5 places the management body over the follow-up: it must approve, oversee, and periodically review the revised ICT business continuity policy and response and recovery plans the post-incident review produces.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 16",
+      "relevance": "Article 16 requires a size and status check: small and non-interconnected investment firms follow the simplified framework while the incident-reporting duties of Articles 17-19 continue to apply in full.",
+      "strength": "weak"
     }
   ]
 }
