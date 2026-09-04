@@ -39,6 +39,10 @@ _Avoid_: Source, query, sub-question
 The one Research target the Planner aims at a Regulation the Scenario plausibly implicates but does not confirm; it retrieves that Regulation's perimeter provision so an exclusion can cite it.
 _Avoid_: Scope check, applicability question
 
+**Engagement-threshold target**:
+The one Research target the Planner reserves for a Regulation the Scenario confirms; it retrieves the provision that decides whether the regime engages at all — a breach notion, a profiling notion, a financial-entity perimeter, or the principles constraining the contested processing — so the Answer cites the threshold instead of presupposing it.
+_Avoid_: Engagement check, threshold question
+
 **Perimeter provision**:
 The provision of a Regulation that decides who the Regulation covers — typically its scope Article — and the Citation an exclusion Finding rests on.
 _Avoid_: Scope provision, applicability clause
