@@ -1374,8 +1374,8 @@ def test_planner_response_over_budget_is_truncated_to_eight(live_client):
     """A Planner response with more than eight Research targets is corrected
     once by truncation: only the first eight targets are accepted, the rest
     are silently dropped — the Evidence pool never expands beyond the
-    accepted plan (issue #75: the semantics are unchanged at the raised
-    budget; reserved targets listed first survive by position)."""
+    accepted plan (issue #75: the positional semantics are unchanged at the
+    raised budget)."""
     from src.live_workflow import ResearchTarget
 
     data = run_with_plan(live_client, [
@@ -1542,6 +1542,7 @@ def planner_rubric() -> dict[str, str]:
         "engagement threshold": "Reserve one engagement-threshold target per confirmed regulation",
         "threshold provision": "the provision that decides whether the regime engages at all",
         "threshold notions": "a breach notion, a profiling notion, a financial-entity perimeter",
+        "threshold principles": "the principles constraining the contested processing",
         "threshold listed first": "list those reserved targets first",
         "threshold survives truncation": "truncation correction can never discard",
         "regime coverage": "every regulation the Regulatory question or the scenario's facts name",
@@ -1597,6 +1598,7 @@ def test_planner_rubric_reserves_one_engagement_threshold_target_per_confirmed_r
     assert planner_rubric["engagement threshold"] in planner_system
     assert planner_rubric["threshold provision"] in planner_system
     assert planner_rubric["threshold notions"] in planner_system
+    assert planner_rubric["threshold principles"] in planner_system
     assert planner_rubric["threshold listed first"] in planner_system
     assert planner_rubric["threshold survives truncation"] in planner_system
     # The budget competition keeps every reserved target, too.
