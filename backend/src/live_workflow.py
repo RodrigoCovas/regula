@@ -335,7 +335,7 @@ _PLANNER_SYSTEM = (
     "regime-level classification: keep one Research target per operational duty area involved "
     "— never merge two duty areas into one target — so the regime's whole duty path is "
     "researched, e.g. a confirmed DORA incident regime earns classification, continuity, "
-    "post-incident review, and contract provisions as separate targets. When the case "
+    "post-incident review, and contract provisions as separate targets. When the scenario "
     "names or implies a generative AI model supplied by a vendor, enumerate the "
     "model-provider duty area as its own target — the vendor's documentation, downstream "
     "information, and policies duties — so the vendor-side branch is researched as "

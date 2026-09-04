@@ -369,11 +369,18 @@ def run_plan(live_client, targets, per_query):
     return resp.json()
 
 
+def target_chunk_prefix(target: str) -> str:
+    """The source_id prefix a target's retrieval results carry — minted by
+    depth_results and hand-made fixtures alike, and the convention the
+    representation assertions match against."""
+    return f"{target}-"
+
+
 def depth_results(target):
     """One full-depth hybrid retrieval for a target: up to ``VECTOR_LEG_DEPTH +
     LEXICAL_LEG_DEPTH`` unique Chunks (ADR-0012)."""
     return [
-        make_chunk(source_id=f"{target}-{i}", number=i + 1)
+        make_chunk(source_id=f"{target_chunk_prefix(target)}{i}", number=i + 1)
         for i in range(VECTOR_LEG_DEPTH + LEXICAL_LEG_DEPTH)
     ]
 
@@ -402,8 +409,8 @@ def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(l
     assert len(retrieved) == len(broad) + len(narrow)
     assert len(retrieved) > VECTOR_LEG_DEPTH + LEXICAL_LEG_DEPTH, "the widened pool out-seats one full hybrid retrieval — #23's fix"
     assert len(retrieved) <= SEATS_PER_TARGET * len(targets), "the plan-derived cap holds"
-    assert any(s.startswith("narrow-") for s in sources), "the second target is represented"
-    assert any(s.startswith("broad-") for s in sources), "the first target is still represented"
+    assert any(s.startswith(target_chunk_prefix("narrow")) for s in sources), "the second target is represented"
+    assert any(s.startswith(target_chunk_prefix("broad")) for s in sources), "the first target is still represented"
 
 
 def assert_every_target_keeps_representation(targets, retrieved):
@@ -411,7 +418,7 @@ def assert_every_target_keeps_representation(targets, retrieved):
     one of its Chunks in the served Evidence — no target is starved."""
     sources = {r["source_id"] for r in retrieved}
     for target in targets:
-        assert any(s.startswith(f"{target}-") for s in sources), f"{target} keeps representation"
+        assert any(s.startswith(target_chunk_prefix(target)) for s in sources), f"{target} keeps representation"
 
 
 def test_evidence_pool_scales_with_the_planned_target_count(live_client):
@@ -1307,6 +1314,22 @@ def test_planner_prompt_carries_the_corpus_inventory_and_the_target_budget(live_
 # --- Planner Research-target budget enforcement (ticket #37) -----------------
 
 
+# A full plan at the raised budget (issue #75, ADR-0015): the eight Research
+# targets a maximal accepted plan carries, plus the ninth a provider response
+# may add — the one the one-shot truncation correction drops.
+FULL_PLAN_TARGETS = [
+    "creditworthiness",
+    "automated decisions",
+    "deployer obligations",
+    "incident reporting",
+    "records of processing activities",
+    "human oversight",
+    "contract clauses",
+    "continuity arrangements",
+]
+OVER_BUDGET_TARGET = "extra target one"
+
+
 def planner_step(data) -> dict:
     """The Planner's detailed-trace step."""
     return [s for s in data["detailed_trace"] if s["step"] == "planner"][0]
@@ -1378,17 +1401,10 @@ def test_planner_response_over_budget_is_truncated_to_eight(live_client):
     raised budget)."""
     from src.live_workflow import ResearchTarget
 
-    data = run_with_plan(live_client, [
-        ResearchTarget(query="creditworthiness"),
-        ResearchTarget(query="automated decisions"),
-        ResearchTarget(query="deployer obligations"),
-        ResearchTarget(query="incident reporting"),
-        ResearchTarget(query="records of processing activities"),
-        ResearchTarget(query="human oversight"),
-        ResearchTarget(query="contract clauses"),
-        ResearchTarget(query="continuity arrangements"),
-        ResearchTarget(query="extra target one"),
-    ])
+    data = run_with_plan(
+        live_client,
+        [ResearchTarget(query=t) for t in [*FULL_PLAN_TARGETS, OVER_BUDGET_TARGET]],
+    )
 
     step = planner_step(data)
     assert len(step["research_targets"]) == 8
@@ -1406,17 +1422,7 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
     SEATS_PER_TARGET × 8 (issue #75's raised budget)."""
     from src.live_workflow import ResearchTarget, SEATS_PER_TARGET
 
-    targets = [
-        "creditworthiness",
-        "automated decisions",
-        "deployer obligations",
-        "incident reporting",
-        "records of processing activities",
-        "human oversight",
-        "contract clauses",
-        "continuity arrangements",
-        "extra one",
-    ]
+    targets = [*FULL_PLAN_TARGETS, OVER_BUDGET_TARGET]
     per_query = {t: depth_results(t) for t in targets}
     data = run_with_plan(
         live_client,
@@ -1426,9 +1432,9 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
 
     retrieved = served_evidence(data)
     assert len(retrieved) == SEATS_PER_TARGET * 8, "pool bounded by accepted plan, not provider response"
-    assert_every_target_keeps_representation(targets[:8], retrieved)
+    assert_every_target_keeps_representation(FULL_PLAN_TARGETS, retrieved)
     sources = {r["source_id"] for r in retrieved}
-    assert not any(s.startswith("extra one-") for s in sources), "the ninth target was dropped"
+    assert not any(s.startswith(target_chunk_prefix(OVER_BUDGET_TARGET)) for s in sources), "the ninth target was dropped"
 
 
 def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
@@ -1436,17 +1442,10 @@ def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
     detailed trace — the correction is transparent, never silent."""
     from src.live_workflow import ResearchTarget
 
-    data = run_with_plan(live_client, [
-        ResearchTarget(query="creditworthiness"),
-        ResearchTarget(query="automated decisions"),
-        ResearchTarget(query="deployer obligations"),
-        ResearchTarget(query="incident reporting"),
-        ResearchTarget(query="records of processing activities"),
-        ResearchTarget(query="human oversight"),
-        ResearchTarget(query="contract clauses"),
-        ResearchTarget(query="continuity arrangements"),
-        ResearchTarget(query="extra"),
-    ])
+    data = run_with_plan(
+        live_client,
+        [ResearchTarget(query=t) for t in [*FULL_PLAN_TARGETS, OVER_BUDGET_TARGET]],
+    )
 
     step = planner_step(data)
     assert step["correction"] is not None
@@ -1621,7 +1620,7 @@ def test_planner_rubric_enforces_regime_coverage_for_every_named_regulation(live
 
 def test_planner_rubric_enumerates_the_model_provider_duty_area_for_vendor_models(live_client, planner_rubric):
     """The model-provider enumeration rule (issue #75, ADR-0015): when the
-    case names or implies a vendor-supplied generative model, the
+    scenario names or implies a vendor-supplied generative model, the
     model-provider duty area earns its own target — documentation, downstream
     information, policies — so the vendor-side duties are researched as
     deliberately as the deployer's instead of drifting to whichever provider
