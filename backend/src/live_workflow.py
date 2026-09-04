@@ -356,10 +356,16 @@ _RESEARCHER_SYSTEM = (
     "or how the provisions' rules reach them — and never restate a provision's content "
     "in the abstract. Draft definite claims: resolve what the scenario text states about "
     "the company's nature, roles, and jurisdiction into the claim itself — never an "
-    "'if X' claim where the scenario states X. Each claim is grounded ONLY in the listed "
-    "evidence. For every claim list the evidence labels it relies on; never reference a "
-    "label that was not given to you. If the evidence supports nothing relevant, return "
-    "an empty claims list."
+    "'if X' claim where the scenario states X. When a claim turns on a defined term — "
+    "a personal data breach, profiling, an ICT-related incident, a financial entity — "
+    "it cites the provision that defines it: deciding engagement is not restatement in "
+    "the abstract. Never draft a claim whose contingency the scenario's facts exclude — "
+    "draft the claim the stated facts support instead. A contingency the scenario text "
+    "genuinely leaves open is still drafted as today, so the open question stays visible "
+    "downstream as a moderate Finding with its referral Actions. Each claim is grounded "
+    "ONLY in the listed evidence. For every claim list the evidence labels it relies on; "
+    "never reference a label that was not given to you. If the evidence supports nothing "
+    "relevant, return an empty claims list."
 )
 
 _VERIFIER_SYSTEM = (

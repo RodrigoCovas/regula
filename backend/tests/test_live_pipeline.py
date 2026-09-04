@@ -1670,6 +1670,13 @@ def researcher_rubric() -> dict[str, str]:
         "no if where stated": "'if X' claim where the scenario states X",
         "scenario tie": "question asked for this scenario",
         "no restatement": "never restate a provision's content in the abstract",
+        "defined terms": "a personal data breach, profiling, an ICT-related incident, a financial entity",
+        "definitional citation": "it cites the provision that defines it",
+        "engagement not restatement": "deciding engagement is not restatement in the abstract",
+        "no excluded branch": "Never draft a claim whose contingency the scenario's facts exclude",
+        "stated facts instead": "draft the claim the stated facts support instead",
+        "open stays draftable": "A contingency the scenario text genuinely leaves open is still drafted as today",
+        "open visible downstream": "moderate Finding with its referral Actions",
         "grounded only": "grounded ONLY in the listed evidence",
         "given labels only": "never reference a label that was not given to you",
     }
@@ -1694,6 +1701,30 @@ def test_researcher_rubric_never_drafts_an_if_claim_where_the_scenario_states_it
     assert researcher_rubric["no restatement"] in researcher_system
     assert researcher_rubric["grounded only"] in researcher_system
     assert researcher_rubric["given labels only"] in researcher_system
+
+
+def test_researcher_rubric_cites_the_defining_provision_for_a_claim_turning_on_a_defined_term(live_client, researcher_rubric):
+    """When a claim turns on a defined term — a personal data breach,
+    profiling, an ICT-related incident, a financial entity — it cites the
+    provision that defines it: deciding engagement is not restatement in the
+    abstract (issue #76, ADR-0015)."""
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
+    assert researcher_rubric["defined terms"] in researcher_system
+    assert researcher_rubric["definitional citation"] in researcher_system
+    assert researcher_rubric["engagement not restatement"] in researcher_system
+
+
+def test_researcher_rubric_never_drafts_a_branch_the_scenario_facts_exclude(live_client, researcher_rubric):
+    """A contingency the Scenario's facts exclude is never drafted — the
+    claim the stated facts support goes in its place — while a contingency
+    the scenario genuinely leaves open stays draftable exactly as today, so
+    the open question stays visible downstream as a moderate Finding with
+    its referral Actions (issue #76, ADR-0015)."""
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
+    assert researcher_rubric["no excluded branch"] in researcher_system
+    assert researcher_rubric["stated facts instead"] in researcher_system
+    assert researcher_rubric["open stays draftable"] in researcher_system
+    assert researcher_rubric["open visible downstream"] in researcher_system
 
 
 @pytest.fixture
