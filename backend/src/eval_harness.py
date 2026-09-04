@@ -2004,7 +2004,7 @@ LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
         id="live-bank-cloud-outage",
         scenario_id="bank-cloud-outage",
         description="A bank relies on an external cloud provider to host critical systems used for online banking. A major technical failure at the cloud provider makes the bank's online banking services unavailable to customers for several hours.",
-        question="What regulatory obligations should the bank consider in relation to this incident and its reliance on the cloud provider, and its data protection obligations towards customer data on the disrupted systems?",
+        question="What regulatory obligations should the bank consider in relation to this incident, its reliance on the cloud provider, and its data protection obligations towards customer data on the disrupted systems?",
         expected=_BANK_CLOUD_OUTAGE_EXPECTED,
     ),
     EvalScenario(
@@ -2046,14 +2046,14 @@ LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
         id="live-genai-customer-service",
         scenario_id="financial-institution-genai-assistant",
         description="A European financial institution deploys a generative AI system provided by an external technology company to assist customer-service employees. The system processes customer conversations that may contain account information and personal data. The AI service is hosted on infrastructure operated by another cloud provider, and the financial institution has limited visibility into how the underlying service is operated.",
-        question="What regulatory requirements should the financial institution consider regarding the AI system, the processing of customer information, and its reliance on external technology providers, and any transfer of customer conversations outside the EEA?",
+        question="What regulatory requirements should the financial institution consider regarding the AI system, the processing of customer information, its reliance on external technology providers, and any transfer of customer conversations outside the EEA?",
         expected=_GENAI_CUSTOMER_SERVICE_ASSISTANT_EXPECTED,
     ),
     EvalScenario(
         id="live-ai-trading-cloud-attack",
         scenario_id="investment-firm-ai-cloud-attack",
         description="A European investment firm uses an AI system hosted by a third-party cloud provider to analyse market and client information and generate recommendations that traders use when making investment decisions. The system processes personal data relating to clients and is integrated into the firm's critical trading infrastructure. The cloud provider suffers a major cyberattack that disrupts the firm's trading systems for more than a day. During the incident, the firm discovers that attackers may also have gained unauthorized access to systems containing client information.",
-        question="What EU regulatory obligations should the investment firm consider in relation to the AI system, the processing of client data, the ICT incident, and its dependence on the third-party cloud provider, and its data protection obligations for the client personal data the attackers may have accessed?",
+        question="What EU regulatory obligations should the investment firm consider in relation to the AI system, the processing of client data, the ICT incident, its dependence on the third-party cloud provider, and its data protection obligations for the client personal data the attackers may have accessed?",
         expected=_AI_TRADING_CLOUD_ATTACK_EXPECTED,
     ),
 ]
