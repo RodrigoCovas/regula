@@ -406,6 +406,14 @@ def test_fair_share_fill_keeps_every_target_represented_under_the_derived_pool(l
     assert any(s.startswith("broad-") for s in sources), "the first target is still represented"
 
 
+def assert_every_target_keeps_representation(targets, retrieved):
+    """The pool derives from the plan: every planned target keeps at least
+    one of its Chunks in the served Evidence — no target is starved."""
+    sources = {r["source_id"] for r in retrieved}
+    for target in targets:
+        assert any(s.startswith(f"{target}-") for s in sources), f"{target} keeps representation"
+
+
 def test_evidence_pool_scales_with_the_planned_target_count(live_client):
     """Seat demand tracks the Planner's decomposition (ADR-0003): a third
     research target widens the pool again, and every target keeps its share
@@ -414,10 +422,8 @@ def test_evidence_pool_scales_with_the_planned_target_count(live_client):
     data = run_plan(live_client, targets, {target: depth_results(target) for target in targets})
 
     retrieved = served_evidence(data)
-    sources = {r["source_id"] for r in retrieved}
     assert len(retrieved) == SEATS_PER_TARGET * len(targets)
-    for target in targets:
-        assert any(s.startswith(f"{target}-") for s in sources), f"{target} keeps representation"
+    assert_every_target_keeps_representation(targets, retrieved)
 
 
 def test_evidence_pool_seats_a_full_eight_target_plan(live_client):
@@ -437,10 +443,8 @@ def test_evidence_pool_seats_a_full_eight_target_plan(live_client):
     data = run_plan(live_client, targets, {target: depth_results(target) for target in targets})
 
     retrieved = served_evidence(data)
-    sources = {r["source_id"] for r in retrieved}
     assert len(retrieved) == SEATS_PER_TARGET * 8
-    for target in targets:
-        assert any(s.startswith(f"{target}-") for s in sources), f"{target} keeps representation"
+    assert_every_target_keeps_representation(targets, retrieved)
 
 
 def test_pool_derives_from_the_plan_not_from_retrieval_volume(live_client):
@@ -1422,9 +1426,8 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
 
     retrieved = served_evidence(data)
     assert len(retrieved) == SEATS_PER_TARGET * 8, "pool bounded by accepted plan, not provider response"
+    assert_every_target_keeps_representation(targets[:8], retrieved)
     sources = {r["source_id"] for r in retrieved}
-    for target in targets[:8]:
-        assert any(s.startswith(f"{target}-") for s in sources), f"{target} is represented"
     assert not any(s.startswith("extra one-") for s in sources), "the ninth target was dropped"
 
 
