@@ -1706,8 +1706,10 @@ def test_researcher_rubric_never_drafts_an_if_claim_where_the_scenario_states_it
 def test_researcher_rubric_cites_the_defining_provision_for_a_claim_turning_on_a_defined_term(live_client, researcher_rubric):
     """When a claim turns on a defined term — a personal data breach,
     profiling, an ICT-related incident, a financial entity — it cites the
-    provision that defines it: deciding engagement is not restatement in the
-    abstract (issue #76, ADR-0015)."""
+    provision that defines it, because the 2026-09-03 re-run's largest
+    single recall loss was a definitional provision the Answers presupposed
+    instead of cited: deciding engagement is not restatement in the abstract
+    (issue #76, ADR-0015)."""
     researcher_system = recorded_system_prompts(live_client)["researcher"]
     assert researcher_rubric["defined terms"] in researcher_system
     assert researcher_rubric["definitional citation"] in researcher_system
