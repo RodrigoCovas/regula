@@ -1739,6 +1739,11 @@ def verifier_rubric() -> dict[str, str]:
         "out of scope": "unsupported when they fall out of scope",
         "perimeter form": "perimeter provision",
         "exclusion supported": "does not reach the scenario is the supported form",
+        "excluded contingency": "a contingency the scenario's facts exclude",
+        "settled the other way": "where the stated facts settle the matter the other way",
+        "never moderate": "is unsupported, never moderate",
+        "example setup": "a stated private customer base does not make a company a financial entity",
+        "example consequence": "developing the full financial-entity regime under that contingency is unsupported",
         "supported bar": "bears on answering the question asked for this scenario",
         "strong": "directly and explicitly establish the claim",
         "weak": "framing only (definitions, vocabulary)",
@@ -1776,3 +1781,17 @@ def test_verifier_rubric_names_the_exclusion_claim_as_the_supported_form(live_cl
     assert verifier_rubric["strong"] in verifier_system
     assert verifier_rubric["weak"] in verifier_system
     assert verifier_rubric["bare string"] in verifier_system
+
+
+def test_verifier_rubric_makes_the_scenario_excluded_contingency_explicitly_unsupported(live_client, verifier_rubric):
+    """A contingency the Scenario's facts exclude — where the stated facts
+    settle the matter the other way — is unsupported, never moderate: the
+    explicit case the glossary's Unsupported-claim definition already states,
+    anchored by one abstract worked example deliberately not drawn from the
+    eval cases (issue #77, ADR-0015)."""
+    verifier_system = recorded_system_prompts(live_client)["verifier"]
+    assert verifier_rubric["excluded contingency"] in verifier_system
+    assert verifier_rubric["settled the other way"] in verifier_system
+    assert verifier_rubric["never moderate"] in verifier_system
+    assert verifier_rubric["example setup"] in verifier_system
+    assert verifier_rubric["example consequence"] in verifier_system
