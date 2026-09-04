@@ -113,11 +113,14 @@ SEEK_COUNSEL_ACTION = (
 # (ADR-0004): the sheet is capped, never empty.
 MAX_ACTIONS = 5
 
-# The Planner's declared budget: 1-6 Research targets (ADR-0012); the pool
-# deriving from the accepted plan is ADR-0003's rationale. A provider response
-# over this limit is corrected once by truncation — the Evidence pool derives
-# from the accepted plan, never from an over-limit provider response.
-MAX_RESEARCH_TARGETS = 6
+# The Planner's declared budget: 1-8 Research targets — raised from
+# ADR-0012's 1-6 on the scored evidence ADR-0015 records (three-Regulation
+# Scenarios strained six); the pool deriving from the accepted plan is
+# ADR-0003's rationale. A provider response over this limit is corrected once
+# by truncation — the Evidence pool derives from the accepted plan, never from
+# an over-limit provider response. ADR-0015: lowering the budget back to six
+# takes a new ADR, not a code change.
+MAX_RESEARCH_TARGETS = 8
 
 
 # --- Workflow boundaries: every agent input/output crosses as a validated schema ---
@@ -316,17 +319,30 @@ _PLANNER_SYSTEM = (
     f"question into 1-{MAX_RESEARCH_TARGETS} short keyword Research targets that would locate the "
     "relevant provisions (articles, annexes) in the corpus whose inventory is given "
     "with the question. Read the scenario's facts first and let them draw the perimeter: plan "
-    "Research targets only for regulations the scenario's facts do not exclude. Add one "
-    "applicability target per regulation the scenario plausibly implicates but does not "
+    "Research targets only for regulations the scenario's facts do not exclude. Reserve "
+    "one engagement-threshold target per confirmed regulation — the provision that decides "
+    "whether the regime engages at all (a breach notion, a profiling notion, a "
+    "financial-entity perimeter, the principles constraining the contested processing) — "
+    "and list those reserved targets first, so the one-shot truncation correction can "
+    "never discard them: the Answer must cite the threshold, not presuppose it. Apply the "
+    "regime-coverage rule: every regulation the Regulatory question or the scenario's facts "
+    "name earns at least one Research target, keyed off both the question and the scenario "
+    "description you read — a dominant regime can never crowd a named regime out of the plan. "
+    "Add one applicability target per regulation the scenario plausibly implicates but does not "
     "confirm — a target for the regime's perimeter provision, the one that decides who the "
     "regime covers — so that provision becomes citable for an exclusion Finding when the "
     "regime does not reach the scenario. For each confirmed regulation, do not stop at "
     "regime-level classification: keep one Research target per operational duty area involved "
     "— never merge two duty areas into one target — so the regime's whole duty path is "
     "researched, e.g. a confirmed DORA incident regime earns classification, continuity, "
-    "post-incident review, and contract provisions as separate targets. When the budget "
-    "cannot fit every target, keep every applicability target and let the confirmed "
-    "regulations' duty areas compete for the remaining seats. Lift the inventory's "
+    "post-incident review, and contract provisions as separate targets. When the case "
+    "names or implies a generative AI model supplied by a vendor, enumerate the "
+    "model-provider duty area as its own target — the vendor's documentation, downstream "
+    "information, and policies duties — so the vendor-side branch is researched as "
+    "deliberately as the deployer's, never left to whatever retrieval surfaces. When the budget "
+    "cannot fit every target, keep every applicability target and every "
+    "engagement-threshold target, and let the confirmed regulations' duty areas compete "
+    "for the remaining seats. Lift the inventory's "
     "exact vocabulary into your target keywords (e.g. 'records of processing activities', "
     "'ICT-related incident classification'); the inventory is vocabulary guidance, not a "
     "constraint — a duty area the inventory does not name still earns its own target. Name "

@@ -420,6 +420,29 @@ def test_evidence_pool_scales_with_the_planned_target_count(live_client):
         assert any(s.startswith(f"{target}-") for s in sources), f"{target} keeps representation"
 
 
+def test_evidence_pool_seats_a_full_eight_target_plan(live_client):
+    """A full plan — the raised budget's eight Research targets (issue #75,
+    ADR-0015) — seats SEATS_PER_TARGET × 8 Chunks, and every target keeps its
+    share: the pool bound scales with the budget, no target is starved."""
+    targets = [
+        "engagement threshold",
+        "creditworthiness",
+        "automated decisions",
+        "deployer obligations",
+        "incident reporting",
+        "continuity arrangements",
+        "records of processing activities",
+        "model provider duties",
+    ]
+    data = run_plan(live_client, targets, {target: depth_results(target) for target in targets})
+
+    retrieved = served_evidence(data)
+    sources = {r["source_id"] for r in retrieved}
+    assert len(retrieved) == SEATS_PER_TARGET * 8
+    for target in targets:
+        assert any(s.startswith(f"{target}-") for s in sources), f"{target} keeps representation"
+
+
 def test_pool_derives_from_the_plan_not_from_retrieval_volume(live_client):
     """A lone broad target retrieves up to ``VECTOR_LEG_DEPTH +
     LEXICAL_LEG_DEPTH`` Chunks but seats only ``SEATS_PER_TARGET`` of them:
@@ -1241,15 +1264,15 @@ def test_derive_citation_populates_the_short_name_only_for_known_sources():
     assert unknown.source_short_name is None
 
 
-# --- Planner grounding: the Corpus inventory and the 1-6 budget (issue #62) ---
+# --- Planner grounding: the Corpus inventory and the 1-8 budget (issues #62, #75) ---
 
 
 def test_planner_prompt_carries_the_corpus_inventory_and_the_target_budget(live_client):
     """The Planner is grounded in the Corpus's own table of contents (issue #62,
     ADR-0012): the request-time prompt shows the titled provisions grouped by
-    source, and the system prompt declares the 1-6 budget with the
-    per-regulation and per-duty-area discipline and the vocabulary-lifting
-    instruction."""
+    source, and the system prompt declares the 1-8 budget (issue #75,
+    ADR-0015) with the per-regulation and per-duty-area discipline and the
+    vocabulary-lifting instruction."""
     llm = make_offline_llm()
     install_fake_pipeline(llm, FakeRetriever())
     resp = post_arbitrary_scenario(live_client)
@@ -1257,7 +1280,7 @@ def test_planner_prompt_carries_the_corpus_inventory_and_the_target_budget(live_
 
     planner_system, planner_user, _ = llm.calls[0]
     # The budget and the decomposition discipline ride the system prompt.
-    assert "1-6" in planner_system
+    assert "1-8" in planner_system
     assert "per regulation" in planner_system
     assert "duty area" in planner_system
     assert "never merge" in planner_system
@@ -1299,7 +1322,7 @@ def run_with_plan(live_client, targets, per_query=None):
 
 def test_planner_response_with_three_targets_is_accepted_unchanged(live_client):
     """A Planner response with three Research targets is accepted
-    without correction — within the declared 1-6 budget."""
+    without correction — within the declared 1-8 budget."""
     from src.live_workflow import ResearchTarget
 
     data = run_with_plan(live_client, [
@@ -1316,7 +1339,7 @@ def test_planner_response_with_three_targets_is_accepted_unchanged(live_client):
 
 def test_planner_response_with_one_target_is_accepted_unchanged(live_client):
     """A Planner response with one Research target is accepted — the lower
-    end of the 1-6 budget works unchanged."""
+    end of the 1-8 budget works unchanged."""
     from src.live_workflow import ResearchTarget
 
     data = run_with_plan(live_client, [ResearchTarget(query="creditworthiness")])
@@ -1343,11 +1366,12 @@ def test_planner_response_with_zero_targets_falls_through_to_insufficient_eviden
     assert_insufficient_evidence_response(data)
 
 
-def test_planner_response_over_budget_is_truncated_to_six(live_client):
-    """A Planner response with more than six Research targets is corrected
-    once by truncation: only the first six targets are accepted, the rest
+def test_planner_response_over_budget_is_truncated_to_eight(live_client):
+    """A Planner response with more than eight Research targets is corrected
+    once by truncation: only the first eight targets are accepted, the rest
     are silently dropped — the Evidence pool never expands beyond the
-    accepted plan."""
+    accepted plan (issue #75: the semantics are unchanged at the raised
+    budget; reserved targets listed first survive by position)."""
     from src.live_workflow import ResearchTarget
 
     data = run_with_plan(live_client, [
@@ -1357,22 +1381,25 @@ def test_planner_response_over_budget_is_truncated_to_six(live_client):
         ResearchTarget(query="incident reporting"),
         ResearchTarget(query="records of processing activities"),
         ResearchTarget(query="human oversight"),
+        ResearchTarget(query="contract clauses"),
+        ResearchTarget(query="continuity arrangements"),
         ResearchTarget(query="extra target one"),
     ])
 
     step = planner_step(data)
-    assert len(step["research_targets"]) == 6
+    assert len(step["research_targets"]) == 8
     assert step["research_targets"][:3] == ["creditworthiness", "automated decisions", "deployer obligations"]
     assert step["correction"] is not None
     assert "truncated" in step["correction"].lower()
-    assert "7" in step["correction"]
-    assert "6" in step["correction"]
+    assert "9" in step["correction"]
+    assert "8" in step["correction"]
 
 
 def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_client):
     """The Evidence pool derives from the accepted plan, not the provider's
-    over-limit response: even when the Planner returns seven targets, only
-    six seats' worth of Evidence is retrieved."""
+    over-limit response: even when the Planner returns nine targets, only
+    eight seats' worth of Evidence is retrieved — a full plan seats
+    SEATS_PER_TARGET × 8 (issue #75's raised budget)."""
     from src.live_workflow import ResearchTarget, SEATS_PER_TARGET
 
     targets = [
@@ -1382,6 +1409,8 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
         "incident reporting",
         "records of processing activities",
         "human oversight",
+        "contract clauses",
+        "continuity arrangements",
         "extra one",
     ]
     per_query = {t: depth_results(t) for t in targets}
@@ -1392,11 +1421,11 @@ def test_evidence_pool_is_bounded_by_accepted_plan_not_provider_response(live_cl
     )
 
     retrieved = served_evidence(data)
-    assert len(retrieved) == SEATS_PER_TARGET * 6, "pool bounded by accepted plan, not provider response"
+    assert len(retrieved) == SEATS_PER_TARGET * 8, "pool bounded by accepted plan, not provider response"
     sources = {r["source_id"] for r in retrieved}
-    for target in targets[:6]:
+    for target in targets[:8]:
         assert any(s.startswith(f"{target}-") for s in sources), f"{target} is represented"
-    assert not any(s.startswith("extra one-") for s in sources), "the seventh target was dropped"
+    assert not any(s.startswith("extra one-") for s in sources), "the ninth target was dropped"
 
 
 def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
@@ -1411,13 +1440,15 @@ def test_planner_correction_is_recorded_in_the_execution_trace(live_client):
         ResearchTarget(query="incident reporting"),
         ResearchTarget(query="records of processing activities"),
         ResearchTarget(query="human oversight"),
+        ResearchTarget(query="contract clauses"),
+        ResearchTarget(query="continuity arrangements"),
         ResearchTarget(query="extra"),
     ])
 
     step = planner_step(data)
     assert step["correction"] is not None
-    assert "7" in step["correction"]
-    assert "6" in step["correction"]
+    assert "9" in step["correction"]
+    assert "8" in step["correction"]
 
 
 # --- Scenario-relevance discipline for the Researcher and Verifier (issue #63) ---
@@ -1502,9 +1533,21 @@ def planner_rubric() -> dict[str, str]:
         "per duty area": "per operational duty area involved",
         "never merge": "never merge two duty areas into one target",
         "duty path": "classification, continuity, post-incident review, and contract provisions",
-        "budget": "1-6",
+        "budget": "1-8",
         "budget priority": "keep every applicability target",
         "budget competition": "compete for the remaining seats",
+        "engagement threshold": "Reserve one engagement-threshold target per confirmed regulation",
+        "threshold provision": "the provision that decides whether the regime engages at all",
+        "threshold notions": "a breach notion, a profiling notion, a financial-entity perimeter",
+        "threshold listed first": "list those reserved targets first",
+        "threshold survives truncation": "truncation correction can never discard",
+        "regime coverage": "every regulation the Regulatory question or the scenario's facts name",
+        "coverage earns": "earns at least one Research target",
+        "coverage keyed off both": "both the question and the scenario description",
+        "no crowding": "crowd a named regime out",
+        "vendor model trigger": "names or implies a generative AI model supplied by a vendor",
+        "model provider duty area": "model-provider duty area",
+        "vendor duties": "documentation, downstream information, and policies",
         "operative only": "(articles, annexes)",
         "exact vocabulary": "exact vocabulary",
         "guidance not constraint": "guidance, not a constraint",
@@ -1532,12 +1575,56 @@ def test_planner_prompt_points_at_operative_provisions_only(live_client, planner
 
 def test_planner_rubric_spends_the_budget_on_applicability_targets_first(live_client, planner_rubric):
     """Applicability targets and per-duty-area targets compete for the same
-    1-6 seats: the rubric settles the competition — every applicability
+    1-8 seats: the rubric settles the competition — every applicability
     target is kept and the confirmed regulations' duty areas take what
     remains — so an unconfirmed regime's exclusion can never be priced out."""
     planner_system = recorded_system_prompts(live_client)["planner"]
     assert planner_rubric["budget priority"] in planner_system
     assert planner_rubric["budget competition"] in planner_system
+
+
+def test_planner_rubric_reserves_one_engagement_threshold_target_per_confirmed_regulation(live_client, planner_rubric):
+    """The reserved engagement-threshold target (issue #75, ADR-0015): each
+    confirmed Regulation earns one target aimed at the provision that decides
+    whether the regime engages at all — a breach notion, a profiling notion,
+    a financial-entity perimeter — listed first so the one-shot truncation
+    correction can never discard it (CONTEXT.md, Engagement-threshold
+    target)."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["engagement threshold"] in planner_system
+    assert planner_rubric["threshold provision"] in planner_system
+    assert planner_rubric["threshold notions"] in planner_system
+    assert planner_rubric["threshold listed first"] in planner_system
+    assert planner_rubric["threshold survives truncation"] in planner_system
+    # The budget competition keeps every reserved target, too.
+    assert "every engagement-threshold target" in planner_system
+
+
+def test_planner_rubric_enforces_regime_coverage_for_every_named_regulation(live_client, planner_rubric):
+    """The regime-coverage rule (issue #75, ADR-0015): every Regulation the
+    Regulatory question or the Scenario's facts name earns at least one
+    Research target, keyed off both the question and the description the
+    Planner already reads — a dominant regime can never crowd a named regime
+    out of the plan (the cloud-attack case's zero-data-protection drift dies
+    here)."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["regime coverage"] in planner_system
+    assert planner_rubric["coverage earns"] in planner_system
+    assert planner_rubric["coverage keyed off both"] in planner_system
+    assert planner_rubric["no crowding"] in planner_system
+
+
+def test_planner_rubric_enumerates_the_model_provider_duty_area_for_vendor_models(live_client, planner_rubric):
+    """The model-provider enumeration rule (issue #75, ADR-0015): when the
+    case names or implies a vendor-supplied generative model, the
+    model-provider duty area earns its own target — documentation, downstream
+    information, policies — so the vendor-side duties are researched as
+    deliberately as the deployer's instead of drifting to whichever provider
+    chunks retrieval surfaces (ADR-0014's deferred heuristic, adopted)."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["vendor model trigger"] in planner_system
+    assert planner_rubric["model provider duty area"] in planner_system
+    assert planner_rubric["vendor duties"] in planner_system
 
 
 def test_planner_rubric_adds_one_applicability_target_per_unconfirmed_regulation(live_client, planner_rubric):

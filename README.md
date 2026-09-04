@@ -28,7 +28,7 @@ PostgreSQL + pgvector (ingested Chunks)     Ollama (nomic-embed-text embeddings)
 
 The four containers — frontend, backend, PostgreSQL with pgvector, and Ollama — come up together with `docker compose up -d --build`.
 
-A Live run is grounded and budgeted at every step. The **Planner** decomposes the question into one to six Research targets, guided by the Corpus's own inventory of titled provisions (ADR-0012) rather than model memory alone. Each target searches the ingested Corpus twice — semantically by embedding and lexically by Postgres full-text search — and the two ranked lists fuse by reciprocal rank fusion, so provisions surface by meaning and by their exact legal terminology alike; the per-target results fill one shared Evidence pool, and a question where neither leg finds a single Chunk surfaces as the Insufficient-evidence Known limitation, with suggested Actions and no Findings, instead of a hollow answer. The **Researcher** drafts only Claims that bear on the question asked for the Scenario, and the **Verifier** discards abstract restatements that do not — Findings state what the Scenario's actors must or must not do, not what the law says in general.
+A Live run is grounded and budgeted at every step. The **Planner** decomposes the question into one to eight Research targets, guided by the Corpus's own inventory of titled provisions (ADR-0012, ADR-0015) rather than model memory alone. Each target searches the ingested Corpus twice — semantically by embedding and lexically by Postgres full-text search — and the two ranked lists fuse by reciprocal rank fusion, so provisions surface by meaning and by their exact legal terminology alike; the per-target results fill one shared Evidence pool, and a question where neither leg finds a single Chunk surfaces as the Insufficient-evidence Known limitation, with suggested Actions and no Findings, instead of a hollow answer. The **Researcher** drafts only Claims that bear on the question asked for the Scenario, and the **Verifier** discards abstract restatements that do not — Findings state what the Scenario's actors must or must not do, not what the law says in general.
 
 ## Quickstart
 
@@ -140,7 +140,7 @@ A run's numbers are produced by the command under [Reproduce](#reproduce) and re
 Reading any run's numbers:
 
 - **Precision is pessimistic by construction.** A produced Citation outside the hand-authored expected set is not necessarily wrong — acceptable supplements the ground truth simply does not list count against precision — so precision reads as a floor on real precision. The produced-versus-expected dump in the report artifact exists for exactly this audit.
-- **Recall is budget-bound by design.** The Planner researches 1–6 Research targets per answer into one shared Evidence pool (ADR-0003, ADR-0012) against expected sets spanning 11–45 provisions, so recall reads low by construction; precision is the quality signal inside that ceiling.
+- **Recall is budget-bound by design.** The Planner researches 1–8 Research targets per answer into one shared Evidence pool (ADR-0003, ADR-0012, ADR-0015) against expected sets spanning 11–45 provisions, so recall reads low by construction; precision is the quality signal inside that ceiling.
 - **Numbers are model-sensitive** (ADR-0009): they are comparable only within the model that produced them. Switching models re-measures; it does not inherit any prior claim.
 
 ### Reproduce
