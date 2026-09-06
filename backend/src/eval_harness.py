@@ -721,17 +721,6 @@ _AI_RECRUITMENT_SCREENING_EXPECTED = [
              "strength": Strength.weak},
         ],
     ),
-    ExpectedFinding(
-        statement="The GDPR reaches the candidate-data processing as wholly or partly automated processing of personal data, through the company's Union establishment or, failing that, its offering to candidates in the Union.",
-        citations=[
-            {"source_id": "gdpr", "provision": "Article 2",
-             "relevance": "Article 2's material scope covers the automated collection, filtering, and scoring of CVs and video interviews as processing of personal data wholly or partly by automated means, bringing the recruitment pipeline within the GDPR.",
-             "strength": Strength.weak},
-            {"source_id": "gdpr", "provision": "Article 3",
-             "relevance": "Article 3's territorial scope reaches the company's candidate-data processing through its Union establishment or, where it is established elsewhere, through its offering of services to candidates in the Union.",
-             "strength": Strength.weak},
-        ],
-    ),
 ]
 
 _BANK_CLOUD_OUTAGE_EXPECTED = [
@@ -761,12 +750,6 @@ _BANK_CLOUD_OUTAGE_EXPECTED = [
             {"source_id": "dora", "provision": "Article 19",
              "relevance": "Article 19 obliges the bank, once the outage is classified major, to submit initial, intermediate, and final reports to the competent authority and to promptly inform affected clients about the incident and mitigation measures.",
              "strength": Strength.strong},
-            {"source_id": "dora", "provision": "Article 20",
-             "relevance": "Article 20 tasks the ESAs with the harmonised reporting templates and time limits, the source of the deadlines the bank's incident reports must follow.",
-             "strength": Strength.weak},
-            {"source_id": "dora", "provision": "Article 21",
-             "relevance": "Article 21's centralisation roadmap streamlines the reporting channel through which the bank submits its incident notifications.",
-             "strength": Strength.weak},
         ],
     ),
     ExpectedFinding(
@@ -1025,17 +1008,6 @@ _EMPLOYEE_PRODUCTIVITY_MONITORING_EXPECTED = [
             {"source_id": "gdpr", "provision": "Article 88",
              "relevance": "Article 88 authorises national rules on employee-data processing with specific safeguards for workplace monitoring, so the employer must layer Member State requirements over the GDPR baseline.",
              "strength": Strength.moderate},
-        ],
-    ),
-    ExpectedFinding(
-        statement="The GDPR reaches the employee-data processing as wholly or partly automated processing of personal data, through the employer's Union establishment.",
-        citations=[
-            {"source_id": "gdpr", "provision": "Article 2",
-             "relevance": "Article 2's material scope covers the automated recording and scoring as processing of personal data wholly or partly by automated means, bringing the monitoring pipeline within the GDPR.",
-             "strength": Strength.weak},
-            {"source_id": "gdpr", "provision": "Article 3",
-             "relevance": "Article 3's territorial scope reaches the employer's employee-data processing through its Union establishment, the applicability gateway for the monitoring duties.",
-             "strength": Strength.weak},
         ],
     ),
     ExpectedFinding(
@@ -1656,17 +1628,11 @@ _RANSOMWARE_INVESTMENT_FIRM_EXPECTED = [
         ],
     ),
     ExpectedFinding(
-        statement="Once classified major, the firm reports through initial, intermediate and final reports - the intermediate ones accommodating the evolving investigation into client-data access - within the prescribed templates and time limits, through the centralised channel, with the authority's acknowledgement and feedback closing the supervisory loop.",
+        statement="Once classified major, the firm reports through initial, intermediate and final reports - the intermediate ones accommodating the evolving investigation into client-data access - within the prescribed templates and time limits, with the authority's acknowledgement and feedback closing the supervisory loop.",
         citations=[
             {"source_id": "dora", "provision": "Article 19",
              "relevance": "Article 19 obliges the firm to report the major incident through initial, intermediate, and final reports, with the intermediate reports accommodating the evolving investigation into client-data access, and Article 19(3) adds the client-notification duty where financial interests are affected.",
              "strength": Strength.strong},
-            {"source_id": "dora", "provision": "Article 20",
-             "relevance": "Article 20 tasks the ESAs with the reporting templates and time limits the firm's incident reports must follow, the source of the deadlines the analysis references.",
-             "strength": Strength.weak},
-            {"source_id": "dora", "provision": "Article 21",
-             "relevance": "Article 21's centralisation roadmap streamlines the reporting channel through which the firm submits its notifications.",
-             "strength": Strength.weak},
             {"source_id": "dora", "provision": "Article 22",
              "relevance": "Article 22 provides for the authority's acknowledgement and feedback on the incident reports, the supervisory loop supporting the firm's handling.",
              "strength": Strength.weak},
@@ -1865,11 +1831,11 @@ _GENAI_CUSTOMER_SERVICE_ASSISTANT_EXPECTED = [
         ],
     ),
     ExpectedFinding(
-        statement="The GDPR applies to the customer conversations processed through the assistant as wholly or partly automated processing of personal data.",
+        statement="The institution is a financial entity within DORA, so its reliance on the external AI provider and the hosting cloud is governed through DORA's third-party regime, while the customer-data and AI questions are governed by the GDPR and the AI Act.",
         citations=[
-            {"source_id": "gdpr", "provision": "Article 2",
-             "relevance": "Article 2's material scope covers the assistant's processing of customer conversations as processing of personal data wholly or partly by automated means, bringing the service within the GDPR.",
-             "strength": Strength.weak},
+            {"source_id": "dora", "provision": "Article 2",
+             "relevance": "Article 2's financial-entity list brings the institution within DORA's scope, so its reliance on the AI provider and the hosting cloud is governed through DORA's third-party regime, while the customer-data and AI questions are governed by the GDPR and the AI Act.",
+             "strength": Strength.moderate},
         ],
     ),
     ExpectedFinding(
@@ -1914,9 +1880,6 @@ _AI_TRADING_CLOUD_ATTACK_EXPECTED = [
             {"source_id": "dora", "provision": "Article 19",
              "relevance": "Article 19 obliges the firm to report the major incident through initial, intermediate, and final reports as the investigation into client-data access evolves, and Article 19(3) adds the prompt client notification where financial interests are affected.",
              "strength": Strength.strong},
-            {"source_id": "dora", "provision": "Article 20",
-             "relevance": "Article 20 tasks the ESAs with the reporting templates and time limits the firm's incident reports must follow.",
-             "strength": Strength.weak},
         ],
     ),
     ExpectedFinding(

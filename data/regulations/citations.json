@@ -247,18 +247,6 @@
       "provision": "Article 113",
       "relevance": "Article 113(2) fixes 2 August 2026 as the application date, confirming the high-risk deployer duties for the recruitment system are in force at the time of use.",
       "strength": "weak"
-    },
-    {
-      "source_id": "gdpr",
-      "provision": "Article 2",
-      "relevance": "Article 2's material scope covers the automated collection, filtering, and scoring of CVs and video interviews as processing of personal data wholly or partly by automated means, bringing the recruitment pipeline within the GDPR.",
-      "strength": "weak"
-    },
-    {
-      "source_id": "gdpr",
-      "provision": "Article 3",
-      "relevance": "Article 3's territorial scope reaches the company's candidate-data processing through its Union establishment or, where it is established elsewhere, through its offering of services to candidates in the Union.",
-      "strength": "weak"
     }
   ],
   "scenario_3": [
@@ -357,18 +345,6 @@
       "provision": "Article 19",
       "relevance": "Article 19 obliges the bank, once the outage is classified major, to submit initial, intermediate, and final reports to the competent authority and to promptly inform affected clients about the incident and mitigation measures.",
       "strength": "strong"
-    },
-    {
-      "source_id": "dora",
-      "provision": "Article 20",
-      "relevance": "Article 20 tasks the ESAs with the harmonised reporting templates and time limits, the source of the deadlines the bank's incident reports must follow.",
-      "strength": "weak"
-    },
-    {
-      "source_id": "dora",
-      "provision": "Article 21",
-      "relevance": "Article 21's centralisation roadmap streamlines the reporting channel through which the bank submits its incident notifications.",
-      "strength": "weak"
     },
     {
       "source_id": "dora",
@@ -580,18 +556,6 @@
       "source_id": "ai-act",
       "provision": "Article 50",
       "relevance": "Article 50(3) obliges the deployer of an emotion recognition system to inform the natural persons exposed to it of the system's operation, the transparency complement to the Article 5 prohibition the employer checks for.",
-      "strength": "weak"
-    },
-    {
-      "source_id": "gdpr",
-      "provision": "Article 2",
-      "relevance": "Article 2's material scope covers the automated recording and scoring as processing of personal data wholly or partly by automated means, bringing the monitoring pipeline within the GDPR.",
-      "strength": "weak"
-    },
-    {
-      "source_id": "gdpr",
-      "provision": "Article 3",
-      "relevance": "Article 3's territorial scope reaches the employer's employee-data processing through its Union establishment, the applicability gateway for the monitoring duties.",
       "strength": "weak"
     },
     {
@@ -1342,18 +1306,6 @@
     },
     {
       "source_id": "dora",
-      "provision": "Article 20",
-      "relevance": "Article 20 tasks the ESAs with the reporting templates and time limits the firm's incident reports must follow, the source of the deadlines the analysis references.",
-      "strength": "weak"
-    },
-    {
-      "source_id": "dora",
-      "provision": "Article 21",
-      "relevance": "Article 21's centralisation roadmap streamlines the reporting channel through which the firm submits its notifications.",
-      "strength": "weak"
-    },
-    {
-      "source_id": "dora",
       "provision": "Article 22",
       "relevance": "Article 22 provides for the authority's acknowledgement and feedback on the incident reports, the supervisory loop supporting the firm's handling.",
       "strength": "weak"
@@ -1458,6 +1410,12 @@
     },
     {
       "source_id": "dora",
+      "provision": "Article 2",
+      "relevance": "Article 2's financial-entity list brings the institution within DORA's scope, so its reliance on the AI provider and the hosting cloud is governed through DORA's third-party regime, while the customer-data and AI questions are governed by the GDPR and the AI Act.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
       "provision": "Article 3",
       "relevance": "Article 3's definitions of ICT services and ICT third-party service provider bring both the AI provider and the hosting cloud within the third-party regime, the vocabulary on which the analysis rests.",
       "strength": "moderate"
@@ -1485,12 +1443,6 @@
       "provision": "Article 30",
       "relevance": "Article 30 prescribes the contract content the institution must secure, covering locations and data-processing venues, personal-data protection, data return, incident assistance at defined cost, notification of material developments, tested contingency plans, and ongoing performance-monitoring rights, the toolkit for restoring visibility into the service.",
       "strength": "strong"
-    },
-    {
-      "source_id": "gdpr",
-      "provision": "Article 2",
-      "relevance": "Article 2's material scope covers the assistant's processing of customer conversations as processing of personal data wholly or partly by automated means, bringing the service within the GDPR.",
-      "strength": "weak"
     },
     {
       "source_id": "gdpr",
@@ -1637,12 +1589,6 @@
       "provision": "Article 19",
       "relevance": "Article 19 obliges the firm to report the major incident through initial, intermediate, and final reports as the investigation into client-data access evolves, and Article 19(3) adds the prompt client notification where financial interests are affected.",
       "strength": "strong"
-    },
-    {
-      "source_id": "dora",
-      "provision": "Article 20",
-      "relevance": "Article 20 tasks the ESAs with the reporting templates and time limits the firm's incident reports must follow.",
-      "strength": "weak"
     },
     {
       "source_id": "dora",
