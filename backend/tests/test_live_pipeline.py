@@ -2361,11 +2361,14 @@ def test_duty_area_findings_scoped_only_to_a_closed_regulation_are_dropped_with_
     assert decisions[exclusion]["status"] == "kept"
     assert decisions[other_regime]["status"] == "kept"
 
-    gate_record = verifier_step(data)["engagement_states"]
-    assert gate_record["dora"]["state"] == "closed"
-    assert gate_record["dora"]["conflict"] is False
-    assert gate_record["dora"]["closed"] == [exclusion]
-    assert "engagement_states" in verifier_step(data)
+    gate_records = verifier_step(data)["engagement_states"]
+    assert gate_records == [{
+        "source_id": "dora",
+        "state": "closed",
+        "conflict": False,
+        "open": [],
+        "closed": [exclusion],
+    }]
 
 
 def test_conflicting_engagement_evidence_resolves_closed_wins_and_is_recorded(live_client):
@@ -2401,13 +2404,14 @@ def test_conflicting_engagement_evidence_resolves_closed_wins_and_is_recorded(li
     assert open_question in statements, "both perimeter-citing Findings survive the closed-wins call"
     assert duty not in statements
 
-    gate_record = verifier_step(data)["engagement_states"]
-    assert gate_record["dora"] == {
+    gate_records = verifier_step(data)["engagement_states"]
+    assert gate_records == [{
+        "source_id": "dora",
         "state": "closed",
         "conflict": True,
         "open": [open_question],
         "closed": [exclusion],
-    }
+    }]
     decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
     assert "closed-wins" in decisions[duty]["reason"]
 
@@ -2463,10 +2467,14 @@ def test_the_conditional_dora_block_survives_the_gate(live_client):
     assert duty_six in statements
     assert data["trace"]["unsupported_claims_discarded"] == []
 
-    gate_record = verifier_step(data)["engagement_states"]
-    assert gate_record["dora"]["state"] == "open"
-    assert gate_record["dora"]["conflict"] is False
-    assert gate_record["dora"]["open"] == [engagement]
+    gate_records = verifier_step(data)["engagement_states"]
+    assert gate_records == [{
+        "source_id": "dora",
+        "state": "open",
+        "conflict": False,
+        "open": [engagement],
+        "closed": [],
+    }]
 
 
 def test_a_regulation_with_no_kept_perimeter_citation_is_undecided_and_untouched(live_client):
@@ -2571,5 +2579,5 @@ def test_duty_limbs_on_an_ai_act_regime_settled_away_are_dropped(live_client):
     decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
     assert decisions[duty]["status"] == "rejected"
     assert "EU AI Act Article 2" in decisions[duty]["reason"]
-    gate_record = verifier_step(data)["engagement_states"]
-    assert gate_record["ai-act"]["state"] == "closed"
+    gate_records = verifier_step(data)["engagement_states"]
+    assert [r["state"] for r in gate_records if r["source_id"] == "ai-act"] == ["closed"]

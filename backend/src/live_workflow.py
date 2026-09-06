@@ -289,6 +289,24 @@ class ActionDecision(BaseModel):
     dropped_refs: list[str] = Field(default_factory=list)
 
 
+class EngagementState(BaseModel):
+    """One decided Regulation's Engagement state (issue #86): the engagement
+    gate's per-Regulation record, embedded in the detailed trace's verifier
+    step. ``state`` is the state the kept set computes — *open* when some
+    kept Finding cites one of the Regulation's Perimeter provisions as
+    applying or as an open question, *closed* when one cites such a provision
+    as not reaching the Scenario; ``conflict`` marks the closed-wins case.
+    ``open`` and ``closed`` carry the evidence — the statements of the kept
+    Findings on each side — so the post-run analysis reads the conflict, not
+    just its resolution."""
+
+    source_id: str
+    state: Literal["open", "closed"]
+    conflict: bool = False
+    open: list[str] = Field(default_factory=list)
+    closed: list[str] = Field(default_factory=list)
+
+
 class LabeledEvidence(BaseModel):
     """One retrieved Chunk with the stable label the agents reference it by."""
 
@@ -347,10 +365,10 @@ class LiveState(BaseModel):
     # The corrective re-prompt an uncited reserved anchor owed (issue #84):
     # recorded in the detailed trace like the other two one-shot corrections.
     researcher_correction: Optional[str] = None
-    # The engagement gate's per-Regulation record (issue #86): each decided
-    # Regulation's state, its conflict flag, and both sides' evidence —
-    # embedded in the detailed trace's verifier step, never silent.
-    engagement_states: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # The engagement gate's per-Regulation records (issue #86): each decided
+    # Regulation's state, conflict flag, and both sides' evidence — embedded
+    # in the detailed trace's verifier step, never silent.
+    engagement_states: list[EngagementState] = Field(default_factory=list)
 
 
 # --- Prompts: JSON-only instructions; the client repeats the schema contract ---
@@ -653,7 +671,7 @@ def _asserts_not_reaching(statement: str) -> bool:
 
 def _engagement_gate(
     findings: list[Finding], decisions: list[ClaimDecision]
-) -> tuple[list[Finding], list[ClaimDecision], dict[str, dict[str, Any]]]:
+) -> tuple[list[Finding], list[ClaimDecision], list[EngagementState]]:
     """The engagement gate (issue #86): per cited Regulation, the Engagement
     state computes from the kept set alone, and duty-area Findings scoped
     only to closed Regulations are rejected with recorded reasons.
@@ -663,7 +681,7 @@ def _engagement_gate(
     perimeter_provisions``) without asserting non-reach: as applying, or as
     an open question. *closed* — some kept Finding cites such a provision
     while asserting the regime does not reach the Scenario. Both present
-    resolves **closed-wins**, the conflict carried in the returned record
+    resolves **closed-wins**, the conflict carried in the returned records
     the detailed trace embeds. A kept Finding scoped only to closed
     Regulations — and carrying no Perimeter Citation itself, so an Exclusion
     Finding and the open-form engagement evidence are never dropped — is
@@ -709,17 +727,18 @@ def _engagement_gate(
             else:
                 open_evidence.setdefault(source, []).append(finding.statement)
 
-    states: dict[str, dict[str, Any]] = {}
-    for source in sorted(set(open_evidence) | set(closed_evidence)):
-        opens = open_evidence.get(source, [])
-        closes = closed_evidence.get(source, [])
-        states[source] = {
-            "state": "closed" if closes else "open",
-            "conflict": bool(opens and closes),
-            "open": opens,
-            "closed": closes,
-        }
-    closed = {source for source, record in states.items() if record["state"] == "closed"}
+    states: list[EngagementState] = [
+        EngagementState(
+            source_id=source,
+            state="closed" if closed_evidence.get(source) else "open",
+            conflict=bool(open_evidence.get(source) and closed_evidence.get(source)),
+            open=open_evidence.get(source, []),
+            closed=closed_evidence.get(source, []),
+        )
+        for source in sorted(set(open_evidence) | set(closed_evidence))
+    ]
+    closed = {record.source_id for record in states if record.state == "closed"}
+    conflicted = {record.source_id for record in states if record.conflict}
 
     drops: dict[int, str] = {}
     for index, finding in enumerate(findings):
@@ -731,12 +750,12 @@ def _engagement_gate(
             {label for source in scope for label in closed_perimeter_labels.get(source, set())}
         )
         reason = _GATE_REASON.format(sources=", ".join(names), perimeter=", ".join(labels))
-        if any(states[source]["conflict"] for source in scope):
+        if scope & conflicted:
             reason += _GATE_CONFLICT_NOTE
         drops[index] = reason
 
     if not states and not drops:
-        return findings, decisions, {}
+        return findings, decisions, []
     if not drops:
         return findings, decisions, states
 
@@ -1718,9 +1737,11 @@ def run_live_analysis(
         "claim_decisions": [decision.model_dump() for decision in decisions],
     }
     if state.engagement_states:
-        # The engagement gate's per-Regulation record (issue #86): each decided
-        # Regulation's state, conflict flag, and both sides' evidence.
-        verifier_step["engagement_states"] = state.engagement_states
+        # The engagement gate's per-Regulation records (issue #86): each
+        # decided Regulation's state, conflict flag, and both sides' evidence.
+        verifier_step["engagement_states"] = [
+            record.model_dump() for record in state.engagement_states
+        ]
 
     detailed_trace: list[dict[str, Any]] = [
         planner_step,
