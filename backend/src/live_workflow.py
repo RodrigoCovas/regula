@@ -518,8 +518,14 @@ def _verifier_user(
 # --- Deterministic Citation derivation from Chunk metadata ---
 
 
+def _provision_target_label(target: ProvisionTarget) -> str:
+    """The human-readable label of one structural provision target — the one
+    provision-label shape every Citation, anchor name, and gate reason shares."""
+    return f"{PROVISION_NOUNS[target.kind]} {target.number}"
+
+
 def _provision_label(chunk: Chunk) -> str:
-    return f"{PROVISION_NOUNS[chunk.kind]} {chunk.provision_number}"
+    return _provision_target_label(chunk.provision_target)
 
 
 def derive_citation(chunk: Chunk) -> Citation:
@@ -698,7 +704,7 @@ def _engagement_gate(
                     target = citation.provision_target
                     if target.source_id == source and target in perimeter[source]:
                         closed_perimeter_labels.setdefault(source, set()).add(
-                            f"{name} {PROVISION_NOUNS[target.kind]} {target.number}"
+                            f"{name} {_provision_target_label(target)}"
                         )
             else:
                 open_evidence.setdefault(source, []).append(finding.statement)
