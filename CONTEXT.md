@@ -51,6 +51,10 @@ _Avoid_: Anchor alone, threshold evidence, engagement provision
 The provision of a Regulation that decides who the Regulation covers — typically its scope Article — and the Citation an exclusion Finding rests on.
 _Avoid_: Scope provision, applicability clause
 
+**Engagement state**:
+Per Regulation the kept Findings cite: *open* when some kept Finding cites one of its Perimeter provisions as applying or as an open question, *closed* when a kept Finding cites such a provision as not reaching the Scenario. Conflicting evidence resolves closed-wins, with the conflict recorded in the detailed trace; a Regulation no kept Finding engages through a perimeter citation stays undecided and untouched. Application code computes the state at the claim-decision step — never the LLM.
+_Avoid_: Regime status, applicability state
+
 **Corpus**:
 The fixed curated set of source documents Regula reasons over in the MVP.  
 _Avoid_: Knowledge base, dataset
@@ -115,6 +119,10 @@ _Avoid_: Confidence, probability
 **Exclusion Finding**:
 A Finding that a Regulation does not reach the Scenario, kept when the Evidence pool holds that Regulation's perimeter provision.
 _Avoid_: Negative finding, out-of-scope finding
+
+**Duty-area finding**:
+A Finding stating what a Regulation's duties require of the Scenario's actors, as distinct from the engagement and exclusion Findings that decide whether the regime reaches the Scenario at all. It survives only while that Regulation's Engagement state is open or undecided; when the Regulation is closed, its Perimeter Citation surfaces as the Exclusion Finding instead and the duty-area Finding is dropped with a recorded reason.
+_Avoid_: Duty finding, substantive finding
 
 **Unsupported claim**:
 A statement with no Evidence in the Corpus either way — no provision can be cited for or against it; one that merely restates provisions without bearing on the question asked for the Scenario; or one whose contingency the Scenario text settles out of scope. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
