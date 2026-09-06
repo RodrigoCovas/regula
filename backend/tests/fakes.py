@@ -167,9 +167,12 @@ class FakeRetriever:
 class ScriptedLlm:
     """Replays canned structured outputs keyed by boundary schema.
 
-    ``usage`` mirrors the real client's exposure: when given, every
-    completed call leaves one provider usage dictionary behind, so
-    per-request aggregation has something to sum.
+    The Summarizer boundary gets a second slot: ``summaries_retry``, when
+    given, is served on the boundary's *second* call — the corrective
+    re-prompt's pass (issue #82) — while the first call and any later one
+    replay ``summaries``. ``usage`` mirrors the real client's exposure:
+    when given, every completed call leaves one provider usage dictionary
+    behind, so per-request aggregation has something to sum.
     """
 
     def __init__(
@@ -179,6 +182,7 @@ class ScriptedLlm:
         verdicts: Verdicts | None = None,
         proposals: ActionProposals | None = None,
         summaries: Summaries | None = None,
+        summaries_retry: Summaries | None = None,
         usage: dict | None = None,
     ):
         self.plan = plan or Plan(targets=[ResearchTarget(query="creditworthiness evaluation")])
@@ -186,7 +190,9 @@ class ScriptedLlm:
         self.verdicts = verdicts or Verdicts(verdicts=[])
         self.proposals = proposals or ActionProposals(proposals=[])
         self.summaries = summaries or Summaries(summaries=[])
+        self.summaries_retry = summaries_retry
         self._canned_usage = usage
+        self._summaries_calls = 0
         self.calls: list[tuple[str, str, type]] = []
         self.usage: list[dict] = []
 
@@ -194,6 +200,10 @@ class ScriptedLlm:
         self.calls.append((system, user, schema))
         if self._canned_usage is not None:
             self.usage.append(dict(self._canned_usage))
+        if schema is Summaries:
+            self._summaries_calls += 1
+            if self._summaries_calls == 2 and self.summaries_retry is not None:
+                return self.summaries_retry.model_copy(deep=True)
         canned = {
             Plan: self.plan,
             DraftClaims: self.claims,

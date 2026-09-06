@@ -31,8 +31,11 @@ Four rules are enforced by application code, never trusted to the LLM:
   Summarizer gives each cited provision's Citation strength rides only when
   it is one of the three levels — a missing or invalid rating keeps the
   relevance, carries no strength, and is recorded with a reason (ADR-0011).
-  On Summarizer failure the Answer ships without summaries plus a Known
-  limitation — the run does not fail.
+  When a pass leaves cited provisions without relevance, exactly one
+  corrective re-prompt lists the uncovered refs — mirroring the Planner's
+  truncation correction — and a second failure ships the partial coverage
+  with its Known limitation. On Summarizer failure the Answer ships without
+  summaries plus a Known limitation — the run does not fail.
 
 When retrieval returns nothing at all — both the vector and the lexical
 leg come back empty (ADR-0012) — no LLM call drafts, verifies, or proposes
@@ -309,6 +312,9 @@ class LiveState(BaseModel):
     relevance: list[GroundedSummary] = Field(default_factory=list)
     summary_decisions: list[SummaryDecision] = Field(default_factory=list)
     summarizer_failed: bool = False
+    # The corrective re-prompt a partial pass owed (issue #82): recorded in
+    # the detailed trace like the Planner's truncation correction.
+    summarizer_correction: Optional[str] = None
 
 
 # --- Prompts: JSON-only instructions; the client repeats the schema contract ---
@@ -712,6 +718,7 @@ def _validated_rating(raw: Any) -> tuple[Optional[Strength], Optional[str]]:
 def _validate_summaries(
     summaries: Summaries,
     targets_by_ref: dict[str, ProvisionTarget],
+    grounded: Optional[dict[ProvisionTarget, GroundedSummary]] = None,
 ) -> tuple[dict[ProvisionTarget, GroundedSummary], list[SummaryDecision]]:
     """The Summarizer's grounding gate: only cited provisions receive
     relevance, and a rating rides it only when it is one of the three
@@ -723,11 +730,14 @@ def _validate_summaries(
     trace, so ungrounded relevance never reaches the Answer. One grounded
     statement per cited provision: a second statement for an
     already-summarised provision is rejected — the first stands, nothing
-    merges or overwrites. A kept statement carries its rating as given; a
-    missing or invalid rating keeps the relevance, carries no strength, and
-    is recorded with its reason — no default value exists anywhere.
+    merges or overwrites. ``grounded`` seeds those already-summarised
+    provisions, so the corrective re-prompt's second pass validates against
+    the first pass's statements instead of starting from a clean slate. A
+    kept statement carries its rating as given; a missing or invalid rating
+    keeps the relevance, carries no strength, and is recorded with its
+    reason — no default value exists anywhere.
     """
-    grounded: dict[ProvisionTarget, GroundedSummary] = {}
+    grounded = dict(grounded) if grounded else {}
     decisions: list[SummaryDecision] = []
     for summary in summaries.summaries:
         target = targets_by_ref.get(summary.ref)
@@ -754,6 +764,20 @@ def _validate_summaries(
             SummaryDecision(ref=summary.ref, status="kept", reason=rating_reason, strength=strength)
         )
     return grounded, decisions
+
+
+def _corrective_summaries_prompt(block: str, uncovered: list[str]) -> str:
+    """The corrective re-prompt's user block (issue #82): the same grounding
+    block the first pass read — the citing Findings' statements are still the
+    only permitted material — plus the uncovered refs the pass left bare."""
+    return (
+        f"{block}\n\n"
+        f"Your previous response left cited provision(s) {', '.join(uncovered)} without a "
+        "Provision relevance statement. Write exactly one grounded Provision relevance "
+        "statement — with its Citation strength rating — for each of those provisions now, "
+        "grounded ONLY in the content of the Findings citing it. Do not repeat the statements "
+        "you already made."
+    )
 
 
 # --- The Summarizer's outcome: classified once, described by every surface ---
@@ -1007,8 +1031,12 @@ def _build_graph(
         prompt carries nothing but that block: the citing Findings' statements
         are the relevance statements' and the ratings' only permitted
         grounding (CONTEXT.md), so the question and the Evidence text stay
-        out of the window. A Summarizer failure never fails the run: the
-        Answer ships without summaries plus a Known limitation.
+        out of the window. A pass that leaves cited provisions bare earns
+        exactly one corrective re-prompt listing the uncovered refs (issue
+        #82), whose statements fill the gaps the first pass left — the first
+        pass's statements stand. A second failure, like an outright failure,
+        never fails the run: the partial coverage ships with a Known
+        limitation.
         """
         if progress:
             progress(PhaseReport(phase="summarizer", message="aggregating the kept Findings into one grounded Provision relevance statement per cited provision"))
@@ -1031,11 +1059,45 @@ def _build_graph(
             )
             return {"summarizer_failed": True}
         grounded, decisions = _validate_summaries(summaries, prompt.targets_by_ref)
+        # Exactly one corrective re-prompt on partial coverage (issue #82),
+        # mirroring the Planner's truncation correction: the uncovered refs
+        # are named to the LLM, and the correction is recorded in the trace.
+        correction = None
+        uncovered = [
+            ref for ref, target in prompt.targets_by_ref.items() if target not in grounded
+        ]
+        if uncovered:
+            correction = (
+                f"Summarizer response left {len(uncovered)} of {len(prompt.targets_by_ref)} "
+                f"cited provision(s) without Provision relevance ({', '.join(uncovered)}); "
+                "one corrective re-prompt listed them"
+            )
+            logger.warning("summarizer: %s", correction)
+            try:
+                retry_summaries = llm.complete(
+                    system=_SUMMARIZER_SYSTEM,
+                    user=_corrective_summaries_prompt(prompt.block, uncovered),
+                    schema=Summaries,
+                )
+            except Exception as error:
+                # The second failure ships the partial coverage as it stands.
+                logger.warning(
+                    "summarizer re-prompt failed (%s); partial coverage ships as-is", error
+                )
+            else:
+                grounded, retry_decisions = _validate_summaries(
+                    retry_summaries, prompt.targets_by_ref, grounded=grounded
+                )
+                decisions = decisions + retry_decisions
         if not grounded:
-            # Nothing usable came back — every statement was rejected, or none
-            # was made: the same degradation as an outright failure, never a
-            # silent absence.
-            return {"summarizer_failed": True, "summary_decisions": decisions}
+            # Nothing usable came back from either pass — every statement was
+            # rejected, or none was made: the same degradation as an outright
+            # failure, never a silent absence.
+            return {
+                "summarizer_failed": True,
+                "summary_decisions": decisions,
+                "summarizer_correction": correction,
+            }
         logger.info(
             "summarizer: %d relevance statement(s) over %d provision(s) in %.2fs",
             len(grounded),
@@ -1045,6 +1107,7 @@ def _build_graph(
         return {
             "relevance": list(grounded.values()),
             "summary_decisions": decisions,
+            "summarizer_correction": correction,
         }
 
     builder = StateGraph(LiveState)
@@ -1189,6 +1252,16 @@ def run_live_analysis(
     if state.plan_correction:
         planner_step["correction"] = state.plan_correction
 
+    # The Summarizer's correction mirrors the Planner's: a corrective re-prompt
+    # is transparent in the detailed trace, never silent (issue #82).
+    summarizer_step: dict[str, Any] = {
+        "step": "summarizer",
+        "action": summarizer_step_action,
+        "summary_decisions": [decision.model_dump() for decision in state.summary_decisions],
+    }
+    if state.summarizer_correction:
+        summarizer_step["correction"] = state.summarizer_correction
+
     detailed_trace: list[dict[str, Any]] = [
         planner_step,
         {
@@ -1207,11 +1280,7 @@ def run_live_analysis(
             "action": proposer_step_action,
             "action_decisions": [decision.model_dump() for decision in proposal_decisions],
         },
-        {
-            "step": "summarizer",
-            "action": summarizer_step_action,
-            "summary_decisions": [decision.model_dump() for decision in state.summary_decisions],
-        },
+        summarizer_step,
     ]
 
     return AnalyzeResponse(

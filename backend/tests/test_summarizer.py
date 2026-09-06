@@ -325,6 +325,26 @@ def test_distinct_provisions_keep_their_own_statements():
     assert [d.status for d in decisions] == ["kept", "kept"]
 
 
+def test_a_retry_validates_against_the_first_passs_statements():
+    """The corrective re-prompt's second pass (issue #82) validates against
+    the first pass's statements: a repeated statement is the duplicate it
+    is — the first stands — and only the gaps fill."""
+    article_6 = ProvisionTarget("ai-act", ProvisionKind.article, 6)
+    recital_71 = ProvisionTarget("gdpr", ProvisionKind.recital, 71)
+    grounded, decisions = _validate_summaries(
+        Summaries(summaries=[
+            ProvisionSummary(ref="P1", relevance="Second pass repeats it.", strength=Strength.strong),
+            ProvisionSummary(ref="P2", relevance="Fills the gap."),
+        ]),
+        {"P1": article_6, "P2": recital_71},
+        grounded={article_6: _grounded(article_6, "First statement.", Strength.weak)},
+    )
+    assert grounded[article_6] == _grounded(article_6, "First statement.", Strength.weak)
+    assert grounded[recital_71].relevance == "Fills the gap."
+    assert [d.status for d in decisions] == ["rejected", "kept"]
+    assert "already carries" in (decisions[0].reason or "")
+
+
 # --- The Summarizer's prompt block ---
 
 

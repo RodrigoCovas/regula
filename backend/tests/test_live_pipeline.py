@@ -916,8 +916,11 @@ def test_grounding_gate_drops_summaries_for_unknown_labels(live_client):
     assert grounded[0]["relevance"] == "Grounded in the citing Findings."
 
     decisions = summarizer_step(data)["summary_decisions"]
+    # Both passes are recorded: the first left P2 bare, so the one corrective
+    # re-prompt (issue #82) replayed the batch — its P1 repeat is rejected as
+    # the duplicate it is, alongside the unknown labels from each pass.
     rejected = [d for d in decisions if d["status"] == "rejected"]
-    assert {d["ref"] for d in rejected} == {"P99", "F1"}
+    assert {d["ref"] for d in rejected} == {"P99", "F1", "P1"}
     # The ungated statements never reached the Answer.
     served_relevance = [c["relevance"] for c in citations if c["relevance"]]
     assert "Drawn on nothing the Findings say." not in served_relevance
@@ -1052,9 +1055,10 @@ def test_summarizer_failure_degrades_gracefully_never_fails_the_run(live_client)
 
 
 def test_an_all_rejected_summary_batch_degrades_like_a_failure(live_client):
-    """Every statement the Summarizer offered was rejected by the gate: the
-    Answer ships without relevance plus the same Known limitation — a silent
-    absence would look like a clean run."""
+    """Every statement the Summarizer offered was rejected by the gate — in
+    both passes, after the one corrective re-prompt (issue #82) gave it a
+    second chance: the Answer ships without relevance plus the same Known
+    limitation — a silent absence would look like a clean run."""
     llm = make_offline_llm()
     llm.summaries = Summaries(
         summaries=[ProvisionSummary(ref="P99", relevance="Grounded on nothing.")]
@@ -1071,7 +1075,9 @@ def test_an_all_rejected_summary_batch_degrades_like_a_failure(live_client):
         for line in data["known_limitations"]
     )
     decisions = summarizer_step(data)["summary_decisions"]
-    assert [d["status"] for d in decisions] == ["rejected"]
+    assert [d["status"] for d in decisions] == ["rejected", "rejected"]
+    correction = summarizer_step(data)["correction"]
+    assert "P1" in correction and "P2" in correction
 
 
 def test_summarizer_prompt_shows_only_the_citing_findings_material(live_client):
@@ -1104,7 +1110,8 @@ def test_summarizer_prompt_shows_only_the_citing_findings_material(live_client):
 
 
 def test_partial_summary_coverage_ships_what_survived_plus_a_known_limitation(live_client):
-    """The Summarizer ran but covered only some cited provisions: the grounded
+    """The Summarizer ran but covered only some cited provisions — and the
+    one corrective re-prompt (issue #82) did not close the gap: the grounded
     statements it did produce still ship, and a Known limitation names the gap
     instead of letting partial coverage pass silently (#47)."""
     llm = make_offline_llm()
@@ -1129,6 +1136,117 @@ def test_partial_summary_coverage_ships_what_survived_plus_a_known_limitation(li
     ), data["known_limitations"]
     assert "covered 1 of 2" in summarizer_step(data)["action"]
     assert "covered 1 of 2 cited" in data["trace"]["summary"]
+    # The bound held: exactly one corrective re-prompt, never a loop.
+    assert len(summaries_calls(llm)) == 2
+    assert "P2" in summarizer_step(data)["correction"]
+
+
+# --- Summarizer partial-coverage corrective re-prompt (issue #82) --------------
+
+
+def summaries_calls(llm) -> list[tuple[str, str, type]]:
+    """The Summarizer boundary's calls in the scripted client's log."""
+    return [call for call in llm.calls if call[2] is Summaries]
+
+
+def test_partial_coverage_triggers_one_corrective_re_prompt_and_the_second_pass_ships(live_client):
+    """A first pass that leaves a cited provision without Provision relevance
+    earns exactly one corrective re-prompt naming that ref; the second pass
+    fills the gap while the first pass's statements stand, and the correction
+    is recorded in the detailed trace (issue #82 — the insurance case's
+    unrated citations stop flooring fidelity pairs)."""
+    llm = make_offline_llm()
+    llm.summaries = Summaries(
+        summaries=[
+            ProvisionSummary(ref="P1", relevance="First pass covered P1.", strength=Strength.strong)
+        ]
+    )
+    llm.summaries_retry = Summaries(
+        summaries=[
+            ProvisionSummary(
+                ref="P2",
+                relevance="Second pass covers the definitions provision.",
+                strength=Strength.weak,
+            ),
+            ProvisionSummary(
+                ref="P1",
+                relevance="A repeat of what the first pass already covered.",
+                strength=Strength.strong,
+            ),
+        ]
+    )
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Exactly one corrective re-prompt: two Summaries calls, never three.
+    assert len(summaries_calls(llm)) == 2
+    # The re-prompt repeats the grounding block and names the uncovered ref.
+    _, retry_user, _ = summaries_calls(llm)[1]
+    assert "[P1]" in retry_user and "[P2]" in retry_user, "the grounding block rides again"
+    assert "P2" in retry_user
+    # The second pass's statement ships; the first pass's stands.
+    by_number = {c["article_number"]: c for c in data["answer"]["citations"]}
+    assert by_number[HIGH_RISK_CHUNK.article_number]["relevance"] == "First pass covered P1."
+    assert by_number[DEFINITIONS_CHUNK.article_number]["relevance"] == (
+        "Second pass covers the definitions provision."
+    )
+    assert by_number[DEFINITIONS_CHUNK.article_number]["strength"] == "weak"
+    # The correction is recorded in the detailed trace, listing the ref.
+    step = summarizer_step(data)
+    assert "P2" in step["correction"]
+    assert "re-prompt" in step["correction"]
+    # The repeated statement is recorded as the duplicate it is.
+    duplicates = [d for d in step["summary_decisions"] if d["ref"] == "P1" and d["status"] == "rejected"]
+    assert duplicates and "already carries" in duplicates[0]["reason"]
+    # Complete coverage after the retry: no Known limitation for the gap.
+    assert not any("provision relevance is incomplete" in line.lower() for line in data["known_limitations"])
+
+
+def test_a_failing_re_prompt_still_ships_the_partial_summary(live_client):
+    """The corrective re-prompt's call itself fails: the first pass's grounded
+    statements ship with the incomplete-coverage Known limitation, and the
+    correction is still recorded — a run never fails on summarizer trouble
+    (issue #82)."""
+    base = make_offline_llm()
+    base.summaries = Summaries(
+        summaries=[
+            ProvisionSummary(ref="P1", relevance="First pass covered P1.", strength=Strength.strong)
+        ]
+    )
+
+    class RetryFailsLlm:
+        """Serves the first pass, then dies at the corrective re-prompt."""
+
+        def __init__(self, inner):
+            self._inner = inner
+            self.summaries_calls = 0
+
+        def complete(self, system, user, schema):
+            if schema is Summaries:
+                self.summaries_calls += 1
+                if self.summaries_calls == 2:
+                    raise LlmError("OpenRouter rejected the request (HTTP 429)")
+            return self._inner.complete(system, user, schema)
+
+    llm = RetryFailsLlm(base)
+    install_fake_pipeline(llm, FakeRetriever())
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert llm.summaries_calls == 2
+    by_number = {c["article_number"]: c for c in data["answer"]["citations"]}
+    assert by_number[HIGH_RISK_CHUNK.article_number]["relevance"] == "First pass covered P1."
+    assert by_number[DEFINITIONS_CHUNK.article_number]["relevance"] is None
+    assert any(
+        "provision relevance is incomplete" in line.lower() and "1 of 2" in line
+        for line in data["known_limitations"]
+    ), data["known_limitations"]
+    assert "P2" in summarizer_step(data)["correction"]
 
 
 def test_insufficient_evidence_path_is_unchanged_and_never_calls_the_proposer(monkeypatch):
