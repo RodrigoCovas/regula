@@ -18,7 +18,7 @@ or invents a reference is judge misconduct and fails loudly: a verdict that
 cannot be trusted must abort the run, never dress silence as a score.
 """
 
-from typing import Dict, List, Protocol
+from typing import Dict, List, Protocol, TypedDict
 
 from pydantic import BaseModel
 
@@ -56,6 +56,35 @@ class JudgeVerdict(BaseModel):
     verdicts: List[PairVerdict] = []
 
 
+class PairFidelityVerdict(TypedDict):
+    """One pair's judged outcome as plain data (built by
+    ``pair_fidelity_verdict``): the record the result shape persists
+    (issue #83), so a floored or half-scored pair names its provision and
+    failure mode wherever the artifact or a checkpoint carries it."""
+
+    ref: str
+    provision: str
+    role_match: bool
+    direction_match: bool
+    contradiction: bool
+    score: float
+
+
+def pair_fidelity_verdict(pair: RelevancePair, verdict: PairVerdict) -> PairFidelityVerdict:
+    """The plain-data record of one judged pair: the pair's stable reference
+    and the provision it names, the rubric flags behind the score, and the
+    score itself. One builder for every judge — real or scripted — so no
+    consumer's record shape can drift from another's."""
+    return PairFidelityVerdict(
+        ref=pair.ref,
+        provision=pair.provision,
+        role_match=verdict.same_role,
+        direction_match=verdict.same_direction,
+        contradiction=verdict.contradiction,
+        score=pair_fidelity(verdict),
+    )
+
+
 def pair_fidelity(verdict: PairVerdict) -> float:
     """The deterministic rubric derivation: contradiction forces the floor;
     otherwise the two rubric dimensions (role, obligation direction) carry
@@ -67,10 +96,12 @@ def pair_fidelity(verdict: PairVerdict) -> float:
 
 class SummaryJudge(Protocol):
     """What the eval harness consumes: provision-aligned pairs in, one
-    fidelity score per reference out. The real judge crosses the configured
-    provider; tests script this seam (parent spec, seam 2)."""
+    verdict record per reference out — the rubric flags plus the derived
+    score, so nothing the judge decided is averaged away inside the
+    consumer. The real judge crosses the configured provider; tests script
+    this seam (parent spec, seam 2)."""
 
-    def compare(self, pairs: List[RelevancePair]) -> Dict[str, float]: ...
+    def compare(self, pairs: List[RelevancePair]) -> Dict[str, PairFidelityVerdict]: ...
 
 
 _JUDGE_SYSTEM = (
@@ -110,13 +141,15 @@ class SummaryFidelityJudge:
     def __init__(self, llm: Llm):
         self._llm = llm
 
-    def compare(self, pairs: List[RelevancePair]) -> Dict[str, float]:
-        """Score every pair under the rubric, keyed by reference.
+    def compare(self, pairs: List[RelevancePair]) -> Dict[str, PairFidelityVerdict]:
+        """Verdict every pair under the rubric, keyed by reference.
 
         No pairs — nothing to judge and no provider call. Otherwise one
         batched call; a reply that fails the schema surfaces as ``LlmError``
         from the client, and a reply that keys its verdicts wrong fails here,
-        also as ``LlmError``: either way the caller aborts the run.
+        also as ``LlmError``: either way the caller aborts the run. Each
+        record carries the pair's provision and its rubric flags beside the
+        derived score, so the verdict escapes with nothing averaged away.
         """
         if not pairs:
             return {}
@@ -135,4 +168,7 @@ class SummaryFidelityJudge:
         missing = [ref for ref in refs if ref not in by_ref]
         if missing:
             raise LlmError(f"The judge returned no verdict for ref(s) {missing}")
-        return {ref: pair_fidelity(by_ref[ref]) for ref in refs}
+        return {
+            pair.ref: pair_fidelity_verdict(pair, by_ref[pair.ref])
+            for pair in pairs
+        }

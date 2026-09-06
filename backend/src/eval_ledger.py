@@ -22,9 +22,10 @@ point. Spurious targets carry the answer's own rated Citation strength
 missed targets carry the operator's rating under the max-rule, the same
 derivation that weights the harness's recall.
 
-Summary fidelity is excluded by design: the judge is LLM-only and per-pair
-verdicts do not exist in old artifacts, so an offline ledger cannot re-score
-it without lying about what it measured. Coverage only.
+Summary fidelity is excluded by design: the judge is LLM-only, so an
+offline ledger cannot re-score it without spending a provider call —
+and artifacts written before issue #83 hold no per-pair verdicts to
+read. Coverage only.
 
 No LLM calls, ever: the module reads no settings, builds no provider
 client, and works with no key configured — auditing a paid run must never
@@ -111,9 +112,9 @@ def _target_sort_key(entry):
 
 def _artifact_cases(artifact: object) -> List[dict]:
     """The artifact's case records, shape-checked just past what the ledger
-    reads: extra fields (a future result shape's per-pair verdicts) ride
-    along unread, missing ones refuse loudly — a malformed artifact must
-    never turn into a quietly partial accounting."""
+    reads: extra fields (a newer result shape's additions) ride along
+    unread, missing ones refuse loudly — a malformed artifact must never
+    turn into a quietly partial accounting."""
     if not isinstance(artifact, dict):
         raise ValueError("The parsed artifact is not a JSON object")
     cases = artifact.get("scenarios")

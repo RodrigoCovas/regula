@@ -109,7 +109,7 @@ def _summary(target: ProvisionTarget, relevance: str, strength: Strength | None 
     return GroundedSummary(target=target, relevance=relevance, strength=strength)
 
 
-def _respond_with(*findings: Finding, summaries_by_target=None):
+def _respond_with(*findings: Finding, summaries_by_target=None, known_limitations=None):
     def respond(_request):
         return AnalyzeResponse(
             answer=Answer(
@@ -118,6 +118,7 @@ def _respond_with(*findings: Finding, summaries_by_target=None):
                 citations=answer_citations(list(findings), summaries_by_target),
             ),
             trace=Trace(workflow="fake", summary="canned"),
+            known_limitations=list(known_limitations or []),
         )
 
     return respond
@@ -403,7 +404,8 @@ def test_fidelity_pairs_only_provisions_both_sides_touch():
 def test_the_report_carries_the_components_separately_and_never_blends_them():
     """ADR-0010: per-case numbers and an aggregate mean per component — no
     field blends them into one opaque score, and no strength-agreement
-    metric rides the report at all."""
+    metric rides the report at all. The result's persistence fields ride
+    beside the scores, never inside them (issue #83)."""
     import dataclasses
 
     report = evaluate_scenarios(
@@ -425,7 +427,7 @@ def test_the_report_carries_the_components_separately_and_never_blends_them():
     }
     assert set(f.name for f in dataclasses.fields(report.scenarios[0])) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity",
+        "summary_fidelity", "fidelity_verdicts", "summarizer_limitation",
     }
     assert report.mean_f1 == 1.0
     assert report.mean_summary_fidelity == 1.0
@@ -460,3 +462,135 @@ def test_aggregate_component_means_skip_unmeasured_cases():
     assert report.scenarios[0].summary_fidelity == 1.0
     assert report.scenarios[1].summary_fidelity is None
     assert report.mean_summary_fidelity == 1.0
+
+
+# --- The persistence fields: per-pair verdicts and the Known limitation (issue #83) ---
+
+
+def test_the_result_persists_every_judged_pairs_verdict():
+    """Each judged pair's verdict record rides the result in pair order —
+    the provision it names, the rubric flags, and the score — so a floored
+    or half-scored pair names its provision and failure mode after the run
+    (issue #83). The score itself is unchanged by the persistence."""
+    target22 = _target(22)
+    target25 = _target(25)
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[
+                _expected_finding("Article 22", relevance="expected one"),
+                _expected_finding("Article 25", relevance="expected two"),
+            ],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            _produced_finding(25),
+            summaries_by_target={
+                target22: _summary(target22, "produced one"),
+                target25: _summary(target25, "produced two"),
+            },
+        ),
+        mode=Mode.demo,
+        judge=ScriptedJudge({
+            "P1": ROLE_MISMATCH_VERDICT,
+            "P2": CONTRADICTION_VERDICT.model_copy(update={"ref": "P2"}),
+        }),
+    )
+    assert report.scenarios[0].fidelity_verdicts == [
+        {"ref": "P1", "provision": "gdpr Article 22", "role_match": False,
+         "direction_match": True, "contradiction": False, "score": 0.5},
+        {"ref": "P2", "provision": "gdpr Article 25", "role_match": True,
+         "direction_match": True, "contradiction": True, "score": 0.0},
+    ]
+    assert report.scenarios[0].summary_fidelity == pytest.approx(0.25)
+
+
+def test_the_result_persists_the_degraded_coverage_limitation():
+    """The response's Provision-relevance Known limitation rides the result
+    verbatim, so degraded Summarizer coverage stays visible after the run
+    (issue #83). The standing limitations ride with it only inside the
+    response — they are never mistaken for the fidelity-relevant one."""
+    limitation = (
+        "Known limitation: Provision relevance is incomplete for this answer — "
+        "the Summarizer covered 1 of 2 cited provision(s)."
+    )
+    target22 = _target(22)
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            summaries_by_target={target22: _summary(target22, "produced one")},
+            known_limitations=[
+                "Known limitation: the corpus is English-only; questions in other languages are answered in English.",
+                limitation,
+            ],
+        ),
+        mode=Mode.demo,
+        judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),
+    )
+    assert report.scenarios[0].summarizer_limitation == limitation
+
+
+def test_the_persisted_limitation_is_none_when_coverage_was_not_degraded():
+    """Standing limitations only — no fidelity-relevant Known limitation to
+    persist, and never a fabricated one (issue #83)."""
+    target22 = _target(22)
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(
+            _produced_finding(22),
+            summaries_by_target={target22: _summary(target22, "produced")},
+            known_limitations=["Known limitation: the corpus is English-only."],
+        ),
+        mode=Mode.demo,
+        judge=ScriptedJudge({"P1": FULL_AGREEMENT_VERDICT}),
+    )
+    assert report.scenarios[0].summarizer_limitation is None
+
+
+def test_the_result_carries_no_verdicts_where_fidelity_is_unmeasured():
+    """Unmeasured or floored-only fidelity — no verdict records, never
+    fabricated ones; a floored pair's failure mode is named by the persisted
+    Known limitation, not by invented flags (issue #83)."""
+    judge = ScriptedJudge({})
+    report = evaluate_scenarios(
+        [EvalScenario(
+            id="case",
+            scenario_id="s",
+            question="What applies?",
+            expected=[_expected_finding("Article 22", relevance="expected relevance")],
+        )],
+        _respond_with(_produced_finding(22)),
+        mode=Mode.demo,
+        judge=judge,
+    )
+    assert report.scenarios[0].summary_fidelity == 0.0
+    assert report.scenarios[0].fidelity_verdicts == []
+    assert judge.calls == []
+
+
+def test_the_limitation_prefix_survives_workflow_wording_drift():
+    """The harness extracts the fidelity-relevant Known limitation by prefix:
+    if the workflow's own limitation constants stop matching it, the
+    persisted text would silently vanish — so the drift fails loudly here
+    (issue #83)."""
+    from src.eval_harness import SUMMARIZER_LIMITATION_PREFIX
+    from src.live_workflow import (
+        SUMMARIZER_FAILURE_LIMITATION,
+        SUMMARIZER_PARTIAL_LIMITATION,
+    )
+
+    assert SUMMARIZER_FAILURE_LIMITATION.startswith(SUMMARIZER_LIMITATION_PREFIX)
+    assert SUMMARIZER_PARTIAL_LIMITATION.startswith(SUMMARIZER_LIMITATION_PREFIX)

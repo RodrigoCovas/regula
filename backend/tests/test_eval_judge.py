@@ -83,9 +83,10 @@ def test_the_judge_makes_one_batched_call_for_all_pairs():
     ))
     judge = SummaryFidelityJudge(llm)
 
-    scores = judge.compare([_pair("P1"), _pair("P2")])
+    records = judge.compare([_pair("P1"), _pair("P2")])
 
-    assert scores == {"P1": 1.0, "P2": 1.0}
+    assert records["P1"]["score"] == 1.0
+    assert records["P2"]["score"] == 1.0
     assert len(llm.calls) == 1
     system, user, schema = llm.calls[0]
     assert schema is JudgeVerdict
@@ -104,8 +105,37 @@ def test_the_judge_scores_verdicts_through_the_rubric():
         P1=FULL_AGREEMENT_VERDICT,
         P2=CONTRADICTION_VERDICT.model_copy(update={"ref": "P2"}),
     ))
-    scores = SummaryFidelityJudge(llm).compare([_pair("P1"), _pair("P2")])
-    assert scores == {"P1": 1.0, "P2": 0.0}
+    records = SummaryFidelityJudge(llm).compare([_pair("P1"), _pair("P2")])
+    assert [record["score"] for record in records.values()] == [1.0, 0.0]
+
+
+def test_a_pair_record_names_its_provision_and_its_rubric_flags():
+    """The verdict record that leaves the judge carries the pair's provision
+    and the rubric flags behind its score, so a floored or half-scored pair
+    names its provision and failure mode wherever the record persists
+    (issue #83)."""
+    llm = ScriptedJudgeLlm(_judge_reply(
+        P1=ROLE_MISMATCH_VERDICT,
+        P2=CONTRADICTION_VERDICT.model_copy(update={"ref": "P2"}),
+    ))
+    records = SummaryFidelityJudge(llm).compare([_pair("P1"), _pair("P2")])
+
+    assert records["P1"] == {
+        "ref": "P1",
+        "provision": "ai-act Article 6",
+        "role_match": False,
+        "direction_match": True,
+        "contradiction": False,
+        "score": 0.5,
+    }
+    assert records["P2"] == {
+        "ref": "P2",
+        "provision": "ai-act Article 6",
+        "role_match": True,
+        "direction_match": True,
+        "contradiction": True,
+        "score": 0.0,
+    }
 
 
 def test_the_judge_demands_exactly_one_verdict_per_pair():

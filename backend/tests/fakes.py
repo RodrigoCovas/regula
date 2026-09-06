@@ -6,7 +6,13 @@ embedder, search-store, and scored-hit fakes also drive a real
 ``HybridRetriever`` over canned search results (#18, #64).
 """
 
-from src.eval_judge import JudgeVerdict, PairVerdict, RelevancePair, pair_fidelity
+from src.eval_judge import (
+    JudgeVerdict,
+    PairFidelityVerdict,
+    PairVerdict,
+    RelevancePair,
+    pair_fidelity_verdict,
+)
 from src.llm import Llm
 from src.live_workflow import (    ActionProposal,
     ActionProposals,
@@ -238,16 +244,20 @@ def grounded_verdict(statement: str, strength: Strength, refs: list[str]) -> Ver
 
 class ScriptedJudge:
     """Scripts the summary-fidelity judge seam (parent spec, seam 2): canned
-    pair verdicts scored through the real rubric derivation, every compared
-    pair list recorded for the batched-call assertions."""
+    pair verdicts scored through the real rubric derivation into the same
+    plain-data records the real judge emits, every compared pair list
+    recorded for the batched-call assertions."""
 
     def __init__(self, verdicts: dict[str, PairVerdict]):
         self._verdicts = verdicts
         self.calls: list[list[RelevancePair]] = []
 
-    def compare(self, pairs: list[RelevancePair]) -> dict[str, float]:
+    def compare(self, pairs: list[RelevancePair]) -> dict[str, PairFidelityVerdict]:
         self.calls.append(list(pairs))
-        return {pair.ref: pair_fidelity(self._verdicts[pair.ref]) for pair in pairs}
+        return {
+            pair.ref: pair_fidelity_verdict(pair, self._verdicts[pair.ref])
+            for pair in pairs
+        }
 
 
 # The four rubric edges (issue #50) as canned P1 verdicts, shared by every

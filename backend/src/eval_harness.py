@@ -27,7 +27,10 @@ with ADR-0010 (ADR-0001's updates record the retirement as deletion), and
 survives only as diagnostic material — the per-case audit dump
 (``EvalScenarioResult.expected`` / ``.produced``) carries both sides'
 statements and relevance summaries for the human review the Live eval CLI
-writes out.
+writes out. Beside the scores ride the persistence fields (issue #83):
+every judged pair's fidelity verdict — provision, rubric flags, score —
+and the response's degraded-coverage Known limitation verbatim, so the
+per-pair data the judge decided is never averaged away inside the scorer.
 
 Demo pinning (ADR-0001/0008): the curated cases are Demo-mode tripwires.
 Demo production derives its Citations from the same locked targets its
@@ -44,7 +47,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, NamedTuple, NotRequired, Optional, Set, TypedDict
 
-from .eval_judge import FIDELITY_FLOOR, RelevancePair, SummaryJudge
+from .eval_judge import FIDELITY_FLOOR, PairFidelityVerdict, RelevancePair, SummaryJudge
 from .models import (
     PROVISION_NOUNS,
     PROVISION_NUMBER_FIELDS,
@@ -408,7 +411,8 @@ class EvalScenario:
 
 @dataclass
 class EvalScenarioResult:
-    """One case's two component scores plus its audit dump.
+    """One case's two component scores plus its audit dump and persistence
+    fields.
 
     Coverage (precision/recall/F1) and summary fidelity are separate numbers
     (ADR-0010) — nothing blends them. A component reads ``None`` where it
@@ -417,6 +421,14 @@ class EvalScenarioResult:
     (statements, provision targets, relevance summaries, the operator's
     ratings, the produced side's Finding Strengths and the rated Citation
     strengths) for the human review the Live eval CLI writes out.
+
+    The persistence fields ride beside the scores, never inside them
+    (issue #83): ``fidelity_verdicts`` holds every judged pair's verdict
+    record (provision, rubric flags, score) in pair order — empty where no
+    pair was judged, never fabricated — and ``summarizer_limitation`` the
+    response's Provision-relevance Known limitation verbatim (``None``
+    where coverage was complete), so degraded Summarizer coverage stays
+    visible after the run.
     """
 
     id: str
@@ -426,6 +438,8 @@ class EvalScenarioResult:
     expected: List[ExpectedFindingDump]
     produced: List[ProducedFindingDump]
     summary_fidelity: Optional[float] = None
+    fidelity_verdicts: List[PairFidelityVerdict] = field(default_factory=list)
+    summarizer_limitation: Optional[str] = None
 
 
 @dataclass
@@ -2168,11 +2182,39 @@ def _mean(scores: Iterable[Optional[float]]) -> Optional[float]:
     return sum(measured) / len(measured) if measured else None
 
 
+class SummaryFidelityMeasurement(NamedTuple):
+    """One case's fidelity measurement (issue #83): the score the report
+    carries plus every judged pair's verdict record behind it — so the
+    per-pair data the judge decided escapes with the score instead of being
+    averaged away inside the scorer."""
+
+    fidelity: float
+    verdicts: List[PairFidelityVerdict]
+
+
+# The Known-limitation prefix that marks degraded Summarizer coverage — the
+# one limitation whose text the result shape persists (issue #83). The
+# workflow's own limitation constants must keep starting with it; wording
+# drift is pinned loudly by test.
+SUMMARIZER_LIMITATION_PREFIX = "Known limitation: Provision relevance"
+
+
+def _summarizer_limitation(known_limitations: Iterable[str]) -> Optional[str]:
+    """The response's fidelity-relevant Known limitation, if any: the
+    Provision-relevance limitation the Summarizer's degraded pass owes the
+    Answer. The standing limitations (English-only, prototype) never match,
+    and none is ever fabricated."""
+    for limitation in known_limitations:
+        if limitation.startswith(SUMMARIZER_LIMITATION_PREFIX):
+            return limitation
+    return None
+
+
 def _summary_fidelity(
     scenario: EvalScenario,
     citations_by_target: Dict[ProvisionTarget, Citation],
     judge: SummaryJudge,
-) -> Optional[float]:
+) -> Optional[SummaryFidelityMeasurement]:
     """One case's summary fidelity (ADR-0010): the strict rubric judge over
     provision-aligned expected and produced Provision relevance.
 
@@ -2184,6 +2226,10 @@ def _summary_fidelity(
     either side never touches is coverage's business, never a fidelity pair.
     The produced relevance reads off the Answer's own Citations, the bundled
     carrier of the answer-wide fields.
+
+    The judge's verdict records travel with the score (issue #83): a judged
+    pair carries its flags and its score verbatim; a floored pair carries
+    nothing — its failure mode is the Known limitation's business.
     """
     expected_summaries = expected_relevance_summaries(scenario.expected)
     if not expected_summaries:
@@ -2208,8 +2254,12 @@ def _summary_fidelity(
         ))
     if not pairs and not floored_count:
         return None
-    scores = judge.compare(pairs) if pairs else {}
-    return (sum(scores.values()) + FIDELITY_FLOOR * floored_count) / (len(scores) + floored_count)
+    verdicts_by_ref = judge.compare(pairs) if pairs else {}
+    verdicts = [verdicts_by_ref[pair.ref] for pair in pairs]
+    fidelity = (
+        sum(verdict["score"] for verdict in verdicts) + FIDELITY_FLOOR * floored_count
+    ) / (len(verdicts) + floored_count)
+    return SummaryFidelityMeasurement(fidelity=fidelity, verdicts=verdicts)
 
 
 def evaluate_scenarios(
@@ -2250,7 +2300,7 @@ def evaluate_scenarios(
         # The Answer's own Citations are the bundled carrier of the two
         # answer-wide fields: one map serves the dump and the fidelity judge.
         citations_by_target = {c.provision_target: c for c in response.answer.citations}
-        fidelity = (
+        measurement = (
             _summary_fidelity(scenario, citations_by_target, judge)
             if judge is not None
             else None
@@ -2260,7 +2310,9 @@ def evaluate_scenarios(
             **coverage_scores(scenario.expected, produced),
             expected=[_expected_dump(f) for f in scenario.expected],
             produced=[_produced_dump(f, citations_by_target) for f in produced],
-            summary_fidelity=fidelity,
+            summary_fidelity=measurement.fidelity if measurement is not None else None,
+            fidelity_verdicts=list(measurement.verdicts) if measurement is not None else [],
+            summarizer_limitation=_summarizer_limitation(response.known_limitations),
         )
         scenario_results.append(result)
         if on_result is not None:

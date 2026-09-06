@@ -25,6 +25,7 @@ from src.eval_harness import (
     ExpectedFinding,
     expected_target_weights,
 )
+from src.eval_judge import PairFidelityVerdict
 from src.llm import LlmError, LlmUnreachableError, OpenRouterClient
 from src.live_eval import LiveEvalRefused, main, report_artifact, run_live_eval
 from src.live_workflow import DraftClaim, DraftClaims, Plan, ProvisionSummary, ResearchTarget, Summaries, Verdict, Verdicts
@@ -471,7 +472,15 @@ def test_report_artifact_shape_at_the_pure_seam():
     over the per-case component scores plus the produced-versus-expected dump.
     The metadata names the model that produced the numbers — eval results are
     model-sensitive by design (ADR-0009), so the artifact must say whose they
-    are or a later reader cannot judge them."""
+    are or a later reader cannot judge them. The persistence fields ride the
+    same shape: every judged pair's verdict and the Known-limitation text
+    render verbatim (issue #83)."""
+    verdict: PairFidelityVerdict = {"ref": "P1", "provision": "gdpr Article 33", "role_match": False,
+                                    "direction_match": True, "contradiction": False, "score": 0.5}
+    limitation = (
+        "Known limitation: Provision relevance is incomplete for this answer — "
+        "the Summarizer covered 1 of 2 cited provision(s)."
+    )
     report = EvalReport(
         scenarios=[EvalScenarioResult(
             id="case",
@@ -481,6 +490,8 @@ def test_report_artifact_shape_at_the_pure_seam():
             expected=[{"statement": "expected", "citations": [{"label": "gdpr Article 22", "relevance": "expected relevance", "strength": "strong"}]}],
             produced=[{"statement": "produced", "strength": "weak", "citations": [{"target": "gdpr Article 22", "quote": None, "relevance": "produced relevance", "strength": None}]}],
             summary_fidelity=0.75,
+            fidelity_verdicts=[verdict],
+            summarizer_limitation=limitation,
         )],
         mean_f1=0.666666,
         mean_summary_fidelity=0.75,
@@ -497,8 +508,13 @@ def test_report_artifact_shape_at_the_pure_seam():
     (case,) = artifact["scenarios"]
     assert set(case) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity",
+        "summary_fidelity", "fidelity_verdicts", "summarizer_limitation",
     }
+    # The per-pair verdict and the degraded-coverage limitation render
+    # verbatim: the artifact is where a floored pair names its provision
+    # and failure mode after the run (issue #83).
+    assert case["fidelity_verdicts"] == [verdict]
+    assert case["summarizer_limitation"] == limitation
 
 
 def test_main_prints_per_case_scores_plus_aggregate(monkeypatch, capsys):
@@ -548,15 +564,20 @@ def test_main_writes_the_report_artifact_when_given_an_output_path(monkeypatch, 
     assert first["id"] == LIVE_EVAL_SCENARIOS[0].id
     assert set(first) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity",
+        "summary_fidelity", "fidelity_verdicts", "summarizer_limitation",
     }
     assert first["expected"] and first["produced"]
     # No judge ran, and the canned pipeline ships no relevance summaries for
     # the provisions it cites: the fidelity component scores the
     # deterministic floor — a bare citation is infidelitous by construction —
-    # while every unmeasured case reports None, never a fake zero.
+    # while every unmeasured case reports None, never a fake zero. No pair
+    # was judged, so no verdict record rides the artifact — and the
+    # Summarizer's bare-coverage pass ships its own Known limitation, which
+    # the artifact persists verbatim (issue #83).
     assert first["summary_fidelity"] == pytest.approx(0.0)
     assert artifact["mean_summary_fidelity"] == pytest.approx(0.0)
+    assert first["fidelity_verdicts"] == []
+    assert first["summarizer_limitation"].startswith("Known limitation: Provision relevance")
     # Both dump sides speak provisions: authored labels vs structural targets.
     assert all(
         "gdpr" in citation["label"] or "ai-act" in citation["label"] or "dora" in citation["label"]
@@ -619,7 +640,7 @@ def test_checkpoint_records_each_completed_case(ingested_store, query_log_path, 
     assert [case["id"] for case in data["scenarios"]] == ["first-case", "second-case"]
     assert set(data["scenarios"][0]) == {
         "id", "precision", "recall", "f1", "expected", "produced",
-        "summary_fidelity",
+        "summary_fidelity", "fidelity_verdicts", "summarizer_limitation",
     }
     # Each completed case carries the hash of the definition that produced it —
     # the staleness guard a later resume reads (ADR-0013).
@@ -655,6 +676,8 @@ def _completed_result(case_id):
         ]}],
         "produced": [],
         "summary_fidelity": None,
+        "fidelity_verdicts": [],
+        "summarizer_limitation": None,
     }
 
 
@@ -850,6 +873,126 @@ def test_resume_refuses_when_a_checkpointed_score_is_not_a_number(ingested_store
             checkpoint_dir=checkpoint_dir,
             scenarios=[_bare_case("first-case")],
         )
+
+
+def test_resume_refuses_a_checkpoint_in_the_previous_shape(ingested_store, query_log_path, tmp_path):
+    """The persistence change moved the case-record keys (issue #83): a
+    checkpoint written before it lacks the new fields and refuses as
+    unreadable per ADR-0013 — a quietly mixed measurement is worse than no
+    measurement, and the shape change was accepted."""
+    from src.eval_harness import scenario_definition_hash
+
+    stale_record = _completed_result("first-case")
+    del stale_record["fidelity_verdicts"]
+    del stale_record["summarizer_limitation"]
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[stale_record],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(_bare_case("first-case"))},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="unreadable"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=[_bare_case("first-case")],
+        )
+
+
+def test_resume_refuses_when_a_persisted_verdict_is_malformed(ingested_store, query_log_path, tmp_path):
+    """A checkpointed verdict record that does not match its stored shape —
+    wrong keys, a wrong-typed flag, a wrong-typed score — is corruption like
+    any other: refusing as unreadable, never crashing mid-print (ADR-0013,
+    issue #83)."""
+    from src.eval_harness import scenario_definition_hash
+
+    judged = _completed_result("first-case")
+    judged["fidelity_verdicts"] = [{
+        "ref": "P1", "provision": "gdpr Article 33", "role_match": False,
+        "direction_match": True, "contradiction": False, "score": "not-a-number",
+    }]
+    judged["summary_fidelity"] = 0.5
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[judged],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(_bare_case("first-case"))},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="unreadable"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=[_bare_case("first-case")],
+        )
+
+
+def test_resume_refuses_when_a_persisted_limitation_is_not_a_string(ingested_store, query_log_path, tmp_path):
+    """A non-string Known-limitation text is unreadable, like any other
+    wrong-typed record value (issue #83)."""
+    from src.eval_harness import scenario_definition_hash
+
+    case = _completed_result("first-case")
+    case["summarizer_limitation"] = 42
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[case],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(_bare_case("first-case"))},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    with pytest.raises(LiveEvalRefused, match="unreadable"):
+        run_live_eval(
+            live_settings(query_log_path),
+            run_id="resumed-run",
+            checkpoint_dir=checkpoint_dir,
+            scenarios=[_bare_case("first-case")],
+        )
+
+
+def test_a_persisted_verdicts_and_limitation_resume_into_the_report(ingested_store, query_log_path, tmp_path):
+    """Verdict records and the Known-limitation text a checkpoint carries
+    substitute into the resumed report verbatim, exactly like the scores do
+    — the resumed report stays a full record, not a re-derivation
+    (issue #83)."""
+    from src.eval_harness import scenario_definition_hash
+
+    judged = _completed_result("first-case")
+    judged["summary_fidelity"] = 0.5
+    judged["fidelity_verdicts"] = [{
+        "ref": "P1", "provision": "gdpr Article 33", "role_match": False,
+        "direction_match": True, "contradiction": False, "score": 0.5,
+    }]
+    judged["summarizer_limitation"] = (
+        "Known limitation: Provision relevance is incomplete for this answer — "
+        "the Summarizer covered 1 of 2 cited provision(s)."
+    )
+    cases = [_bare_case("first-case"), _bare_case("second-case")]
+    checkpoint_dir = _checkpoint_document(
+        tmp_path,
+        cases=[judged],
+        llm_model=live_settings(query_log_path).llm_model,
+        hashes={"first-case": scenario_definition_hash(cases[0])},
+    )
+    install_fake_pipeline(_on_target_llm(), _on_target_retriever())
+
+    report = run_live_eval(
+        live_settings(query_log_path),
+        run_id="resumed-run",
+        checkpoint_dir=checkpoint_dir,
+        scenarios=cases,
+    )
+
+    resumed = report.scenarios[0]
+    assert resumed.summary_fidelity == pytest.approx(0.5)
+    assert resumed.fidelity_verdicts == judged["fidelity_verdicts"]
+    assert resumed.summarizer_limitation == judged["summarizer_limitation"]
 
 
 def test_resume_serves_a_fully_checkpointed_run_without_preconditions(query_log_path, tmp_path):

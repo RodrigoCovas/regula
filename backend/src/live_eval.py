@@ -17,10 +17,13 @@ the workflow's or the judge's, an unreachable provider or a reply that
 fails its schema — the run aborts with the detail, never scoring silence.
 
 With ``--output PATH`` the command also writes a JSON artifact: the run's
-metadata, the per-case component scores, and the produced-versus-expected
-dump (statements, Strengths, Citation targets, relevance summaries, the
-rated Citation strengths) for the human audit ADR-0010 prescribes before
-numbers are quoted.
+metadata, the per-case component scores, the per-pair summary-fidelity
+verdicts and the Known-limitation text (issue #83 — the judge's per-pair
+data and the Summarizer's degraded-coverage limitation persist, so a
+floored pair names its provision and failure mode after the run), and the
+produced-versus-expected dump (statements, Strengths, Citation targets,
+relevance summaries, the rated Citation strengths) for the human audit
+ADR-0010 prescribes before numbers are quoted.
 
 Every command checkpoints (ADR-0013): a run id — given via ``--run-id`` or
 minted on the spot (UTC timestamp plus four random hex characters) — names
@@ -111,11 +114,17 @@ def checkpoint_path(run_id: str, checkpoint_dir: Optional[Path] = None) -> Path:
 _RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 # The case-record shape the checkpoint stores — EvalScenarioResult exactly as
-# the artifact renders one.
+# the artifact renders one. The persistence fields (issue #83) ride the same
+# shape: a checkpoint written before they existed refuses as unreadable
+# (ADR-0013), the shape change was accepted.
 _RESULT_KEYS = {
     "id", "precision", "recall", "f1", "expected", "produced",
-    "summary_fidelity",
+    "summary_fidelity", "fidelity_verdicts", "summarizer_limitation",
 }
+
+# One fidelity verdict record's stored shape: the pair's reference and the
+# provision it names, the rubric flags behind the score, and the score.
+_VERDICT_KEYS = {"ref", "provision", "role_match", "direction_match", "contradiction", "score"}
 
 
 def _unreadable_checkpoint(path: Path, detail: object) -> LiveEvalRefused:
@@ -126,6 +135,25 @@ def _unreadable_checkpoint(path: Path, detail: object) -> LiveEvalRefused:
         f"Checkpoint file {path} is unreadable ({detail}). "
         "Delete it or resume under a different --run-id."
     )
+
+
+def _parse_verdict(verdict: object, case_id: str, path: Path) -> None:
+    """One checkpointed fidelity verdict record, shape-checked: a record
+    that does not match its stored shape is unreadable, never a crash
+    mid-print (ADR-0013, issue #83)."""
+    if not isinstance(verdict, dict) or set(verdict) != _VERDICT_KEYS:
+        raise _unreadable_checkpoint(
+            path, f"case {case_id!r} has a fidelity verdict that does not match the stored shape"
+        )
+    for field in ("ref", "provision"):
+        if not isinstance(verdict[field], str):
+            raise _unreadable_checkpoint(path, f"case {case_id!r} has a fidelity verdict with a non-string {field}")
+    for field in ("role_match", "direction_match", "contradiction"):
+        if not isinstance(verdict[field], bool):
+            raise _unreadable_checkpoint(path, f"case {case_id!r} has a fidelity verdict with a non-boolean {field}")
+    score = verdict["score"]
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise _unreadable_checkpoint(path, f"case {case_id!r} has a fidelity verdict with a non-numeric score")
 
 
 def _parse_result(case: object, path: Path) -> EvalScenarioResult:
@@ -140,9 +168,14 @@ def _parse_result(case: object, path: Path) -> EvalScenarioResult:
         value = case[field]
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
             raise _unreadable_checkpoint(path, f"case {case['id']!r} has a non-numeric {field}")
-    for field in ("expected", "produced"):
+    for field in ("expected", "produced", "fidelity_verdicts"):
         if not isinstance(case[field], list):
-            raise _unreadable_checkpoint(path, f"case {case['id']!r} has a non-list {field} dump")
+            raise _unreadable_checkpoint(path, f"case {case['id']!r} has a non-list {field} record")
+    for verdict in case["fidelity_verdicts"]:
+        _parse_verdict(verdict, case["id"], path)
+    limitation = case["summarizer_limitation"]
+    if limitation is not None and not isinstance(limitation, str):
+        raise _unreadable_checkpoint(path, f"case {case['id']!r} has a non-string summarizer limitation")
     return EvalScenarioResult(**case)
 
 
@@ -452,7 +485,8 @@ def print_report(report: EvalReport, llm_model: str) -> None:
 def report_artifact(report: EvalReport, llm_model: str) -> dict:
     """The JSON artifact the CLI writes: run metadata over the full report —
     the model that produced the numbers (ADR-0009), per-case component
-    scores, and the produced-versus-expected dump."""
+    scores with their per-pair fidelity verdicts and Known-limitation text
+    (issue #83), and the produced-versus-expected dump."""
     return {
         "mode": Mode.live.value,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
