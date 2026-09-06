@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Optional
 
 from .chunking import chunk_regulation
-from .models import PROVISION_NOUNS, ProvisionKind
+from .models import PROVISION_NOUNS, ProvisionKind, ProvisionTarget
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ CORPUS_DIR = Path(__file__).resolve().parents[2] / "data" / "regulations"
 
 _documents: Optional[dict[str, dict]] = None
 _inventory: Optional[str] = None
+_perimeter: Optional[dict[str, frozenset[ProvisionTarget]]] = None
 
 
 class TitledProvision(NamedTuple):
@@ -67,6 +68,47 @@ def source_short_names() -> dict[str, str]:
         if short_name:
             names[doc_id] = str(short_name)
     return names
+
+
+def perimeter_provisions() -> dict[str, frozenset[ProvisionTarget]]:
+    """source id → the Perimeter provisions that decide who the Regulation
+    covers (issue #86): the engagement gate reads them to compute a
+    Regulation's Engagement state from the kept Findings — a kept Finding
+    citing one of these targets carries engagement evidence, applying or as
+    an open question, or asserts the exclusion over it. Each document
+    declares its own list in its metadata (the operator's curated judgment,
+    recorded with the gate's ADR); the loader parses the entries into the
+    same structural targets Citations and ground truth compare on, skipping
+    malformed ones with a warning — a broken declaration degrades the gate's
+    knowledge, never the request path. Cached once per process like the
+    documents themselves."""
+    global _perimeter
+    if _perimeter is None:
+        table: dict[str, frozenset[ProvisionTarget]] = {}
+        for doc_id, document in load_documents().items():
+            targets: set[ProvisionTarget] = set()
+            for entry in (document.get("metadata") or {}).get("perimeter") or []:
+                parsed = _perimeter_entry(doc_id, entry)
+                if parsed is not None:
+                    targets.add(parsed)
+                else:
+                    logger.warning("Skipping malformed perimeter entry in %s: %r", doc_id, entry)
+            table[doc_id] = frozenset(targets)
+        _perimeter = table
+    return _perimeter
+
+
+def _perimeter_entry(doc_id: str, entry: Any) -> Optional[ProvisionTarget]:
+    """One metadata perimeter entry as a structural target, or None when the
+    entry is not a well-formed provision reference."""
+    if not isinstance(entry, Mapping):
+        return None
+    try:
+        kind = ProvisionKind(entry.get("kind"))
+        number = int(entry["number"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return ProvisionTarget(doc_id, kind, number)
 
 
 def _titled_provisions(document: Mapping[str, Any]) -> list[TitledProvision]:

@@ -11,6 +11,11 @@ the corpus level per locked decision Q8 (issue #1).
 | GDPR | `gdpr.json` | Regulation (EU) 2016/679 — General Data Protection Regulation | OJ L 119, 4.5.2016, p. 1 | https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32016R0679 |
 | DORA | `dora.json` | Regulation (EU) 2022/2554 — Digital Operational Resilience Act | OJ L 333, 27.12.2022, p. 1 | https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32022R2554 |
 
+Each document's metadata also declares its **perimeter provisions** (#86) —
+the provisions that decide who the Regulation covers (DORA Article 2; GDPR
+Articles 2, 3, and 4; AI Act Articles 2 and 6) — the curated table the Live
+workflow's engagement gate reads; the gate's ADR records the policy.
+
 ## Extraction
 
 - **Extraction tool:** lexplorer-generated JSON (locked decision Q8 keeps this format for the MVP).

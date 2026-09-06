@@ -43,6 +43,14 @@ Five rules are enforced by application code, never trusted to the LLM:
   Planner's truncation correction and the Summarizer's re-prompt; the
   corrective Claims are verified before they can become Findings, and the
   correction is recorded in the detailed trace.
+- The engagement gate (issue #86) computes each cited Regulation's Engagement
+  state from the kept set alone — open when a kept Finding cites one of the
+  Regulation's Perimeter provisions as applying or as an open question, closed
+  when one cites such a provision as not reaching the Scenario — resolving
+  conflicting evidence closed-wins, recorded in the detailed trace. A kept
+  Finding scoped only to closed Regulations, carrying no Perimeter Citation
+  itself, is rejected with a recorded reason; the Perimeter Citation surfaces
+  as the Exclusion Finding instead.
 
 When retrieval returns nothing at all — both the vector and the lexical
 leg come back empty (ADR-0012) — no LLM call drafts, verifies, or proposes
@@ -63,7 +71,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .availability import ENGLISH_ONLY_LIMITATION, PROTOTYPE_LIMITATION
-from .corpus import corpus_inventory, source_short_names
+from .corpus import corpus_inventory, perimeter_provisions, source_short_names
 from .llm import Llm
 from .models import AnalyzeRequest, AnalyzeResponse, Answer, Citation, ClaimDecision, Chunk, Finding, GroundedSummary, ProvisionKind, ProvisionTarget, STRENGTH_ORDER, Strength, Trace, PROVISION_NOUNS, PROVISION_NUMBER_FIELDS, answer_citations, quote_snippet
 from .progress import PhaseReport, ProgressSink
@@ -339,6 +347,10 @@ class LiveState(BaseModel):
     # The corrective re-prompt an uncited reserved anchor owed (issue #84):
     # recorded in the detailed trace like the other two one-shot corrections.
     researcher_correction: Optional[str] = None
+    # The engagement gate's per-Regulation record (issue #86): each decided
+    # Regulation's state, its conflict flag, and both sides' evidence —
+    # embedded in the detailed trace's verifier step, never silent.
+    engagement_states: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 # --- Prompts: JSON-only instructions; the client repeats the schema contract ---
@@ -416,6 +428,12 @@ _VERIFIER_SYSTEM = (
     "the stated facts settle the matter the other way — is unsupported, never moderate. Worked "
     "example: a stated private customer base does not make a company a financial entity, so a "
     "claim developing the full financial-entity regime under that contingency is unsupported. "
+    "The same test works within one regime: a regime's classification provisions — the AI "
+    "Act's Annex III naming the high-risk use areas — support a claim only when the scenario "
+    "describes the qualifying use, so a claim developing the high-risk duties for a qualifying "
+    "use the scenario never describes is unsupported, while a contingency the scenario's text "
+    "genuinely leaves open — whether the described use falls within an Annex III category at "
+    "all — stays moderate. "
     "When the evidence holds a regime's perimeter provision — the provision that decides "
     "who the regime covers — a claim that the regime does not reach the scenario is the supported "
     "form. strength — a bare string, exactly one of 'strong', 'moderate', or 'weak', never an "
@@ -576,6 +594,161 @@ def _decide_claims(
             discarded.append(claim.statement)
             decisions.append(ClaimDecision(claim=claim.statement, status="rejected", reason=_NO_VERDICT_REASON))
     return findings, discarded, decisions
+
+
+# --- The engagement gate: closed-wins over the kept set (issue #86) -------------
+
+
+# The statement forms application code reads as "this Regulation does not
+# reach the Scenario" — the Exclusion Finding's assertion, the supported form
+# the Verifier's rubric teaches ("does not reach"). Four families: a negated
+# reach/apply/cover verb, a scope-exit phrase, the perimeter's membership term
+# negated, and an allocation of the duties to another corpus Regulation.
+# Deliberately absent: the uncertainty forms ("may not apply", "might not
+# reach", "would not apply unless") — they express the open question the gate
+# must keep, not the settled exclusion — and within-regime classifications
+# ("does not qualify as high-risk"), which settle a duty's trigger, never the
+# regime's reach.
+_NOT_REACHING_PATTERN = re.compile(
+    "|".join(
+        (
+            r"\b(?:does not|do not|did not|will not|shall not|cannot|never)\s+"
+            r"(?:reach|reaches|apply|applies|cover|covers|engage|engages|govern|governs|regulate|regulates|extend|extends|concern|concerns)\b",
+            r"\bfails? to (?:reach|apply|cover|engage|govern|regulate)\b",
+            r"\b(?:is|are|remains?|stays?) not (?:reached|covered|engaged|governed|regulated|applicable)\b",
+            r"\bnot applicable\b",
+            r"\bout of scope\b",
+            r"\boutside (?:the )?(?:scope|perimeter|regulation)\b",
+            r"\b(?:falls?|sits?|lies?) outside\b",
+            r"\bbeyond the (?:scope|perimeter)\b",
+            r"\bexcluded from\b",
+            r"\bnot a financial entity\b",
+            r"\bleaves? [^,;.\n]{1,60} to (?:the )?(?:GDPR|AI Act|DORA)\b",
+        )
+    ),
+    re.IGNORECASE,
+)
+
+_GATE_REASON = (
+    "its scope is only {sources}, whose engagement the kept set closes: "
+    "{perimeter} is cited as not reaching the scenario"
+)
+_GATE_CONFLICT_NOTE = (
+    "; the kept set also holds open engagement evidence for it, resolved closed-wins"
+)
+
+
+def _asserts_not_reaching(statement: str) -> bool:
+    """Whether a Finding's statement asserts that its Regulation does not
+    reach the Scenario — the deterministic read of the Exclusion Finding's
+    direction, in application code, never the LLM's say-so."""
+    return _NOT_REACHING_PATTERN.search(statement) is not None
+
+
+def _engagement_gate(
+    findings: list[Finding], decisions: list[ClaimDecision]
+) -> tuple[list[Finding], list[ClaimDecision], dict[str, dict[str, Any]]]:
+    """The engagement gate (issue #86): per cited Regulation, the Engagement
+    state computes from the kept set alone, and duty-area Findings scoped
+    only to closed Regulations are rejected with recorded reasons.
+
+    *open* — some kept Finding cites one of the Regulation's Perimeter
+    provisions (the corpus metadata's declaration, ``corpus.
+    perimeter_provisions``) without asserting non-reach: as applying, or as
+    an open question. *closed* — some kept Finding cites such a provision
+    while asserting the regime does not reach the Scenario. Both present
+    resolves **closed-wins**, the conflict carried in the returned record
+    the detailed trace embeds. A kept Finding scoped only to closed
+    Regulations — and carrying no Perimeter Citation itself, so an Exclusion
+    Finding and the open-form engagement evidence are never dropped — is
+    rejected, mirroring every other recorded rejection; a Regulation with no
+    kept perimeter citation stays undecided, and nothing scoped to it is
+    touched. No case knowledge enters anywhere: sources come from the
+    Citations, provisions from the corpus metadata, direction from the
+    statement text.
+
+    ``findings`` and the kept ``decisions`` pair one-for-one in order — both
+    are built in the same verdict-order walk — so the gate flips the decision
+    standing behind each dropped Finding by position.
+    """
+    perimeter = perimeter_provisions()
+
+    def scope_of(finding: Finding) -> set[str]:
+        return {citation.source_id for citation in finding.citations}
+
+    def cites_perimeter(finding: Finding, source: Optional[str] = None) -> bool:
+        return any(
+            citation.provision_target in perimeter.get(citation.source_id, frozenset())
+            and (source is None or citation.source_id == source)
+            for citation in finding.citations
+        )
+
+    open_evidence: dict[str, list[str]] = {}
+    closed_evidence: dict[str, list[str]] = {}
+    closed_perimeter_labels: dict[str, set[str]] = {}
+    for finding in findings:
+        asserts_not_reaching = _asserts_not_reaching(finding.statement)
+        for source in scope_of(finding):
+            if not cites_perimeter(finding, source):
+                continue
+            if asserts_not_reaching:
+                closed_evidence.setdefault(source, []).append(finding.statement)
+                name = source_short_names().get(source, source)
+                for citation in finding.citations:
+                    target = citation.provision_target
+                    if target.source_id == source and target in perimeter[source]:
+                        closed_perimeter_labels.setdefault(source, set()).add(
+                            f"{name} {PROVISION_NOUNS[target.kind]} {target.number}"
+                        )
+            else:
+                open_evidence.setdefault(source, []).append(finding.statement)
+
+    states: dict[str, dict[str, Any]] = {}
+    for source in sorted(set(open_evidence) | set(closed_evidence)):
+        opens = open_evidence.get(source, [])
+        closes = closed_evidence.get(source, [])
+        states[source] = {
+            "state": "closed" if closes else "open",
+            "conflict": bool(opens and closes),
+            "open": opens,
+            "closed": closes,
+        }
+    closed = {source for source, record in states.items() if record["state"] == "closed"}
+
+    drops: dict[int, str] = {}
+    for index, finding in enumerate(findings):
+        scope = scope_of(finding)
+        if not scope or cites_perimeter(finding) or not scope <= closed:
+            continue
+        names = sorted(source_short_names().get(source, source) for source in scope)
+        labels = sorted(
+            {label for source in scope for label in closed_perimeter_labels.get(source, set())}
+        )
+        reason = _GATE_REASON.format(sources=", ".join(names), perimeter=", ".join(labels))
+        if any(states[source]["conflict"] for source in scope):
+            reason += _GATE_CONFLICT_NOTE
+        drops[index] = reason
+
+    if not states and not drops:
+        return findings, decisions, {}
+    if not drops:
+        return findings, decisions, states
+
+    new_decisions: list[ClaimDecision] = []
+    position = 0
+    for decision in decisions:
+        if decision.status == "kept":
+            if position in drops:
+                new_decisions.append(
+                    ClaimDecision(claim=decision.claim, status="rejected", reason=drops[position])
+                )
+            else:
+                new_decisions.append(decision)
+            position += 1
+        else:
+            new_decisions.append(decision)
+    surviving = [finding for index, finding in enumerate(findings) if index not in drops]
+    return surviving, new_decisions, states
 
 
 # --- Proposer grounding: labels over the kept Findings' Citations ---
@@ -1233,6 +1406,12 @@ def _build_graph(
         re-prompt, whose verified Claims merge into the derivation — the
         weight-50 anchor gets its second chance deterministically, and the
         correction is recorded in the trace, never silent.
+
+        After the derivation (and the merge) the engagement gate (issue #86)
+        runs over the final kept set: duty-area Findings scoped only to
+        closed Regulations are rejected with recorded reasons, and the
+        per-Regulation engagement record travels through the state into the
+        detailed trace.
         """
         evidence_by_label = {item.label: item.chunk for item in state.evidence}
         if progress:
@@ -1246,6 +1425,7 @@ def _build_graph(
             drafted = DraftClaims(claims=[*state.drafted.claims, *corrective.drafts.claims])
             verdicts = Verdicts(verdicts=[*state.verdicts.verdicts, *corrective.verdicts.verdicts])
             findings, _, decisions = _decide_claims(drafted, verdicts, evidence_by_label)
+        findings, decisions, engagement_states = _engagement_gate(findings, decisions)
         if not findings:
             # No kept Finding anchors anything: the node itself emits the
             # standing seek-counsel hand-off alone (ADR-0004), and no LLM
@@ -1257,6 +1437,7 @@ def _build_graph(
                 "proposals": ActionProposals(),
                 "kept_findings": findings,
                 "claim_decisions": decisions,
+                "engagement_states": engagement_states,
                 "actions": [SEEK_COUNSEL_ACTION],
                 "researcher_correction": anchor_correction,
             }
@@ -1279,6 +1460,7 @@ def _build_graph(
             "proposals": proposals,
             "kept_findings": findings,
             "claim_decisions": decisions,
+            "engagement_states": engagement_states,
             "grounding_by_label": grounding_by_label,
             "researcher_correction": anchor_correction,
         }
@@ -1524,14 +1706,20 @@ def run_live_analysis(
         if correction:
             step["correction"] = correction
 
+    verifier_step: dict[str, Any] = {
+        "step": "verifier",
+        "action": "check each Claim against the retrieved Evidence, tag its Strength, discard Unsupported claims",
+        "claim_decisions": [decision.model_dump() for decision in decisions],
+    }
+    if state.engagement_states:
+        # The engagement gate's per-Regulation record (issue #86): each decided
+        # Regulation's state, conflict flag, and both sides' evidence.
+        verifier_step["engagement_states"] = state.engagement_states
+
     detailed_trace: list[dict[str, Any]] = [
         planner_step,
         researcher_step,
-        {
-            "step": "verifier",
-            "action": "check each Claim against the retrieved Evidence, tag its Strength, discard Unsupported claims",
-            "claim_decisions": [decision.model_dump() for decision in decisions],
-        },
+        verifier_step,
         {
             "step": "proposer",
             "action": proposer_step_action,

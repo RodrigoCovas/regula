@@ -1890,6 +1890,9 @@ def verifier_rubric() -> dict[str, str]:
         "never moderate": "is unsupported, never moderate",
         "example setup": "a stated private customer base does not make a company a financial entity",
         "example consequence": "developing the full financial-entity regime under that contingency is unsupported",
+        "within-regime example": "The same test works within one regime",
+        "qualifying use unsupported": "a qualifying use the scenario never describes is unsupported",
+        "open classification moderate": "whether the described use falls within an Annex III category at all",
         "supported bar": "bears on answering the question asked for this scenario",
         "strong": "directly and explicitly establish the claim",
         "weak": "framing only (definitions, vocabulary)",
@@ -1941,6 +1944,22 @@ def test_verifier_rubric_makes_the_scenario_excluded_contingency_explicitly_unsu
     assert verifier_rubric["never moderate"] in verifier_system
     assert verifier_rubric["example setup"] in verifier_system
     assert verifier_rubric["example consequence"] in verifier_system
+
+
+def test_verifier_rubric_gains_the_worked_within_regime_annex_iii_example(live_client, verifier_rubric):
+    """The within-regime worked example (issue #86), both directions: the
+    high-risk classification provisions support a claim only when the
+    Scenario describes the qualifying use — 'could be high-risk if it did X'
+    limbs are unsupported when the Scenario never describes X — while a
+    contingency the text genuinely leaves open stays moderate."""
+    verifier_system = recorded_system_prompts(live_client)["verifier"]
+    assert verifier_rubric["within-regime example"] in verifier_system
+    assert verifier_rubric["qualifying use unsupported"] in verifier_system
+    assert verifier_rubric["open classification moderate"] in verifier_system
+    assert "Annex III" in verifier_system
+    # The cross-regime example and the strength contract survive the addition.
+    assert verifier_rubric["example setup"] in verifier_system
+    assert verifier_rubric["exclusion supported"] in verifier_system
 
 
 # --- Reserved-anchor backstop: trace + one corrective re-prompt (issue #84) ----
@@ -2210,3 +2229,347 @@ def test_the_ranked_first_provision_cited_earns_no_re_prompt(live_client):
 
     assert len(claims_calls(llm)) == 1
     assert researcher_step(data).get("correction") is None
+
+
+# --- The engagement gate: closed-wins over the kept set (issue #86) ------------
+
+
+def verifier_step(data) -> dict:
+    """The Verifier's detailed-trace step — where the claim decisions and the
+    engagement gate's per-Regulation record live."""
+    return [s for s in data["detailed_trace"] if s["step"] == "verifier"][0]
+
+
+DORA_SCOPE_CHUNK = make_chunk(
+    source_id="dora",
+    number=2,
+    text="This Regulation applies to financial entities as defined in Article 3.",
+    title="Scope",
+)
+DORA_MANAGEMENT_CHUNK = make_chunk(
+    source_id="dora",
+    number=5,
+    text="The management body of the financial entity shall bear ultimate responsibility for ICT risk.",
+    title="Governance and organisation",
+)
+DORA_FRAMEWORK_CHUNK = make_chunk(
+    source_id="dora",
+    number=6,
+    text="Financial entities shall have in place a sound, comprehensive ICT risk-management framework.",
+    title="ICT risk management framework",
+)
+DORA_REPORTING_CHUNK = make_chunk(
+    source_id="dora",
+    number=19,
+    text="Financial entities shall classify and report major ICT-related incidents.",
+    title="Reporting of major ICT-related incidents",
+)
+GDPR_SECURITY_CHUNK = make_chunk(
+    source_id="gdpr",
+    number=32,
+    text="The controller shall implement appropriate technical and organisational measures.",
+    title="Security of processing",
+)
+
+
+def gate_llm(*claim_pairs: tuple[str, "str | list[str]"], strength: Strength = Strength.moderate) -> "ScriptedLlm":
+    """A scripted run over the given (statement, evidence-labels) pairs, each
+    verified supported — the raw material the engagement gate reads."""
+    from src.live_workflow import Verdict
+
+    claims = [
+        DraftClaim(statement=statement, evidence_refs=refs if isinstance(refs, list) else [refs])
+        for statement, refs in claim_pairs
+    ]
+    verdicts = [
+        Verdict(
+            statement=statement,
+            supported=True,
+            strength=strength,
+            evidence_refs=refs if isinstance(refs, list) else [refs],
+        )
+        for statement, refs in claim_pairs
+    ]
+    llm = make_offline_llm()
+    llm.claims = DraftClaims(claims=claims)
+    llm.verdicts = Verdicts(verdicts=verdicts)
+    llm.proposals = ActionProposals(proposals=[])
+    return llm
+
+
+RETAILER_RETRIEVALS = {
+    "DORA applicability financial entities": [DORA_SCOPE_CHUNK],
+    "ICT incident reporting": [DORA_REPORTING_CHUNK],
+    "security of processing": [GDPR_SECURITY_CHUNK],
+}
+
+
+def post_gate_scenario(live_client) -> dict:
+    """One retailer-flavoured analysis run: an online shop asking whether
+    DORA's ICT incident duties bind it."""
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "electronics-shop",
+                "description": "An online shop selling consumer electronics from Madrid",
+            },
+            "question": "Do DORA's ICT incident duties apply to the company?",
+        },
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_duty_area_findings_scoped_only_to_a_closed_regulation_are_dropped_with_recorded_reasons(live_client):
+    """The engagement gate (issue #86): the kept Exclusion Finding citing
+    DORA's perimeter provision settles the regime away, so the duty-area
+    Finding scoped only to DORA is rejected with a recorded reason — the
+    Perimeter Citation surfaces as the Exclusion Finding, the expected form,
+    and the finding scoped to the undecided Regulation is untouched."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    exclusion = (
+        "DORA's incident regime covers financial entities only, and the company is an "
+        "online shop rather than a financial entity, so the regime does not reach it."
+    )
+    duty = "The company must report major ICT-related incidents under DORA's reporting regime."
+    other_regime = "The company must implement security measures appropriate to the breach risk."
+    llm = gate_llm((exclusion, "E1"), (duty, "E2"), (other_regime, "E3"))
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="DORA applicability financial entities"),
+        ResearchTarget(query="ICT incident reporting"),
+        ResearchTarget(query="security of processing"),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=RETAILER_RETRIEVALS))
+
+    data = post_gate_scenario(live_client)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert exclusion in statements, "the Exclusion Finding carries the Perimeter Citation"
+    exclusion_finding = next(f for f in data["answer"]["findings"] if f["statement"] == exclusion)
+    assert [(c["source_id"], c["article_number"]) for c in exclusion_finding["citations"]] == [("dora", DORA_SCOPE_CHUNK.article_number)]
+    assert other_regime in statements, "a finding scoped to an undecided Regulation is untouched"
+    assert duty not in statements, "the duty limb scoped only to the closed regime is dropped"
+
+    assert duty in data["trace"]["unsupported_claims_discarded"]
+
+    decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
+    assert decisions[duty]["status"] == "rejected"
+    assert "DORA Article 2" in decisions[duty]["reason"]
+    assert "not reaching the scenario" in decisions[duty]["reason"]
+    assert decisions[exclusion]["status"] == "kept"
+    assert decisions[other_regime]["status"] == "kept"
+
+    gate_record = verifier_step(data)["engagement_states"]
+    assert gate_record["dora"]["state"] == "closed"
+    assert gate_record["dora"]["conflict"] is False
+    assert gate_record["dora"]["closed"] == [exclusion]
+    assert "engagement_states" in verifier_step(data)
+
+
+def test_conflicting_engagement_evidence_resolves_closed_wins_and_is_recorded(live_client):
+    """When the kept set holds both an exclusion Finding and an open-form
+    engagement Finding citing the same perimeter provision, closed-wins wins
+    and the conflict is recorded in the detailed trace — the duty-area
+    Finding scoped only to the closed regime still drops (issue #86)."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    exclusion = (
+        "DORA's incident regime covers financial entities only, and the company is an "
+        "online shop, so the regime does not reach it."
+    )
+    open_question = (
+        "Whether the company's payment arm makes it a financial entity under DORA's "
+        "perimeter is an open question the scenario leaves undecided."
+    )
+    duty = "The company must report major ICT-related incidents under DORA's reporting regime."
+    llm = gate_llm((exclusion, "E1"), (open_question, "E1"), (duty, "E2"))
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="DORA applicability financial entities"),
+        ResearchTarget(query="ICT incident reporting"),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={
+        "DORA applicability financial entities": [DORA_SCOPE_CHUNK],
+        "ICT incident reporting": [DORA_REPORTING_CHUNK],
+    }))
+
+    data = post_gate_scenario(live_client)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert exclusion in statements
+    assert open_question in statements, "both perimeter-citing Findings survive the closed-wins call"
+    assert duty not in statements
+
+    gate_record = verifier_step(data)["engagement_states"]
+    assert gate_record["dora"] == {
+        "state": "closed",
+        "conflict": True,
+        "open": [open_question],
+        "closed": [exclusion],
+    }
+    decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
+    assert "closed-wins" in decisions[duty]["reason"]
+
+
+def test_the_conditional_dora_block_survives_the_gate(live_client):
+    """The fintech tripwire (issue #86): DORA's entity-status question is
+    genuinely open, the engagement Finding cites the perimeter provision as
+    an open question, so the conditional duty Findings scoped only to DORA
+    survive the gate untouched."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    engagement = (
+        "Whether the fintech's authorization brings it within DORA's financial-entity "
+        "perimeter is an open question; if it does, its management body becomes "
+        "ultimately responsible for ICT risk for the loan platform."
+    )
+    duty_five = (
+        "Once it qualifies as a financial entity, the fintech's management body must "
+        "bear ultimate responsibility for ICT risk under DORA's management-body rule."
+    )
+    duty_six = (
+        "On the same condition the fintech must operate a documented ICT "
+        "risk-management framework for the loan platform."
+    )
+    llm = gate_llm((engagement, "E1"), (duty_five, "E2"), (duty_six, "E3"))
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="DORA applicability financial entities"),
+        ResearchTarget(query="governance and organisation"),
+        ResearchTarget(query="ICT risk management framework"),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={
+        "DORA applicability financial entities": [DORA_SCOPE_CHUNK],
+        "governance and organisation": [DORA_MANAGEMENT_CHUNK],
+        "ICT risk management framework": [DORA_FRAMEWORK_CHUNK],
+    }))
+
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "fintech-loans",
+                "description": "A Spanish fintech startup operating a loan-recommendation platform",
+            },
+            "question": "What ICT risk duties bind the loan platform?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert engagement in statements
+    assert duty_five in statements, "the conditional DORA block survives the gate"
+    assert duty_six in statements
+    assert data["trace"]["unsupported_claims_discarded"] == []
+
+    gate_record = verifier_step(data)["engagement_states"]
+    assert gate_record["dora"]["state"] == "open"
+    assert gate_record["dora"]["conflict"] is False
+    assert gate_record["dora"]["open"] == [engagement]
+
+
+def test_a_regulation_with_no_kept_perimeter_citation_is_undecided_and_untouched(live_client):
+    """No kept Finding cites DORA's perimeter provision, so its engagement
+    stays undecided: duty-area Findings scoped only to it ship untouched, and
+    the detailed trace records no engagement state at all (issue #86)."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    duty = "The company must report major ICT-related incidents under DORA's reporting regime."
+    security = "The company must implement security measures appropriate to the breach risk."
+    llm = gate_llm((duty, "E1"), (security, "E2"))
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="ICT incident reporting"),
+        ResearchTarget(query="security of processing"),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={
+        "ICT incident reporting": [DORA_REPORTING_CHUNK],
+        "security of processing": [GDPR_SECURITY_CHUNK],
+    }))
+
+    data = post_gate_scenario(live_client)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert duty in statements
+    assert security in statements
+    assert data["trace"]["unsupported_claims_discarded"] == []
+    assert "engagement_states" not in verifier_step(data)
+
+
+def test_a_finding_scoped_across_an_undecided_and_a_closed_regulation_survives(live_client):
+    """A Finding citing a closed Regulation and an undecided one is not
+    scoped only to the closed one: it survives the gate with its mixed
+    citations intact (issue #86)."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    exclusion = (
+        "DORA's incident regime covers financial entities only, and the company is an "
+        "online shop, so the regime does not reach it."
+    )
+    mixed = (
+        "The company must secure the breached data and classify and report the "
+        "incident under the security and reporting provisions read together."
+    )
+    llm = gate_llm((exclusion, "E1"), (mixed, ["E2", "E3"]))
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="DORA applicability financial entities"),
+        ResearchTarget(query="security and reporting duties"),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={
+        "DORA applicability financial entities": [DORA_SCOPE_CHUNK],
+        "security and reporting duties": [GDPR_SECURITY_CHUNK, DORA_REPORTING_CHUNK],
+    }))
+
+    data = post_gate_scenario(live_client)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert exclusion in statements
+    assert mixed in statements, "a finding not scoped only to the closed regime survives"
+
+
+def test_duty_limbs_on_an_ai_act_regime_settled_away_are_dropped(live_client):
+    """The ransomware/telecom-style pathology across regimes (issue #86): the
+    gate is regulation-agnostic — the kept exclusion Finding citing the AI
+    Act's perimeter provision settles that regime away, so the duty-area
+    Finding scoped only to the AI Act drops with its recorded reason while
+    the undecided regime's finding survives."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    exclusion = (
+        "The company deploys no AI system at all, so the AI Act does not reach "
+        "its operations."
+    )
+    duty = "The provider must register the system and pass the conformity assessment."
+    other_regime = "The company must notify the personal data breach to the authority."
+    llm = gate_llm((exclusion, "E1"), (duty, "E2"), (other_regime, "E3"))
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="AI Act applicability providers"),
+        ResearchTarget(query="provider registration duties"),
+        ResearchTarget(query="breach notification duties"),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={
+        "AI Act applicability providers": [make_chunk(
+            source_id="ai-act", number=2,
+            text="This Regulation applies to providers placing on the market or putting into service AI systems.",
+            title="Scope",
+        )],
+        "provider registration duties": [make_chunk(
+            source_id="ai-act", number=49,
+            text="Providers shall register high-risk AI systems in the EU database.",
+            title="Registration",
+        )],
+        "breach notification duties": [GDPR_SECURITY_CHUNK],
+    }))
+
+    data = post_gate_scenario(live_client)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert exclusion in statements
+    assert duty not in statements, "the AI-Act duty limb on the settled-away regime drops"
+    assert other_regime in statements
+
+    decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
+    assert decisions[duty]["status"] == "rejected"
+    assert "EU AI Act Article 2" in decisions[duty]["reason"]
+    gate_record = verifier_step(data)["engagement_states"]
+    assert gate_record["ai-act"]["state"] == "closed"

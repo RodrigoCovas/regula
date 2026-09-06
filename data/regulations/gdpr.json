@@ -12,6 +12,11 @@
     "totalArticles": 99,
     "totalRecitals": 173,
     "totalChapters": 11,
+    "perimeter": [
+      { "kind": "article", "number": 2 },
+      { "kind": "article", "number": 3 },
+      { "kind": "article", "number": 4 }
+    ],
     "color": "blue",
     "icon": "🔒"
   },

@@ -18,7 +18,8 @@ import re
 
 import pytest
 
-from src.corpus import corpus_inventory
+from src.corpus import corpus_inventory, perimeter_provisions
+from src.models import ProvisionKind, ProvisionTarget
 from test_chunking import EXPECTED_ANNEX_COUNTS, EXPECTED_ARTICLE_COUNTS
 
 # One entry per titled provision: every Article and Annex of the fixed Corpus
@@ -96,6 +97,52 @@ def test_inventory_names_the_ai_act_annexes():
     assert len(annex_entries) == 13
     assert any("Annex 1: List of Union Harmonisation Legislation" in line for line in annex_entries)
     assert any("Annex 3: High-Risk AI Systems Referred to in Article 6(2)" in line for line in annex_entries)
+
+
+def test_perimeter_provisions_transcribe_the_curated_metadata():
+    """The engagement gate's perimeter table (issue #86): each corpus
+    document declares the provisions that decide who the Regulation covers —
+    the operator's curated judgment, pinned here so a metadata edit that
+    silently breaks the gate fails loudly. Parsed into the same structural
+    targets Citations and ground truth compare on."""
+    table = perimeter_provisions()
+    assert table["dora"] == frozenset({ProvisionTarget("dora", ProvisionKind.article, 2)})
+    assert table["gdpr"] == frozenset({
+        ProvisionTarget("gdpr", ProvisionKind.article, 2),
+        ProvisionTarget("gdpr", ProvisionKind.article, 3),
+        ProvisionTarget("gdpr", ProvisionKind.article, 4),
+    })
+    assert table["ai-act"] == frozenset({
+        ProvisionTarget("ai-act", ProvisionKind.article, 2),
+        ProvisionTarget("ai-act", ProvisionKind.article, 6),
+    })
+
+
+def test_perimeter_provisions_degrade_on_malformed_entries(monkeypatch):
+    """A malformed perimeter entry is skipped with a warning, never a
+    request-path error — the corpus loader's own degrade-never-fail rule."""
+    import src.corpus as corpus
+
+    documents = {
+        "junky": {
+            "metadata": {
+                "id": "junky",
+                "perimeter": [
+                    {"kind": "article", "number": 2},
+                    {"kind": "sonnet", "number": 18},
+                    {"kind": "article"},
+                    "Article 2",
+                    {"kind": "article", "number": "two"},
+                ],
+            },
+        },
+    }
+    monkeypatch.setattr(corpus, "_perimeter", None)
+    monkeypatch.setattr(corpus, "load_documents", lambda: documents)
+
+    assert corpus.perimeter_provisions() == {
+        "junky": frozenset({ProvisionTarget("junky", ProvisionKind.article, 2)})
+    }
 
 
 def test_inventory_fails_loudly_on_conflicting_titles(monkeypatch):
