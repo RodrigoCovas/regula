@@ -1412,7 +1412,7 @@
       "source_id": "dora",
       "provision": "Article 2",
       "relevance": "Article 2's financial-entity list brings the institution within DORA's scope, so its reliance on the AI provider and the hosting cloud is governed through DORA's third-party regime, while the customer-data and AI questions are governed by the GDPR and the AI Act.",
-      "strength": "moderate"
+      "strength": "weak"
     },
     {
       "source_id": "dora",
