@@ -1074,9 +1074,10 @@ def test_an_all_rejected_summary_batch_degrades_like_a_failure(live_client):
         "provision relevance is unavailable" in line.lower()
         for line in data["known_limitations"]
     )
-    decisions = summarizer_step(data)["summary_decisions"]
+    step = summarizer_step(data)
+    decisions = step["summary_decisions"]
     assert [d["status"] for d in decisions] == ["rejected", "rejected"]
-    correction = summarizer_step(data)["correction"]
+    correction = step["correction"]
     assert "P1" in correction and "P2" in correction
 
 

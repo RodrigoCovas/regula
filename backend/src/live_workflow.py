@@ -766,18 +766,47 @@ def _validate_summaries(
     return grounded, decisions
 
 
-def _corrective_summaries_prompt(block: str, uncovered: list[str]) -> str:
+def _corrective_summaries_prompt(prompt: SummarizerPrompt, uncovered: list[str]) -> str:
     """The corrective re-prompt's user block (issue #82): the same grounding
     block the first pass read — the citing Findings' statements are still the
     only permitted material — plus the uncovered refs the pass left bare."""
     return (
-        f"{block}\n\n"
+        f"{prompt.block}\n\n"
         f"Your previous response left cited provision(s) {', '.join(uncovered)} without a "
         "Provision relevance statement. Write exactly one grounded Provision relevance "
         "statement — with its Citation strength rating — for each of those provisions now, "
         "grounded ONLY in the content of the Findings citing it. Do not repeat the statements "
         "you already made."
     )
+
+
+def _corrective_re_prompt(
+    llm: Llm,
+    prompt: SummarizerPrompt,
+    uncovered: list[str],
+    grounded: dict[ProvisionTarget, GroundedSummary],
+) -> tuple[dict[ProvisionTarget, GroundedSummary], list[SummaryDecision]]:
+    """Exactly one corrective re-prompt (issue #82): the second pass's
+    statements fill the gaps the first pass left, validated against the
+    first pass's statements so a repeat is the duplicate it is. On a second
+    failure — a raised error or nothing usable — the first pass's grounded
+    statements return unchanged; the partial coverage ships as it stands.
+    """
+    try:
+        retry_summaries = llm.complete(
+            system=_SUMMARIZER_SYSTEM,
+            user=_corrective_summaries_prompt(prompt, uncovered),
+            schema=Summaries,
+        )
+    except Exception as error:
+        logger.warning(
+            "summarizer re-prompt failed (%s); partial coverage ships as-is", error
+        )
+        return grounded, []
+    merged, retry_decisions = _validate_summaries(
+        retry_summaries, prompt.targets_by_ref, grounded=grounded
+    )
+    return merged, retry_decisions
 
 
 # --- The Summarizer's outcome: classified once, described by every surface ---
@@ -1059,9 +1088,14 @@ def _build_graph(
             )
             return {"summarizer_failed": True}
         grounded, decisions = _validate_summaries(summaries, prompt.targets_by_ref)
-        # Exactly one corrective re-prompt on partial coverage (issue #82),
-        # mirroring the Planner's truncation correction: the uncovered refs
-        # are named to the LLM, and the correction is recorded in the trace.
+        # Any cited provision left bare — a partial pass or a fully rejected
+        # one — earns exactly one corrective re-prompt (issue #82), mirroring
+        # the Planner's truncation correction: the uncovered refs are named
+        # to the LLM, and the correction is recorded in the trace. A
+        # provision that kept its relevance but carries no strength counts
+        # as covered: under the one-statement-per-provision gate a re-prompt
+        # could only duplicate its statement, and the rating gap is already
+        # recorded on the kept decision (ADR-0011).
         correction = None
         uncovered = [
             ref for ref, target in prompt.targets_by_ref.items() if target not in grounded
@@ -1073,22 +1107,8 @@ def _build_graph(
                 "one corrective re-prompt listed them"
             )
             logger.warning("summarizer: %s", correction)
-            try:
-                retry_summaries = llm.complete(
-                    system=_SUMMARIZER_SYSTEM,
-                    user=_corrective_summaries_prompt(prompt.block, uncovered),
-                    schema=Summaries,
-                )
-            except Exception as error:
-                # The second failure ships the partial coverage as it stands.
-                logger.warning(
-                    "summarizer re-prompt failed (%s); partial coverage ships as-is", error
-                )
-            else:
-                grounded, retry_decisions = _validate_summaries(
-                    retry_summaries, prompt.targets_by_ref, grounded=grounded
-                )
-                decisions = decisions + retry_decisions
+            grounded, retry_decisions = _corrective_re_prompt(llm, prompt, uncovered, grounded)
+            decisions = decisions + retry_decisions
         if not grounded:
             # Nothing usable came back from either pass — every statement was
             # rejected, or none was made: the same degradation as an outright
@@ -1249,18 +1269,20 @@ def run_live_analysis(
         "action": "decompose the Regulatory question into research targets",
         "research_targets": queries,
     }
-    if state.plan_correction:
-        planner_step["correction"] = state.plan_correction
-
-    # The Summarizer's correction mirrors the Planner's: a corrective re-prompt
-    # is transparent in the detailed trace, never silent (issue #82).
     summarizer_step: dict[str, Any] = {
         "step": "summarizer",
         "action": summarizer_step_action,
         "summary_decisions": [decision.model_dump() for decision in state.summary_decisions],
     }
-    if state.summarizer_correction:
-        summarizer_step["correction"] = state.summarizer_correction
+    # A one-shot correction is recorded on its step when one was applied —
+    # the Planner's truncation and the Summarizer's corrective re-prompt
+    # (issue #82) are transparent in the detailed trace, never silent.
+    for step, correction in (
+        (planner_step, state.plan_correction),
+        (summarizer_step, state.summarizer_correction),
+    ):
+        if correction:
+            step["correction"] = correction
 
     detailed_trace: list[dict[str, Any]] = [
         planner_step,

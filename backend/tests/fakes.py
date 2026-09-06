@@ -202,6 +202,9 @@ class ScriptedLlm:
             self.usage.append(dict(self._canned_usage))
         if schema is Summaries:
             self._summaries_calls += 1
+            # The scripted contract: the SECOND Summaries call is the
+            # corrective re-prompt's pass (issue #82); the first call and any
+            # later one replay the first-pass canned batch.
             if self._summaries_calls == 2 and self.summaries_retry is not None:
                 return self.summaries_retry.model_copy(deep=True)
         canned = {
