@@ -124,9 +124,10 @@ def max_rule_strengths(
 ) -> Dict[ProvisionTarget, Strength]:
     """Citation strength (CONTEXT.md) under the max-rule: per provision
     target, the strongest Strength among the rated Citations citing it. Since
-    ADR-0011 the max-rule serves the eval's expected side only — coverage's
-    strength weights; the produced side carries the Summarizer's ratings as
-    given."""
+    ADR-0011 the max-rule derives nothing on the produced side — coverage's
+    strength weights read the eval's expected side, while the produced side
+    carries the Summarizer's ratings as given; the eval ledger merely
+    aggregates those given ratings per target for its audit display."""
     strengths: Dict[ProvisionTarget, Strength] = {}
     for target, strength in pairs:
         current = strengths.get(target)
