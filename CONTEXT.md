@@ -43,6 +43,10 @@ _Avoid_: Scope check, applicability question
 The one Research target the Planner reserves for a Regulation the Scenario confirms; it retrieves the provision that decides whether the regime engages at all — a breach notion, a profiling notion, a financial-entity perimeter, or the principles constraining the contested processing — so the Answer cites the threshold instead of presupposing it.
 _Avoid_: Engagement check, threshold question
 
+**Reserved anchor**:
+The provision a reserved Engagement-threshold target exists to land in the Answer — the Evidence pool's top-ranked hit for the target's own retrieval. Application code checks that a kept Finding cites it; an uncited Reserved anchor is recorded in the Execution trace and earns exactly one corrective re-prompt, since the engagement claim is never optional filler. Distinct from a Proposer's grounding anchor, which is the kept Finding an Action rests on.
+_Avoid_: Anchor alone, threshold evidence, engagement provision
+
 **Perimeter provision**:
 The provision of a Regulation that decides who the Regulation covers — typically its scope Article — and the Citation an exclusion Finding rests on.
 _Avoid_: Scope provision, applicability clause

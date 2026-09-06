@@ -36,12 +36,13 @@ Five rules are enforced by application code, never trusted to the LLM:
   truncation correction — and a second failure ships the partial coverage
   with its Known limitation. On Summarizer failure the Answer ships without
   summaries plus a Known limitation — the run does not fail.
-- A reserved engagement-threshold target whose Evidence sits in the pool yet
-  is cited by no kept Finding earns exactly one corrective re-prompt to the
-  Researcher (issue #84) — the applicability/engagement claim is never
-  optional filler — mirroring the Planner's truncation correction and the
-  Summarizer's re-prompt; the corrective Claims are verified before they can
-  become Findings, and the correction is recorded in the detailed trace.
+- A reserved engagement-threshold target whose reserved anchor — the provision
+  its retrieval ranks first in the Evidence pool — is cited by no kept Finding
+  earns exactly one corrective re-prompt to the Researcher (issue #84) — the
+  applicability/engagement claim is never optional filler — mirroring the
+  Planner's truncation correction and the Summarizer's re-prompt; the
+  corrective Claims are verified before they can become Findings, and the
+  correction is recorded in the detailed trace.
 
 When retrieval returns nothing at all — both the vector and the lexical
 leg come back empty (ADR-0012) — no LLM call drafts, verifies, or proposes
@@ -305,8 +306,9 @@ class LiveState(BaseModel):
     plan_correction: Optional[str] = None
     # The Researcher's reserved-anchor provenance (issue #84): per reserved
     # engagement-threshold target, the Evidence-pool labels its own retrieval
-    # surfaced — what the deterministic backstop checks the kept Findings'
-    # Citations against, and what its corrective re-prompt names.
+    # surfaced, in the retrieval service's rank order — what the deterministic
+    # backstop checks the kept Findings' Citations against (the top-ranked
+    # provision), and what its corrective re-prompt names.
     reserved_anchor_labels: dict[str, list[str]] = Field(default_factory=dict)
     evidence: list[LabeledEvidence] = Field(default_factory=list)
     retrievals: list[dict] = Field(default_factory=list)  # one record per retrieval-tool call
@@ -860,10 +862,10 @@ def _corrective_re_prompt(
 
 
 class ReservedAnchor(NamedTuple):
-    """One reserved engagement-threshold target whose Evidence no kept Finding
-    cites (issue #84): the target's query, the Evidence-pool labels its own
-    retrieval surfaced, and the provisions those labels carry — what the
-    corrective re-prompt names and the detailed trace records."""
+    """One reserved engagement-threshold target whose anchor no kept Finding
+    cites (issue #84): the target's query, the Evidence-pool labels of its
+    own retrieval that carry the anchor provision, and that provision —
+    what the corrective re-prompt names and the detailed trace records."""
 
     query: str
     labels: list[str]
@@ -873,15 +875,15 @@ class ReservedAnchor(NamedTuple):
 def _uncited_reserved_anchors(
     state: LiveState, findings: list[Finding]
 ) -> list[ReservedAnchor]:
-    """The reserved engagement-threshold targets whose Evidence the kept
+    """The reserved engagement-threshold targets whose anchors the kept
     Findings never cite (issue #84).
 
-    A reserved target's anchors are the Evidence-pool labels its own
-    retrieval surfaced — the Evidence the Researcher actually saw for the
-    threshold provision, compared with the kept Findings' Citations on the
-    structural ``ProvisionTarget`` triple. The check is target-scoped, the
-    only handle the plan carries: a target any of whose anchor provisions a
-    kept Finding cites has landed, and stays silent.
+    The reserved anchor is the target's provision: the top-ranked pool hit of
+    the target's own retrieval — the retrieval service's best match for the
+    threshold query, a structural read, never the LLM's say-so. A target has
+    landed the moment a kept Finding cites that provision; a neighbouring
+    chunk from the same retrieval being cited does not count — the anchor is
+    the threshold, not whatever else the query surfaced.
 
     A reserved target whose Evidence never reached the pool is not
     flaggable: the Researcher never saw it — the must-draft rule's own
@@ -899,15 +901,25 @@ def _uncited_reserved_anchors(
             for label in state.reserved_anchor_labels.get(target.query, [])
             if label in evidence_by_label
         ]
-        anchor_targets: dict[ProvisionTarget, str] = {}
-        for label in labels:
-            chunk = evidence_by_label[label]
-            display = f"{chunk.source_id} {_provision_label(chunk)}"
-            anchor_targets.setdefault(chunk.provision_target, display)
-        if not anchor_targets or anchor_targets.keys() & cited:
+        if not labels:
             continue
+        # The anchor: the provision of the target's top-ranked pool hit, with
+        # every pool label of the target's retrieval that cites it.
+        anchor_chunk = evidence_by_label[labels[0]]
+        anchor_target = anchor_chunk.provision_target
+        if anchor_target in cited:
+            continue
+        anchor_labels = [
+            label
+            for label in labels
+            if evidence_by_label[label].provision_target == anchor_target
+        ]
         anchors.append(
-            ReservedAnchor(query=target.query, labels=labels, provisions=list(anchor_targets.values()))
+            ReservedAnchor(
+                query=target.query,
+                labels=anchor_labels,
+                provisions=[f"{anchor_chunk.source_id} {_provision_label(anchor_chunk)}"],
+            )
         )
     return anchors
 
@@ -935,18 +947,29 @@ def _corrective_claims_prompt(
     )
 
 
+class CorrectiveClaims(NamedTuple):
+    """The reserved-anchor backstop's one corrective pass (issue #84): the
+    re-prompted Claims, their Verdicts, and the correction the detailed trace
+    records — the tuple the proposer merges into its single derivation."""
+
+    drafts: DraftClaims
+    verdicts: Verdicts
+    correction: str
+
+
 def _corrective_claims_pass(
     state: LiveState, llm: Llm, findings: list[Finding]
-) -> Optional[tuple[DraftClaims, Verdicts, str]]:
+) -> Optional[CorrectiveClaims]:
     """The reserved-anchor backstop's one corrective re-prompt (issue #84).
 
-    When a reserved target's Evidence sits in the pool yet no kept Finding
-    cites it, the Researcher is re-prompted exactly once — the corrective
-    Claims are then verified against the same Evidence before they can
-    become Findings, mirroring the Summarizer's re-prompt (issue #82) and
-    the Planner's truncation correction. On a failed re-prompt the empty
-    corrective pass returns with the correction intact: the first pass
-    ships as it stands, and the run never fails."""
+    When a reserved target's anchor — the top-ranked provision of its own
+    retrieval — sits in the pool yet no kept Finding cites it, the
+    Researcher is re-prompted exactly once — the corrective Claims are then
+    verified against the same Evidence before they can become Findings,
+    mirroring the Summarizer's re-prompt (issue #82) and the Planner's
+    truncation correction. On a failed re-prompt the empty corrective pass
+    returns with the correction intact: the first pass ships as it stands,
+    and the run never fails."""
     anchors = _uncited_reserved_anchors(state, findings)
     if not anchors:
         return None
@@ -958,24 +981,24 @@ def _corrective_claims_pass(
         f"target(s) uncited ({uncited}); one corrective re-prompt named the evidence"
     )
     logger.warning("researcher: %s", correction)
-    corrective_claims, corrective_verdicts = DraftClaims(), Verdicts()
+    drafts, corrective_verdicts = DraftClaims(), Verdicts()
     try:
-        corrective_claims = llm.complete(
+        drafts = llm.complete(
             system=_RESEARCHER_SYSTEM,
             user=_corrective_claims_prompt(state.question, state.evidence, anchors),
             schema=DraftClaims,
         )
-        if corrective_claims.claims:
+        if drafts.claims:
             corrective_verdicts = llm.complete(
                 system=_VERIFIER_SYSTEM,
-                user=_verifier_user(state.question, state.evidence, corrective_claims.claims),
+                user=_verifier_user(state.question, state.evidence, drafts.claims),
                 schema=Verdicts,
             )
     except Exception as error:
         logger.warning(
             "researcher anchor re-prompt failed (%s); the first pass ships as-is", error
         )
-    return corrective_claims, corrective_verdicts, correction
+    return CorrectiveClaims(drafts=drafts, verdicts=corrective_verdicts, correction=correction)
 
 
 # --- The Summarizer's outcome: classified once, described by every surface ---
@@ -1098,10 +1121,9 @@ def _build_graph(
             progress(PhaseReport(phase="researcher", message="retrieving Evidence from the Corpus and drafting candidate Claims"))
         retrievals: list[dict] = []
         per_target: list[list[Chunk]] = []
-        # Per target, the identities its own retrieval call surfaced — the
-        # reserved-anchor attribution the backstop reads (issue #84); a Chunk
-        # shared with an earlier target still counts, the researcher saw it.
-        found_identities: list[set[tuple]] = []
+        # Per target, its retrieval results kept in the service's rank order —
+        # the reserved anchor is the target's top-ranked pool hit (issue #84).
+        found_per_target: list[list[Chunk]] = []
         seen: set[tuple] = set()
         for target in state.plan:
             found = retriever.retrieve(target.query)
@@ -1112,7 +1134,7 @@ def _build_graph(
                     "chunks_returned": len(found),
                 }
             )
-            found_identities.append({chunk.identity for chunk in found})
+            found_per_target.append(found)
             fresh: list[Chunk] = []
             for chunk in found:
                 if chunk.identity in seen:
@@ -1161,16 +1183,18 @@ def _build_graph(
             drafted = llm.complete(system=_RESEARCHER_SYSTEM, user=user, schema=DraftClaims)
             logger.info("researcher: %d draft(s) over %d chunk(s) in %.2fs", len(drafted.claims), len(evidence), time.perf_counter() - started)
         # Reserved-anchor provenance (issue #84): per reserved target, the
-        # pool labels its retrieval surfaced — the Evidence the researcher
-        # actually saw for the threshold provision. A reserved target whose
+        # pool labels its retrieval surfaced, in the retrieval service's
+        # rank order — the Evidence the researcher actually saw for the
+        # threshold provision, best match first. A reserved target whose
         # Evidence never reached the pool records nothing: the backstop
         # never flags what a re-prompt could not name. A shared query key
         # unions: identical retrievals mean identical labels.
+        pool_label_by_identity = {item.chunk.identity: item.label for item in evidence}
         reserved_anchor_labels: dict[str, list[str]] = {}
-        for target, identities in zip(state.plan, found_identities):
+        for target, found in zip(state.plan, found_per_target):
             if not target.reserved:
                 continue
-            labels = [item.label for item in evidence if item.chunk.identity in identities]
+            labels = [pool_label_by_identity[chunk.identity] for chunk in found if chunk.identity in pool_label_by_identity]
             if not labels:
                 continue
             known = reserved_anchor_labels.setdefault(target.query, [])
@@ -1218,9 +1242,9 @@ def _build_graph(
         anchor_correction: Optional[str] = None
         corrective = _corrective_claims_pass(state, llm, findings)
         if corrective is not None:
-            corrective_claims, corrective_verdicts, anchor_correction = corrective
-            drafted = DraftClaims(claims=[*state.drafted.claims, *corrective_claims.claims])
-            verdicts = Verdicts(verdicts=[*state.verdicts.verdicts, *corrective_verdicts.verdicts])
+            anchor_correction = corrective.correction
+            drafted = DraftClaims(claims=[*state.drafted.claims, *corrective.drafts.claims])
+            verdicts = Verdicts(verdicts=[*state.verdicts.verdicts, *corrective.verdicts.verdicts])
             findings, _, decisions = _decide_claims(drafted, verdicts, evidence_by_label)
         if not findings:
             # No kept Finding anchors anything: the node itself emits the

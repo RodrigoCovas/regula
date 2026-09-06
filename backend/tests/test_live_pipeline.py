@@ -1968,8 +1968,20 @@ NOTIFICATION_CHUNK = make_chunk(
     text="Notification of a personal data breach to the supervisory authority.",
     title="Notification of a breach",
 )
+GDPR_DEFINITIONS_CHUNK = make_chunk(
+    source_id="gdpr",
+    number=4,
+    text="For the purposes of this Regulation, the definitions apply.",
+    title="Definitions",
+)
 ANCHOR_RETRIEVALS = {
     "principles relating to processing": [PRINCIPLES_CHUNK],
+    "breach notification duties": [NOTIFICATION_CHUNK],
+}
+# The reserved target's retrieval seats the threshold provision first and a
+# neighbouring chunk behind it — the shape the union check could not see past.
+MIXED_RETRIEVALS = {
+    "principles relating to processing": [PRINCIPLES_CHUNK, GDPR_DEFINITIONS_CHUNK],
     "breach notification duties": [NOTIFICATION_CHUNK],
 }
 
@@ -2134,3 +2146,67 @@ def test_a_failing_anchor_re_prompt_still_ships_the_first_pass(live_client):
     assert NOTIFICATION_CHUNK.article_number in numbers
     assert PRINCIPLES_CHUNK.article_number not in numbers
     assert "re-prompt" in researcher_step(data)["correction"]
+
+
+def test_a_neighbour_citation_does_not_silence_the_uncited_anchor(live_client):
+    """The union hole (issue #84): a first pass that cites only the reserved
+    target's neighbouring chunk — not the threshold provision its retrieval
+    ranked first — still owes the corrective re-prompt, and the weight-50
+    anchor lands through it."""
+    llm = anchor_llm()
+    llm.claims = DraftClaims(claims=[
+        DraftClaim(
+            statement="The definitions article applies to the processing.",
+            evidence_refs=["E2"],
+        ),
+    ])
+    llm.verdicts = Verdicts(verdicts=[
+        grounded_verdict(
+            "The definitions article applies to the processing.",
+            Strength.moderate,
+            ["E2"],
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=MIXED_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # The backstop fired: exactly one corrective re-prompt.
+    assert len(claims_calls(llm)) == 2
+    _, retry_user, _ = claims_calls(llm)[1]
+    assert "E1" in retry_user, "the threshold provision's label is named"
+    assert "Article 5" in retry_user
+    # The weight-50 anchor lands: the strong engagement Finding cites it.
+    strong = next(f for f in data["answer"]["findings"] if f["strength"] == "strong")
+    assert strong["citations"][0]["source_id"] == "gdpr"
+    assert strong["citations"][0]["article_number"] == PRINCIPLES_CHUNK.article_number
+    assert "Article 5" in researcher_step(data)["correction"]
+
+
+def test_the_ranked_first_provision_cited_earns_no_re_prompt(live_client):
+    """The anchor lands the moment a kept Finding cites the top-ranked
+    provision: a neighbour's absence never earns a re-prompt (issue #84)."""
+    llm = anchor_llm()
+    llm.claims = DraftClaims(claims=[
+        DraftClaim(
+            statement="The processing of the employee data must respect the data-protection principles.",
+            evidence_refs=["E1"],
+        ),
+    ])
+    llm.verdicts = Verdicts(verdicts=[
+        grounded_verdict(
+            "The processing of the employee data must respect the data-protection principles.",
+            Strength.strong,
+            ["E1"],
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=MIXED_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert len(claims_calls(llm)) == 1
+    assert researcher_step(data).get("correction") is None
