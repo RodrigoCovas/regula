@@ -211,6 +211,18 @@ class Chunk(BaseModel):
         return self.article_number or self.recital_number or self.annex_number
 
     @property
+    def provision_target(self) -> ProvisionTarget:
+        """This Chunk's structural target, from its validated exactly-one
+        metadata — the mirror of ``Citation.provision_target``, so a kept
+        Finding's Citations and the Evidence that seeded them compare on the
+        same triple."""
+        for kind, field_name in PROVISION_NUMBER_FIELDS.items():
+            number = getattr(self, field_name)
+            if number is not None:
+                return ProvisionTarget(self.source_id, kind, number)
+        raise ValueError("Chunk carries no provision number")  # unreachable: validator-enforced
+
+    @property
     def identity(self) -> ChunkIdentity:
         """The stored Chunk's identity (``ChunkIdentity``): two Chunks with
         one identity are the same stored Chunk, whatever read path surfaced

@@ -173,19 +173,22 @@ class FakeRetriever:
 class ScriptedLlm:
     """Replays canned structured outputs keyed by boundary schema.
 
-    The Summarizer boundary gets a second slot: ``summaries_retry``, when
-    given, is served on the boundary's *second* call — the corrective
-    re-prompt's pass (issue #82) — while the first call and any later one
-    replay ``summaries``. ``usage`` mirrors the real client's exposure:
-    when given, every completed call leaves one provider usage dictionary
-    behind, so per-request aggregation has something to sum.
+    A boundary can carry a retry slot for its *second* call — the corrective
+    re-prompt's pass: ``summaries_retry`` (issue #82) on the Summaries
+    boundary, ``claims_retry`` and ``verdicts_retry`` (issue #84) on the
+    DraftClaims and Verdicts boundaries — while the first call and any later
+    one replay the primary canned batch. ``usage`` mirrors the real client's
+    exposure: when given, every completed call leaves one provider usage
+    dictionary behind, so per-request aggregation has something to sum.
     """
 
     def __init__(
         self,
         plan: Plan | None = None,
         claims: DraftClaims | None = None,
+        claims_retry: DraftClaims | None = None,
         verdicts: Verdicts | None = None,
+        verdicts_retry: Verdicts | None = None,
         proposals: ActionProposals | None = None,
         summaries: Summaries | None = None,
         summaries_retry: Summaries | None = None,
@@ -193,11 +196,15 @@ class ScriptedLlm:
     ):
         self.plan = plan or Plan(targets=[ResearchTarget(query="creditworthiness evaluation")])
         self.claims = claims or DraftClaims(claims=[])
+        self.claims_retry = claims_retry
         self.verdicts = verdicts or Verdicts(verdicts=[])
+        self.verdicts_retry = verdicts_retry
         self.proposals = proposals or ActionProposals(proposals=[])
         self.summaries = summaries or Summaries(summaries=[])
         self.summaries_retry = summaries_retry
         self._canned_usage = usage
+        self._claims_calls = 0
+        self._verdicts_calls = 0
         self._summaries_calls = 0
         self.calls: list[tuple[str, str, type]] = []
         self.usage: list[dict] = []
@@ -206,6 +213,18 @@ class ScriptedLlm:
         self.calls.append((system, user, schema))
         if self._canned_usage is not None:
             self.usage.append(dict(self._canned_usage))
+        if schema is DraftClaims:
+            self._claims_calls += 1
+            # The scripted contract: the SECOND DraftClaims call is the
+            # reserved-anchor backstop's corrective re-prompt (issue #84);
+            # the first call and any later one replay the first-pass batch.
+            if self._claims_calls == 2 and self.claims_retry is not None:
+                return self.claims_retry.model_copy(deep=True)
+        if schema is Verdicts:
+            self._verdicts_calls += 1
+            # The SECOND Verdicts call verifies the corrective pass's claims.
+            if self._verdicts_calls == 2 and self.verdicts_retry is not None:
+                return self.verdicts_retry.model_copy(deep=True)
         if schema is Summaries:
             self._summaries_calls += 1
             # The scripted contract: the SECOND Summaries call is the

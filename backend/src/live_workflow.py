@@ -13,7 +13,7 @@ statement per cited provision, drawing only on the content of the Findings
 citing it (#47) — and rates each cited provision's Citation strength
 (ADR-0011).
 
-Four rules are enforced by application code, never trusted to the LLM:
+Five rules are enforced by application code, never trusted to the LLM:
 
 - Citations are derived deterministically from Chunk provision metadata —
   the LLM only selects which Chunks support a Claim by their label, and a
@@ -36,6 +36,12 @@ Four rules are enforced by application code, never trusted to the LLM:
   truncation correction — and a second failure ships the partial coverage
   with its Known limitation. On Summarizer failure the Answer ships without
   summaries plus a Known limitation — the run does not fail.
+- A reserved engagement-threshold target whose Evidence sits in the pool yet
+  is cited by no kept Finding earns exactly one corrective re-prompt to the
+  Researcher (issue #84) — the applicability/engagement claim is never
+  optional filler — mirroring the Planner's truncation correction and the
+  Summarizer's re-prompt; the corrective Claims are verified before they can
+  become Findings, and the correction is recorded in the detailed trace.
 
 When retrieval returns nothing at all — both the vector and the lexical
 leg come back empty (ADR-0012) — no LLM call drafts, verifies, or proposes
@@ -134,12 +140,20 @@ class ResearchTarget(BaseModel):
     Regulatory question; ``query`` carries the keyword search string used
     for retrieval.
 
+    ``reserved`` marks the engagement-threshold targets (issue #75,
+    ADR-0015): the Planner reserves one per confirmed regulation and lists
+    them first, so the one-shot truncation correction can never discard
+    them — the marker is what the deterministic anchor backstop (issue
+    #84) reads to know which targets the Answer must cite the threshold
+    from, never just prose.
+
     A bare string is tolerated as shorthand for ``{"query": <string>}`` —
     live solar-pro4 emits the keywords without the wrapper object despite
     the structural shape instruction.
     """
 
     query: str
+    reserved: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -289,6 +303,11 @@ class LiveState(BaseModel):
     question: str = ""
     plan: list[ResearchTarget] = Field(default_factory=list)
     plan_correction: Optional[str] = None
+    # The Researcher's reserved-anchor provenance (issue #84): per reserved
+    # engagement-threshold target, the Evidence-pool labels its own retrieval
+    # surfaced — what the deterministic backstop checks the kept Findings'
+    # Citations against, and what its corrective re-prompt names.
+    reserved_anchor_labels: dict[str, list[str]] = Field(default_factory=dict)
     evidence: list[LabeledEvidence] = Field(default_factory=list)
     retrievals: list[dict] = Field(default_factory=list)  # one record per retrieval-tool call
     drafted: DraftClaims = Field(default_factory=DraftClaims)
@@ -315,6 +334,9 @@ class LiveState(BaseModel):
     # The corrective re-prompt a partial pass owed (issue #82): recorded in
     # the detailed trace like the Planner's truncation correction.
     summarizer_correction: Optional[str] = None
+    # The corrective re-prompt an uncited reserved anchor owed (issue #84):
+    # recorded in the detailed trace like the other two one-shot corrections.
+    researcher_correction: Optional[str] = None
 
 
 # --- Prompts: JSON-only instructions; the client repeats the schema contract ---
@@ -329,8 +351,9 @@ _PLANNER_SYSTEM = (
     "one engagement-threshold target per confirmed regulation — the provision that decides "
     "whether the regime engages at all (a breach notion, a profiling notion, a "
     "financial-entity perimeter, the principles constraining the contested processing) — "
-    "and list those reserved targets first, so the one-shot truncation correction can "
-    "never discard them: the Answer must cite the threshold, not presuppose it. Apply the "
+    "and list those reserved targets first, marking each \"reserved\": true, so the "
+    "one-shot truncation correction can never discard them: the Answer must cite the "
+    "threshold, not presuppose it. Apply the "
     "regime-coverage rule: every regulation the Regulatory question or the scenario's facts "
     "name earns at least one Research target, keyed off both the question and the scenario "
     "description you read — a dominant regime can never crowd a named regime out of the plan. "
@@ -365,7 +388,12 @@ _RESEARCHER_SYSTEM = (
     "'if X' claim where the scenario states X. When a claim turns on a defined term — "
     "a personal data breach, profiling, an ICT-related incident, a financial entity — "
     "it cites the provision that defines it: deciding engagement is not restatement in "
-    "the abstract. Never draft a claim whose contingency the scenario's facts exclude — "
+    "the abstract. When the evidence pool holds a regime's engagement or definitional "
+    "provision — a breach notion, a profiling notion, a financial-entity perimeter, the "
+    "principles constraining the contested processing — the applicability or engagement "
+    "claim citing it is never optional filler: draft that claim too, even when the other "
+    "claims already cover the regime, so the Answer cites the threshold instead of "
+    "presupposing it. Never draft a claim whose contingency the scenario's facts exclude — "
     "draft the claim the stated facts support instead. A contingency the scenario text "
     "genuinely leaves open is still drafted as today, so the open question stays visible "
     "downstream as a moderate Finding with its referral Actions. Each claim is grounded "
@@ -446,6 +474,25 @@ def _evidence_block(evidence: list[LabeledEvidence]) -> str:
         text = chunk.text[:_MAX_CHUNK_CHARS]
         parts.append(f"[{item.label}] {chunk.source_id} {chunk.kind.value} {chunk.title or ''}\n{text}")
     return "\n\n".join(parts)
+
+
+def _researcher_user(question: str, evidence: list[LabeledEvidence]) -> str:
+    """The Researcher's user block: the question plus the whole Evidence pool —
+    shared by the first pass and the anchor backstop's corrective re-prompt, so
+    both read exactly the same grounding material."""
+    return f"Regulatory question: {question}\n\nRetrieved evidence:\n\n{_evidence_block(evidence)}"
+
+
+def _verifier_user(
+    question: str, evidence: list[LabeledEvidence], claims: list[DraftClaim]
+) -> str:
+    """The Verifier's user block — shared by the workflow node and the anchor
+    backstop's verification of the corrective Claims."""
+    return (
+        f"Regulatory question: {question}\n\nRetrieved evidence:\n\n"
+        f"{_evidence_block(evidence)}\n\n"
+        f"Drafted claims:\n{json.dumps([claim.model_dump() for claim in claims])}"
+    )
 
 
 # --- Deterministic Citation derivation from Chunk metadata ---
@@ -809,6 +856,128 @@ def _corrective_re_prompt(
     return merged, retry_decisions
 
 
+# --- The Researcher's reserved-anchor backstop (issue #84) ---------------------
+
+
+class ReservedAnchor(NamedTuple):
+    """One reserved engagement-threshold target whose Evidence no kept Finding
+    cites (issue #84): the target's query, the Evidence-pool labels its own
+    retrieval surfaced, and the provisions those labels carry — what the
+    corrective re-prompt names and the detailed trace records."""
+
+    query: str
+    labels: list[str]
+    provisions: list[str]
+
+
+def _uncited_reserved_anchors(
+    state: LiveState, findings: list[Finding]
+) -> list[ReservedAnchor]:
+    """The reserved engagement-threshold targets whose Evidence the kept
+    Findings never cite (issue #84).
+
+    A reserved target's anchors are the Evidence-pool labels its own
+    retrieval surfaced — the Evidence the Researcher actually saw for the
+    threshold provision, compared with the kept Findings' Citations on the
+    structural ``ProvisionTarget`` triple. The check is target-scoped, the
+    only handle the plan carries: a target any of whose anchor provisions a
+    kept Finding cites has landed, and stays silent.
+
+    A reserved target whose Evidence never reached the pool is not
+    flaggable: the Researcher never saw it — the must-draft rule's own
+    condition (the pool holds the provision) is unmet — and a re-prompt
+    could only name labels it was shown. The retrieval gap itself is
+    visible in the trace's retrieval-tool calls."""
+    cited = {citation.provision_target for finding in findings for citation in finding.citations}
+    evidence_by_label = {item.label: item.chunk for item in state.evidence}
+    anchors: list[ReservedAnchor] = []
+    for target in state.plan:
+        if not target.reserved:
+            continue
+        labels = [
+            label
+            for label in state.reserved_anchor_labels.get(target.query, [])
+            if label in evidence_by_label
+        ]
+        anchor_targets: dict[ProvisionTarget, str] = {}
+        for label in labels:
+            chunk = evidence_by_label[label]
+            display = f"{chunk.source_id} {_provision_label(chunk)}"
+            anchor_targets.setdefault(chunk.provision_target, display)
+        if not anchor_targets or anchor_targets.keys() & cited:
+            continue
+        anchors.append(
+            ReservedAnchor(query=target.query, labels=labels, provisions=list(anchor_targets.values()))
+        )
+    return anchors
+
+
+def _corrective_claims_prompt(
+    question: str, evidence: list[LabeledEvidence], anchors: list[ReservedAnchor]
+) -> str:
+    """The corrective re-prompt's user block (issue #84): the same grounding
+    material the first pass read — the question and the whole Evidence pool —
+    plus the reserved anchors no kept Finding cites, named by the labels the
+    LLM already saw."""
+    listing = "\n".join(
+        f'- reserved target "{anchor.query}": evidence {", ".join(anchor.labels)} '
+        f"({', '.join(anchor.provisions)})"
+        for anchor in anchors
+    )
+    return (
+        f"{_researcher_user(question, evidence)}\n\n"
+        "Your previous response left the reserved engagement-threshold evidence "
+        "uncited — no Finding cites the provision that decides whether the regime "
+        "engages. For each reserved target below, draft the applicability or "
+        "engagement claim the scenario's stated facts support, citing its evidence "
+        "labels:\n"
+        f"{listing}"
+    )
+
+
+def _corrective_claims_pass(
+    state: LiveState, llm: Llm, findings: list[Finding]
+) -> Optional[tuple[DraftClaims, Verdicts, str]]:
+    """The reserved-anchor backstop's one corrective re-prompt (issue #84).
+
+    When a reserved target's Evidence sits in the pool yet no kept Finding
+    cites it, the Researcher is re-prompted exactly once — the corrective
+    Claims are then verified against the same Evidence before they can
+    become Findings, mirroring the Summarizer's re-prompt (issue #82) and
+    the Planner's truncation correction. On a failed re-prompt the empty
+    corrective pass returns with the correction intact: the first pass
+    ships as it stands, and the run never fails."""
+    anchors = _uncited_reserved_anchors(state, findings)
+    if not anchors:
+        return None
+    uncited = "; ".join(
+        f"{anchor.query} ({', '.join(anchor.provisions)})" for anchor in anchors
+    )
+    correction = (
+        f"Researcher response left {len(anchors)} reserved engagement-threshold "
+        f"target(s) uncited ({uncited}); one corrective re-prompt named the evidence"
+    )
+    logger.warning("researcher: %s", correction)
+    corrective_claims, corrective_verdicts = DraftClaims(), Verdicts()
+    try:
+        corrective_claims = llm.complete(
+            system=_RESEARCHER_SYSTEM,
+            user=_corrective_claims_prompt(state.question, state.evidence, anchors),
+            schema=DraftClaims,
+        )
+        if corrective_claims.claims:
+            corrective_verdicts = llm.complete(
+                system=_VERIFIER_SYSTEM,
+                user=_verifier_user(state.question, state.evidence, corrective_claims.claims),
+                schema=Verdicts,
+            )
+    except Exception as error:
+        logger.warning(
+            "researcher anchor re-prompt failed (%s); the first pass ships as-is", error
+        )
+    return corrective_claims, corrective_verdicts, correction
+
+
 # --- The Summarizer's outcome: classified once, described by every surface ---
 
 
@@ -929,6 +1098,10 @@ def _build_graph(
             progress(PhaseReport(phase="researcher", message="retrieving Evidence from the Corpus and drafting candidate Claims"))
         retrievals: list[dict] = []
         per_target: list[list[Chunk]] = []
+        # Per target, the identities its own retrieval call surfaced — the
+        # reserved-anchor attribution the backstop reads (issue #84); a Chunk
+        # shared with an earlier target still counts, the researcher saw it.
+        found_identities: list[set[tuple]] = []
         seen: set[tuple] = set()
         for target in state.plan:
             found = retriever.retrieve(target.query)
@@ -939,6 +1112,7 @@ def _build_graph(
                     "chunks_returned": len(found),
                 }
             )
+            found_identities.append({chunk.identity for chunk in found})
             fresh: list[Chunk] = []
             for chunk in found:
                 if chunk.identity in seen:
@@ -982,14 +1156,31 @@ def _build_graph(
             # retrieved — and spent tokens retrieving.
             observation.retrieved_chunks = len(evidence)
         if evidence:
-            user = (
-                f"Regulatory question: {state.question}\n\nRetrieved evidence:\n\n"
-                f"{_evidence_block(evidence)}"
-            )
+            user = _researcher_user(state.question, evidence)
             started = time.perf_counter()
             drafted = llm.complete(system=_RESEARCHER_SYSTEM, user=user, schema=DraftClaims)
             logger.info("researcher: %d draft(s) over %d chunk(s) in %.2fs", len(drafted.claims), len(evidence), time.perf_counter() - started)
-        return {"drafted": drafted, "evidence": evidence, "retrievals": retrievals}
+        # Reserved-anchor provenance (issue #84): per reserved target, the
+        # pool labels its retrieval surfaced — the Evidence the researcher
+        # actually saw for the threshold provision. A reserved target whose
+        # Evidence never reached the pool records nothing: the backstop
+        # never flags what a re-prompt could not name. A shared query key
+        # unions: identical retrievals mean identical labels.
+        reserved_anchor_labels: dict[str, list[str]] = {}
+        for target, identities in zip(state.plan, found_identities):
+            if not target.reserved:
+                continue
+            labels = [item.label for item in evidence if item.chunk.identity in identities]
+            if not labels:
+                continue
+            known = reserved_anchor_labels.setdefault(target.query, [])
+            known.extend(label for label in labels if label not in known)
+        return {
+            "drafted": drafted,
+            "evidence": evidence,
+            "retrievals": retrievals,
+            "reserved_anchor_labels": reserved_anchor_labels,
+        }
 
     def verifier(state: LiveState) -> dict:
         if progress:
@@ -998,11 +1189,7 @@ def _build_graph(
             # Both retrieval legs came back empty: drafting and verifying
             # claims against no Evidence would be theatre.
             return {}
-        user = (
-            f"Regulatory question: {state.question}\n\nRetrieved evidence:\n\n"
-            f"{_evidence_block(state.evidence)}\n\n"
-            f"Drafted claims:\n{json.dumps([claim.model_dump() for claim in state.drafted.claims])}"
-        )
+        user = _verifier_user(state.question, state.evidence, state.drafted.claims)
         started = time.perf_counter()
         verdicts = llm.complete(system=_VERIFIER_SYSTEM, user=user, schema=Verdicts)
         logger.info("verifier: %d decision(s) in %.2fs", len(verdicts.verdicts), time.perf_counter() - started)
@@ -1015,21 +1202,39 @@ def _build_graph(
         here: kept Findings, per-claim decisions, and the prompt's citation
         labels all come from this single computation, carried through the
         state so the grounding gate validates exactly the labels the LLM saw.
+
+        Before that derivation runs, the reserved-anchor backstop (issue #84)
+        checks the reserved engagement-threshold targets: a reserved target
+        whose Evidence no kept Finding cites earns exactly one corrective
+        re-prompt, whose verified Claims merge into the derivation — the
+        weight-50 anchor gets its second chance deterministically, and the
+        correction is recorded in the trace, never silent.
         """
         evidence_by_label = {item.label: item.chunk for item in state.evidence}
         if progress:
             progress(PhaseReport(phase="proposer", message="distilling the kept Findings into referral Actions grounded in their Citations"))
         findings, _, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label)
+        drafted, verdicts = state.drafted, state.verdicts
+        anchor_correction: Optional[str] = None
+        corrective = _corrective_claims_pass(state, llm, findings)
+        if corrective is not None:
+            corrective_claims, corrective_verdicts, anchor_correction = corrective
+            drafted = DraftClaims(claims=[*state.drafted.claims, *corrective_claims.claims])
+            verdicts = Verdicts(verdicts=[*state.verdicts.verdicts, *corrective_verdicts.verdicts])
+            findings, _, decisions = _decide_claims(drafted, verdicts, evidence_by_label)
         if not findings:
             # No kept Finding anchors anything: the node itself emits the
             # standing seek-counsel hand-off alone (ADR-0004), and no LLM
             # call is made over nothing. The Insufficient-evidence path
             # overrides this emission with its narrowing Actions.
             return {
+                "drafted": drafted,
+                "verdicts": verdicts,
                 "proposals": ActionProposals(),
                 "kept_findings": findings,
                 "claim_decisions": decisions,
                 "actions": [SEEK_COUNSEL_ACTION],
+                "researcher_correction": anchor_correction,
             }
         block, grounding_by_label = _labelled_findings(findings)
         user = (
@@ -1045,10 +1250,13 @@ def _build_graph(
             time.perf_counter() - started,
         )
         return {
+            "drafted": drafted,
+            "verdicts": verdicts,
             "proposals": proposals,
             "kept_findings": findings,
             "claim_decisions": decisions,
             "grounding_by_label": grounding_by_label,
+            "researcher_correction": anchor_correction,
         }
 
     def summarizer(state: LiveState) -> dict:
@@ -1274,11 +1482,19 @@ def run_live_analysis(
         "action": summarizer_step_action,
         "summary_decisions": [decision.model_dump() for decision in state.summary_decisions],
     }
+    researcher_step: dict[str, Any] = {
+        "step": "researcher",
+        "action": "retrieve Evidence exclusively via the retrieve_chunks tool, then draft Claims grounded in it",
+        "retrieved": retrieved_chunks,
+        "tool_calls": state.retrievals,
+    }
     # A one-shot correction is recorded on its step when one was applied —
-    # the Planner's truncation and the Summarizer's corrective re-prompt
-    # (issue #82) are transparent in the detailed trace, never silent.
+    # the Planner's truncation, the Researcher's reserved-anchor re-prompt
+    # (issue #84), and the Summarizer's corrective re-prompt (issue #82) are
+    # transparent in the detailed trace, never silent.
     for step, correction in (
         (planner_step, state.plan_correction),
+        (researcher_step, state.researcher_correction),
         (summarizer_step, state.summarizer_correction),
     ):
         if correction:
@@ -1286,12 +1502,7 @@ def run_live_analysis(
 
     detailed_trace: list[dict[str, Any]] = [
         planner_step,
-        {
-            "step": "researcher",
-            "action": "retrieve Evidence exclusively via the retrieve_chunks tool, then draft Claims grounded in it",
-            "retrieved": retrieved_chunks,
-            "tool_calls": state.retrievals,
-        },
+        researcher_step,
         {
             "step": "verifier",
             "action": "check each Claim against the retrieved Evidence, tag its Strength, discard Unsupported claims",

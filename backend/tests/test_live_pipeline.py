@@ -26,9 +26,11 @@ from src.live_workflow import (
     SEEK_COUNSEL_ACTION,
     ActionProposal,
     ActionProposals,
+    DraftClaim,
     DraftClaims,
     ProvisionSummary,
     Summaries,
+    Verdicts,
 )
 from src.main import app
 from src.models import ProvisionKind, Strength
@@ -42,6 +44,7 @@ from fakes import (
     FakeEmbedder,
     FakeRetriever,
     FakeSearchStore,
+    ScriptedLlm,
     chunk_hit,
     grounded_verdict,
     make_chunk,
@@ -1662,6 +1665,7 @@ def planner_rubric() -> dict[str, str]:
         "threshold notions": "a breach notion, a profiling notion, a financial-entity perimeter",
         "threshold principles": "the principles constraining the contested processing",
         "threshold listed first": "list those reserved targets first",
+        "threshold marked reserved": 'marking each "reserved": true',
         "threshold survives truncation": "truncation correction can never discard",
         "regime coverage": "every regulation the Regulatory question or the scenario's facts name",
         "coverage earns": "earns at least one Research target",
@@ -1721,6 +1725,14 @@ def test_planner_rubric_reserves_one_engagement_threshold_target_per_confirmed_r
     assert planner_rubric["threshold survives truncation"] in planner_system
     # The budget competition keeps every reserved target, too.
     assert "every engagement-threshold target" in planner_system
+
+
+def test_planner_rubric_marks_each_reserved_target_reserved(live_client, planner_rubric):
+    """The reservation is programmatic, not just prose (issue #84): the
+    Planner marks each engagement-threshold target `\"reserved\": true`, so the
+    application code can find the reserved targets the backstop protects."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["threshold marked reserved"] in planner_system
 
 
 def test_planner_rubric_enforces_regime_coverage_for_every_named_regulation(live_client, planner_rubric):
@@ -1792,6 +1804,8 @@ def researcher_rubric() -> dict[str, str]:
         "defined terms": "a personal data breach, profiling, an ICT-related incident, a financial entity",
         "definitional citation": "it cites the provision that defines it",
         "engagement not restatement": "deciding engagement is not restatement in the abstract",
+        "pool threshold rule": "When the evidence pool holds a regime's engagement or definitional provision",
+        "must draft anchor": "the applicability or engagement claim citing it is never optional filler",
         "no excluded branch": "Never draft a claim whose contingency the scenario's facts exclude",
         "stated facts instead": "draft the claim the stated facts support instead",
         "open stays draftable": "A contingency the scenario text genuinely leaves open is still drafted as today",
@@ -1846,6 +1860,19 @@ def test_researcher_rubric_never_drafts_a_branch_the_scenario_facts_exclude(live
     assert researcher_rubric["stated facts instead"] in researcher_system
     assert researcher_rubric["open stays draftable"] in researcher_system
     assert researcher_rubric["open visible downstream"] in researcher_system
+
+
+def test_researcher_rubric_must_draft_the_engagement_claim_when_the_pool_holds_the_threshold(live_client, researcher_rubric):
+    """The must-draft rule (issue #84): when the Evidence pool holds a regime's
+    engagement or definitional provision, drafting the applicability/engagement
+    claim citing it is never optional filler — the weight-50 anchor miss (gdpr
+    Art 5 in employee-productivity, 68% of that case's recall gap) dies here."""
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
+    assert researcher_rubric["pool threshold rule"] in researcher_system
+    assert researcher_rubric["must draft anchor"] in researcher_system
+    # The defined-terms citation rule and the grounding discipline survive.
+    assert researcher_rubric["definitional citation"] in researcher_system
+    assert researcher_rubric["grounded only"] in researcher_system
 
 
 @pytest.fixture
@@ -1914,3 +1941,196 @@ def test_verifier_rubric_makes_the_scenario_excluded_contingency_explicitly_unsu
     assert verifier_rubric["never moderate"] in verifier_system
     assert verifier_rubric["example setup"] in verifier_system
     assert verifier_rubric["example consequence"] in verifier_system
+
+
+# --- Reserved-anchor backstop: trace + one corrective re-prompt (issue #84) ----
+
+
+def claims_calls(llm) -> list[tuple[str, str, type]]:
+    """The DraftClaims boundary's calls in the scripted client's log."""
+    return [call for call in llm.calls if call[2] is DraftClaims]
+
+
+def researcher_step(data) -> dict:
+    """The Researcher's detailed-trace step."""
+    return [s for s in data["detailed_trace"] if s["step"] == "researcher"][0]
+
+
+PRINCIPLES_CHUNK = make_chunk(
+    source_id="gdpr",
+    number=5,
+    text="Processing must be lawful, fair and transparent; data minimisation applies.",
+    title="Principles relating to processing",
+)
+NOTIFICATION_CHUNK = make_chunk(
+    source_id="gdpr",
+    number=33,
+    text="Notification of a personal data breach to the supervisory authority.",
+    title="Notification of a breach",
+)
+ANCHOR_RETRIEVALS = {
+    "principles relating to processing": [PRINCIPLES_CHUNK],
+    "breach notification duties": [NOTIFICATION_CHUNK],
+}
+
+
+def anchor_llm() -> "ScriptedLlm":
+    """A scripted run whose reserved engagement-threshold target retrieves the
+    principles provision the first pass never cites — the employee-productivity
+    case's weight-50 gdpr Article 5 miss. The backstop's corrective re-prompt
+    drafts the engagement claim, and its verification keeps it."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    return ScriptedLlm(
+        plan=Plan(targets=[
+            ResearchTarget(query="principles relating to processing", reserved=True),
+            ResearchTarget(query="breach notification duties"),
+        ]),
+        claims=DraftClaims(claims=[
+            DraftClaim(
+                statement="The breach must be notified to the authority without undue delay.",
+                evidence_refs=["E2"],
+            ),
+        ]),
+        verdicts=Verdicts(verdicts=[
+            grounded_verdict(
+                "The breach must be notified to the authority without undue delay.",
+                Strength.moderate,
+                ["E2"],
+            ),
+        ]),
+        claims_retry=DraftClaims(claims=[
+            DraftClaim(
+                statement="The processing of the employee data must respect the data-protection principles.",
+                evidence_refs=["E1"],
+            ),
+        ]),
+        verdicts_retry=Verdicts(verdicts=[
+            grounded_verdict(
+                "The processing of the employee data must respect the data-protection principles.",
+                Strength.strong,
+                ["E1"],
+            ),
+        ]),
+        proposals=ActionProposals(proposals=[
+            ActionProposal(
+                action="Verify the processing against the principles the company must respect.",
+                kind="verify_against_facts",
+                citation_refs=["C2"],
+            ),
+        ]),
+        summaries=Summaries(summaries=[
+            ProvisionSummary(
+                ref="P1",
+                relevance="The notification duty is what the question turns on.",
+                strength=Strength.moderate,
+            ),
+            ProvisionSummary(
+                ref="P2",
+                relevance=(
+                    "The principles provision decides whether the processing is lawful "
+                    "at all — the threshold the Answer cites."
+                ),
+                strength=Strength.strong,
+            ),
+        ]),
+    )
+
+
+def test_uncited_reserved_anchor_is_recorded_and_one_corrective_re_prompt_lands_it(live_client):
+    """The weight-50 anchor lands (issue #84): a first pass that never cites the
+    reserved engagement-threshold evidence earns exactly one corrective
+    re-prompt naming that Evidence; the second pass's engagement claim is
+    verified, kept, and the Answer cites the threshold provision with its
+    rated strength."""
+    llm = anchor_llm()
+    install_fake_pipeline(llm, FakeRetriever(per_query=ANCHOR_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Exactly one corrective re-prompt: two DraftClaims calls, never three.
+    assert len(claims_calls(llm)) == 2
+    # The re-prompt repeats the grounding material and names the uncited anchor.
+    _, retry_user, _ = claims_calls(llm)[1]
+    assert "E1" in retry_user, "the anchor's Evidence label is named"
+    assert "principles relating to processing" in retry_user
+    assert "Article 5" in retry_user
+    # The correction is recorded in the detailed trace, naming the anchor.
+    step = researcher_step(data)
+    assert "re-prompt" in step["correction"]
+    assert "Article 5" in step["correction"]
+    # The anchor lands: the strong engagement Finding cites gdpr Article 5,
+    # and the Answer's citation carries the rated weight-50 strength.
+    strong = next(f for f in data["answer"]["findings"] if f["strength"] == "strong")
+    assert strong["citations"][0]["source_id"] == "gdpr"
+    assert strong["citations"][0]["article_number"] == PRINCIPLES_CHUNK.article_number
+    by_number = {c["article_number"]: c for c in data["answer"]["citations"]}
+    assert by_number[PRINCIPLES_CHUNK.article_number]["strength"] == "strong"
+    assert by_number[PRINCIPLES_CHUNK.article_number]["relevance"]
+    # The first pass's Finding still ships alongside it.
+    assert by_number[NOTIFICATION_CHUNK.article_number]["relevance"]
+
+
+def test_a_cited_reserved_anchor_earns_no_corrective_re_prompt(live_client):
+    """When the first pass already cites the reserved engagement-threshold
+    evidence, the backstop stays silent: one DraftClaims call, and no
+    correction is recorded (issue #84)."""
+    llm = anchor_llm()
+    llm.claims = DraftClaims(claims=[
+        DraftClaim(
+            statement="The processing of the employee data must respect the data-protection principles.",
+            evidence_refs=["E1"],
+        ),
+    ])
+    llm.verdicts = Verdicts(verdicts=[
+        grounded_verdict(
+            "The processing of the employee data must respect the data-protection principles.",
+            Strength.strong,
+            ["E1"],
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=ANCHOR_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert len(claims_calls(llm)) == 1
+    assert researcher_step(data).get("correction") is None
+
+
+def test_a_failing_anchor_re_prompt_still_ships_the_first_pass(live_client):
+    """The corrective re-prompt's call itself fails: the first pass's Findings
+    ship unchanged with the correction recorded — the backstop never fails
+    the run (issue #84)."""
+    base = anchor_llm()
+
+    class RetryFailsLlm:
+        """Serves the first pass, then dies at the corrective re-prompt."""
+
+        def __init__(self, inner):
+            self._inner = inner
+            self.attempts = 0
+
+        def complete(self, system, user, schema):
+            if schema is DraftClaims:
+                self.attempts += 1
+                if self.attempts == 2:
+                    raise LlmError("OpenRouter rejected the request (HTTP 429)")
+            return self._inner.complete(system, user, schema)
+
+    llm = RetryFailsLlm(base)
+    install_fake_pipeline(llm, FakeRetriever(per_query=ANCHOR_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert llm.attempts == 2
+    # The first pass's Finding ships; no principles Finding appears.
+    numbers = [c["article_number"] for c in data["answer"]["citations"]]
+    assert NOTIFICATION_CHUNK.article_number in numbers
+    assert PRINCIPLES_CHUNK.article_number not in numbers
+    assert "re-prompt" in researcher_step(data)["correction"]
