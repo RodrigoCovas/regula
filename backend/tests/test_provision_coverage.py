@@ -16,12 +16,16 @@ from src.eval_harness import (
     STRENGTH_WEIGHTS,
     ExpectedFinding,
     ProducedFinding,
+    TargetRating,
     coverage_scores,
     expected_relevance_summaries,
+    expected_target_ratings,
     expected_target_strengths,
     expected_target_weights,
     format_provision_target,
     parse_provision,
+    produced_citation_targets,
+    produced_target_strengths,
 )
 from src.models import Citation, ProvisionKind, ProvisionTarget, Strength
 
@@ -164,6 +168,82 @@ def test_expected_weights_still_read_the_max_rule_alone():
     weights = expected_target_weights(expected)
     assert strengths == {ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong}
     assert weights == {ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.strong]}
+
+
+# --- The expected side's combined rating: strength + weight in one walk ---
+
+
+def test_expected_target_ratings_carry_strength_and_weight_together():
+    """The one map both coverage's weighted recall and the ledger's missed
+    weights read: the max-rule Strength and its weight, derived together so
+    no two consumers can disagree about what a target is worth."""
+    ratings = expected_target_ratings([
+        _expected(Strength.weak, "Article 3"),
+        _expected(Strength.strong, "Article 6"),
+    ])
+    assert ratings == {
+        ProvisionTarget("ai-act", ProvisionKind.article, 3): TargetRating(
+            Strength.weak, STRENGTH_WEIGHTS[Strength.weak]
+        ),
+        ProvisionTarget("ai-act", ProvisionKind.article, 6): TargetRating(
+            Strength.strong, STRENGTH_WEIGHTS[Strength.strong]
+        ),
+    }
+
+
+def test_expected_target_weights_read_the_ratings_map():
+    weights = expected_target_weights([_expected(Strength.moderate, "Article 6")])
+    assert weights == {
+        ProvisionTarget("ai-act", ProvisionKind.article, 6): STRENGTH_WEIGHTS[Strength.moderate]
+    }
+
+
+# --- The produced side's target set and given ratings (scorer + ledger) ---
+
+
+def _rated_produced(number: int, rating: Strength) -> ProducedFinding:
+    """One produced Finding whose Citation carries the Summarizer's rating —
+    the shape an artifact's rebuilt dump has."""
+    return ProducedFinding(
+        statement="produced finding with a rated citation",
+        strength=Strength.weak,
+        citations=[Citation.model_validate({
+            "source_id": "ai-act", "article_number": number, "strength": rating,
+        })],
+    )
+
+
+def test_produced_citation_targets_form_a_set():
+    produced = [
+        _produced(Strength.strong, _article(6)),
+        _produced(Strength.moderate, _article(6)),
+        _produced(Strength.weak, _article(3)),
+    ]
+    assert produced_citation_targets(produced) == {
+        ProvisionTarget("ai-act", ProvisionKind.article, 6),
+        ProvisionTarget("ai-act", ProvisionKind.article, 3),
+    }
+
+
+def test_produced_target_strengths_read_the_answer_rating_as_given():
+    """ADR-0011: the produced side's ratings are read as given — strongest
+    per target only where a dump disagrees, never derived from the Findings.
+    Display material for the ledger's accounting; no score consumes it."""
+    produced = [
+        _rated_produced(6, Strength.weak),
+        _rated_produced(6, Strength.strong),
+        _rated_produced(3, Strength.moderate),
+    ]
+    assert produced_target_strengths(produced) == {
+        ProvisionTarget("ai-act", ProvisionKind.article, 6): Strength.strong,
+        ProvisionTarget("ai-act", ProvisionKind.article, 3): Strength.moderate,
+    }
+
+
+def test_unrated_produced_citations_name_no_strength():
+    """The in-memory produced side carries unrated Citations (the Answer's
+    ratings attach later, through the Summarizer): no target enters the map."""
+    assert produced_target_strengths([_produced(Strength.strong, _article(6))]) == {}
 
 
 # --- The expected relevance summaries the judge reads (ADR-0010, issue #50) ---

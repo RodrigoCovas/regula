@@ -84,6 +84,7 @@ from .eval_harness import (
     EvalScenario,
     EvalScenarioResult,
     evaluate_scenarios,
+    format_score,
     scenario_definition_hash,
 )
 from .eval_judge import SummaryFidelityJudge, SummaryJudge
@@ -431,12 +432,6 @@ def run_live_eval(
     return checkpoint.report(report) if checkpoint is not None else report
 
 
-def _fmt(score: Optional[float]) -> str:
-    """Three decimals for a measured score, ``n/a`` for one that is not —
-    an unmeasured component must never dress up as a zero."""
-    return f"{score:.3f}" if score is not None else "n/a"
-
-
 def print_report(report: EvalReport, llm_model: str) -> None:
     """Per-case component scores, then the aggregates — the operator-facing
     output. Two components, two means, never blended (ADR-0010). The model
@@ -448,10 +443,10 @@ def print_report(report: EvalReport, llm_model: str) -> None:
         print(
             f"  {result.id}: coverage precision={result.precision:.3f} "
             f"recall={result.recall:.3f} F1={result.f1:.3f} | "
-            f"summary fidelity={_fmt(result.summary_fidelity)}"
+            f"summary fidelity={format_score(result.summary_fidelity)}"
         )
     print(f"Aggregate mean coverage F1: {report.mean_f1:.3f}")
-    print(f"Aggregate mean summary fidelity: {_fmt(report.mean_summary_fidelity)}")
+    print(f"Aggregate mean summary fidelity: {format_score(report.mean_summary_fidelity)}")
 
 
 def report_artifact(report: EvalReport, llm_model: str) -> dict:

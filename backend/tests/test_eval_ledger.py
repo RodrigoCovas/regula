@@ -2,7 +2,7 @@
 accounting over a Live-eval run artifact, re-scored offline.
 
 The one new pure seam is ``ledger_rows`` — a parsed artifact plus the
-expected keys to score against in, per-Scenario ledger rows out — tested
+expected keys to score against in, per-case ledger rows out — tested
 here with fixture artifacts whose stored keys deliberately differ from the
 keys they are scored against. The CLI (``python -m
 backend.src.eval_ledger``) wraps the seam; its tests monkeypatch the
@@ -21,6 +21,7 @@ from src.eval_harness import (
     LIVE_EVAL_SCENARIOS,
     EvalScenario,
     ExpectedFinding,
+    format_provision_target,
     parse_provision,
 )
 from src.eval_ledger import (
@@ -28,9 +29,12 @@ from src.eval_ledger import (
     SpuriousTarget,
     ledger_rows,
     main,
+    parse_dump_target,
     shipped_expected_keys,
 )
-from src.models import ProvisionTarget, Strength
+from src.models import ProvisionKind, ProvisionTarget, Strength
+
+from conftest import ROOT
 
 
 def _expected(source_id: str, label: str, strength: Strength) -> ExpectedFinding:
@@ -253,6 +257,19 @@ def test_empty_current_keys_score_leakage_as_the_harness_does():
     assert row.spurious == [SpuriousTarget(_target("gdpr", "Article 22"), None, None)]
 
 
+def test_parse_dump_target_round_trips_the_audit_form():
+    """``parse_dump_target`` is ``format_provision_target``'s inverse: what
+    the artifact's dump renders re-parses to the target that produced it,
+    across all three provision kinds."""
+    targets = [
+        ProvisionTarget("gdpr", ProvisionKind.article, 4),
+        ProvisionTarget("gdpr", ProvisionKind.recital, 71),
+        ProvisionTarget("ai-act", ProvisionKind.annex, 3),
+    ]
+    for target in targets:
+        assert parse_dump_target("case", format_provision_target(target)) == target
+
+
 # --- Malformed input fails loudly, naming the case ---------------------------
 
 
@@ -322,7 +339,7 @@ def _write_artifact(tmp_path, artifact: dict):
 
 
 def test_main_prints_rows_with_weights_and_the_re_scored_means(monkeypatch, tmp_path, capsys):
-    """The CLI emits, per Scenario, the re-scored P/R/F1 and both lists with
+    """The CLI emits, per case, the re-scored P/R/F1 and both lists with
     their weights: missed entries name the operator's expectation, spurious
     entries the answer's own rating — 'unrated' where the Summarizer shipped
     none."""
@@ -418,3 +435,28 @@ def test_shipped_expected_keys_read_the_live_case_list():
     assert set(keys) == {case.id for case in LIVE_EVAL_SCENARIOS}
     for case in LIVE_EVAL_SCENARIOS:
         assert keys[case.id] == case.expected
+
+
+# --- The ticket's verification target, when the operator's artifact is here ---
+
+
+V7_ARTIFACT = ROOT / "logs" / "live-eval-report-2026-09-04-glm53_v7.json"
+
+
+@pytest.mark.skipif(
+    not V7_ARTIFACT.exists(),
+    reason="the v7 run artifact lives in the operator's gitignored logs/",
+)
+def test_ledgers_the_real_v7_artifact_when_present():
+    """The ledger reads the real v7 artifact's dump shape (the fixtures only
+    replicate it) and returns one row per stored case, in the artifact's own
+    order. Re-scored numbers are deliberately not pinned — ground truth moves
+    on, and re-scoring it is the ledger's whole point."""
+    artifact = json.loads(V7_ARTIFACT.read_text())
+
+    rows = ledger_rows(artifact, shipped_expected_keys())
+
+    assert len(rows) == 10
+    assert [row.case_id for row in rows] == [case["id"] for case in artifact["scenarios"]]
+    for row in rows:
+        assert isinstance(row.missed, list) and isinstance(row.spurious, list)

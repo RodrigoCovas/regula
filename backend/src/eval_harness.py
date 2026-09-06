@@ -42,7 +42,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterable, List, NotRequired, Optional, TypedDict
+from typing import Callable, Dict, Iterable, List, NamedTuple, NotRequired, Optional, Set, TypedDict
 
 from .eval_judge import FIDELITY_FLOOR, RelevancePair, SummaryJudge
 from .models import (
@@ -217,6 +217,26 @@ def expected_target_strengths(expected: List[ExpectedFinding]) -> Dict[Provision
     )
 
 
+class TargetRating(NamedTuple):
+    """One expected Citation target's rating: the operator's Strength and the
+    recall weight that Strength carries — the two faces of the one numeric
+    weight map, always read together."""
+
+    strength: Strength
+    weight: int
+
+
+def expected_target_ratings(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, TargetRating]:
+    """Each expected Citation target with its operator rating and recall
+    weight in one walk of the max-rule (CONTEXT.md). The single source both
+    coverage's weighted recall and the ledger's missed-list weights read, so
+    no two consumers can disagree about what an expected target is worth."""
+    return {
+        target: TargetRating(strength, STRENGTH_WEIGHTS[strength])
+        for target, strength in expected_target_strengths(expected).items()
+    }
+
+
 def expected_target_weights(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, int]:
     """Weight each expected Citation target by the strongest Strength among
     the ground-truth Citations citing it — the operator's per-provision
@@ -225,10 +245,7 @@ def expected_target_weights(expected: List[ExpectedFinding]) -> Dict[ProvisionTa
     target cited by several Findings enters once (set semantics); a Finding
     citing no target contributes nothing, so an expectation that names no
     provision can never be covered."""
-    return {
-        target: STRENGTH_WEIGHTS[strength]
-        for target, strength in expected_target_strengths(expected).items()
-    }
+    return {target: rating.weight for target, rating in expected_target_ratings(expected).items()}
 
 
 def expected_relevance_summaries(expected: List[ExpectedFinding]) -> Dict[ProvisionTarget, str]:
@@ -260,6 +277,33 @@ def format_provision_target(target: ProvisionTarget) -> str:
     return f"{target.source_id} {PROVISION_NOUNS[target.kind]} {target.number}"
 
 
+def format_score(score: Optional[float]) -> str:
+    """Three decimals for a measured score, ``n/a`` for one that is not —
+    an unmeasured component must never dress up as a zero."""
+    return f"{score:.3f}" if score is not None else "n/a"
+
+
+def produced_citation_targets(produced: List[ProducedFinding]) -> Set[ProvisionTarget]:
+    """The produced side's unique Citation targets (set semantics): repeating
+    one earns nothing extra, wherever the walk starts — the scorer and the
+    ledger read the same set."""
+    return {citation.provision_target for finding in produced for citation in finding.citations}
+
+
+def produced_target_strengths(produced: List[ProducedFinding]) -> Dict[ProvisionTarget, Strength]:
+    """The produced side's rated Citation strengths exactly as given
+    (ADR-0011): per target, the rating the Answer carries — the artifact
+    holds one answer-wide rating per target, so the strongest-wins walk only
+    deduplicates should a dump ever disagree. Display material for the
+    ledger's accounting; no score consumes it."""
+    return max_rule_strengths(
+        (citation.provision_target, citation.strength)
+        for finding in produced
+        for citation in finding.citations
+        if citation.strength is not None
+    )
+
+
 def coverage_scores(
     expected: List[ExpectedFinding],
     produced: List[ProducedFinding],
@@ -289,9 +333,7 @@ def coverage_scores(
 
     weights = expected_target_weights(expected)
     expected_weight_total = sum(weights.values())
-    produced_targets = {
-        citation.provision_target for finding in produced for citation in finding.citations
-    }
+    produced_targets = produced_citation_targets(produced)
 
     hit_weight = sum(w for target, w in weights.items() if target in produced_targets)
     recall = hit_weight / expected_weight_total if expected_weight_total else 0.0

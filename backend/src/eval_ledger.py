@@ -4,8 +4,8 @@ accounting over a Live-eval run artifact, re-scored offline.
 One pure seam — ``ledger_rows``: a parsed run artifact (either flavor the
 Live eval writes: the ``--output`` report artifact or a run checkpoint
 under ``data/eval-runs/``, both carrying the same per-case records) plus
-the expected keys to score against; out: one row per artifact Scenario
-naming the unique spurious produced Citation targets and the missed
+the expected keys to score against; out: one row per artifact case naming
+the unique spurious produced Citation targets and the missed
 expected targets, each with its Citation-strength weight (strong 50 /
 moderate 5 / weak 1), plus the precision/recall/F1 re-scored against those
 keys. The numbers come from the harness's own ``coverage_scores`` — the
@@ -52,17 +52,18 @@ from .eval_harness import (
     ExpectedFinding,
     ProducedFinding,
     coverage_scores,
-    expected_target_strengths,
-    expected_target_weights,
+    expected_target_ratings,
     format_provision_target,
+    format_score,
     parse_provision,
+    produced_citation_targets,
+    produced_target_strengths,
 )
 from .models import (
     PROVISION_NUMBER_FIELDS,
     Citation,
     ProvisionTarget,
     Strength,
-    max_rule_strengths,
 )
 
 
@@ -90,7 +91,7 @@ class SpuriousTarget:
 
 @dataclass(frozen=True)
 class LedgerRow:
-    """One artifact Scenario's accounting: the coverage re-scored against
+    """One artifact case's accounting: the coverage re-scored against
     the supplied keys, plus the weight-aware spurious/missed lists — each
     sorted by source, kind, and number, so every read of an artifact
     produces the same rows."""
@@ -135,7 +136,7 @@ def _rated_strength(case_id: str, raw: object, what: str) -> Strength:
         raise ValueError(f"Case {case_id!r} has an invalid {what} {raw!r}") from error
 
 
-def _dump_target(case_id: str, raw: object) -> ProvisionTarget:
+def parse_dump_target(case_id: str, raw: object) -> ProvisionTarget:
     """The structural target behind an audit dump's rendered form — the
     exact inverse of ``format_provision_target``."""
     if not isinstance(raw, str):
@@ -157,7 +158,7 @@ def _produced_citations(case_id: str, citations: object) -> List[Citation]:
         if not isinstance(entry, dict):
             raise ValueError(f"Case {case_id!r} has a produced citation that is not a JSON object")
         rating = entry.get("strength")
-        target = _dump_target(case_id, entry.get("target"))
+        target = parse_dump_target(case_id, entry.get("target"))
         parsed.append(Citation.model_validate({
             "source_id": target.source_id,
             PROVISION_NUMBER_FIELDS[target.kind]: target.number,
@@ -193,7 +194,7 @@ def ledger_rows(
     expected_keys: Dict[str, List[ExpectedFinding]],
 ) -> List[LedgerRow]:
     """The pure seam: a parsed run artifact plus the expected keys to score
-    against → one ledger row per artifact Scenario, in artifact order.
+    against → one ledger row per artifact case, in artifact order.
 
     Coverage is re-scored against ``expected_keys`` — whatever is current —
     through the harness's ``coverage_scores``; the missed list is the
@@ -213,34 +214,26 @@ def ledger_rows(
             )
         current = expected_keys[case_id]
         produced = _produced_findings(case_id, case.get("produced"))
-        produced_targets = {citation.provision_target for finding in produced for citation in finding.citations}
-        expected_strengths = expected_target_strengths(current)
-        expected_weights = expected_target_weights(current)
+        produced_set = produced_citation_targets(produced)
+        expected_ratings = expected_target_ratings(current)
+        produced_strengths = produced_target_strengths(produced)
 
-        missed = sorted(
-            (
-                MissedTarget(target, expected_strengths[target], expected_weights[target])
-                for target in expected_strengths.keys() - produced_targets
-            ),
-            key=_target_sort_key,
-        )
-        # The answer's own ratings, strongest per target where several
-        # Citations cite one — the only weight a produced target carries.
-        ratings = max_rule_strengths(
-            (citation.provision_target, citation.strength)
-            for finding in produced
-            for citation in finding.citations
-            if citation.strength is not None
-        )
+        missed: List[MissedTarget] = []
+        for target in expected_ratings.keys() - produced_set:
+            rating = expected_ratings[target]
+            missed.append(MissedTarget(target, rating.strength, rating.weight))
+        missed.sort(key=_target_sort_key)
+
         spurious: List[SpuriousTarget] = []
-        for target in produced_targets - expected_strengths.keys():
-            strength = ratings.get(target)
+        for target in produced_set - expected_ratings.keys():
+            strength = produced_strengths.get(target)
             spurious.append(SpuriousTarget(
                 target,
                 strength,
                 STRENGTH_WEIGHTS[strength] if strength is not None else None,
             ))
         spurious.sort(key=_target_sort_key)
+
         scores = coverage_scores(current, produced)
         rows.append(LedgerRow(
             case_id=case_id,
@@ -258,11 +251,6 @@ def shipped_expected_keys() -> Dict[str, List[ExpectedFinding]]:
     Findings keyed by case id — whatever ``eval_harness`` ships now, never
     a stored copy."""
     return {scenario.id: scenario.expected for scenario in LIVE_EVAL_SCENARIOS}
-
-
-def _fmt(score: float) -> str:
-    """Three decimals, matching the runner's report style."""
-    return f"{score:.3f}"
 
 
 def print_ledger(
@@ -285,8 +273,8 @@ def print_ledger(
     print(f"Re-scored against the shipped ground truth: {len(rows)} case(s) in the artifact")
     for row in rows:
         print(
-            f"  {row.case_id}: precision={_fmt(row.precision)} "
-            f"recall={_fmt(row.recall)} F1={_fmt(row.f1)}"
+            f"  {row.case_id}: precision={format_score(row.precision)} "
+            f"recall={format_score(row.recall)} F1={format_score(row.f1)}"
         )
         print(f"    missed ({len(row.missed)}):")
         for missed_entry in row.missed:
@@ -306,9 +294,9 @@ def print_ledger(
     if rows:
         cases = len(rows)
         print(
-            f"Mean re-scored precision: {_fmt(sum(row.precision for row in rows) / cases)} "
-            f"recall: {_fmt(sum(row.recall for row in rows) / cases)} "
-            f"F1: {_fmt(sum(row.f1 for row in rows) / cases)}"
+            f"Mean re-scored precision: {format_score(sum(row.precision for row in rows) / cases)} "
+            f"recall: {format_score(sum(row.recall for row in rows) / cases)} "
+            f"F1: {format_score(sum(row.f1 for row in rows) / cases)}"
         )
     unmeasured = sorted(set(expected_keys) - {row.case_id for row in rows})
     if unmeasured:
@@ -321,7 +309,7 @@ def main(argv: list | None = None) -> int:
     the ledger and exit 0. ``argv`` defaults to the process arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Ledger a Live-eval run artifact: per-Scenario spurious/missed Citation "
+            "Ledger a Live-eval run artifact: per-case spurious/missed Citation "
             "accounting with weights, re-scored against the shipped ground truth. "
             "Coverage only — no LLM calls, ever."
         ),
