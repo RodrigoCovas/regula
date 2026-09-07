@@ -28,7 +28,9 @@ from src.live_workflow import (
     ActionProposals,
     DraftClaim,
     DraftClaims,
+    Plan,
     ProvisionSummary,
+    ResearchTarget,
     Summaries,
     Verdicts,
 )
@@ -2688,11 +2690,9 @@ def duty_llm(*claim_triples: tuple[str, "str | list[str]", Strength]) -> "Script
     return llm
 
 
-def plan_with_reserved_first(targets):
+def plan_with_reserved_first(targets: list[str]) -> Plan:
     """The duty-block plans' shape: the first target is the reserved
     engagement-threshold one, the rest the block's duty areas in plan order."""
-    from src.live_workflow import Plan, ResearchTarget
-
     return Plan(targets=[
         ResearchTarget(query=targets[0], reserved=True),
         *(ResearchTarget(query=query) for query in targets[1:]),
@@ -3098,3 +3098,179 @@ def test_the_dora_machinery_block_lands_for_a_confirmed_dora_engagement(live_cli
         "open": [engagement],
         "closed": [],
     }]
+
+
+AI_SCOPE_CHUNK = make_chunk(
+    source_id="ai-act", number=2,
+    text="This Regulation applies to providers placing on the market or putting into service AI systems.",
+    title="Scope",
+)
+GDPR_HOUSEHOLD_SCOPE_CHUNK = make_chunk(
+    source_id="gdpr", number=2,
+    text="This Regulation does not apply to processing by a natural person in the course of a purely personal or household activity.",
+    title="Material scope",
+)
+
+# The noise path the gate keeps honest (issue #87): one applicability target
+# whose broad retrieval seats the perimeter provision first and the block's
+# duty provisions behind it — the pool the drafted block findings must be
+# dropped from when the Exclusion Finding settles the regime away.
+
+
+def test_the_ai_act_marker_block_inherits_the_gate(live_client):
+    """The AI-Act markers block inherits the engagement gate (issue #87): the
+    marker findings drafted over an applicability retrieval for a regime the
+    kept Exclusion Finding settles away are rejected with recorded reasons —
+    the block cannot reintroduce the conditional-limb noise."""
+    exclusion = (
+        "The company deploys no AI system at all, so the AI Act does not reach "
+        "its operations."
+    )
+    markers = (
+        "The provider must pass the conformity assessment, affix the CE marking, "
+        "and register the system in the EU database."
+    )
+    post_market = "The provider keeps post-market monitoring of the system and reports serious incidents."
+    literacy = "The staff operating and supervising the system must have sufficient AI literacy."
+    date = "The high-risk deployer duties apply from 2 August 2026."
+    llm = duty_llm(
+        (exclusion, "E1", Strength.moderate),
+        (markers, "E2", Strength.moderate),
+        (post_market, "E3", Strength.weak),
+        (literacy, "E4", Strength.weak),
+        (date, "E5", Strength.weak),
+    )
+    llm.plan = Plan(targets=[ResearchTarget(query="AI Act applicability providers")])
+    script_summaries(llm, [
+        "Article 2 sets the AI Act's perimeter — who the regime covers — which is what the exclusion conclusion turns on.",
+    ])
+    retriever = FakeRetriever(per_query={
+        "AI Act applicability providers": [
+            AI_SCOPE_CHUNK,
+            AI_PROVIDER_MARKERS_CHUNK,
+            AI_POST_MARKET_CHUNK,
+            AI_LITERACY_CHUNK,
+            AI_APPLICATION_DATE_CHUNK,
+        ],
+    })
+    install_fake_pipeline(llm, retriever)
+
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "invoice-consultancy",
+                "description": "A small consultancy reviews invoices and manages payroll by hand, with no AI system in use.",
+            },
+            "question": "What EU regulatory obligations should the company consider?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert retriever.queries == ["AI Act applicability providers"]
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert exclusion in statements, "the Exclusion Finding carries the Perimeter Citation"
+    by_statement = {f["statement"]: f for f in data["answer"]["findings"]}
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[exclusion]["citations"]] == [("ai-act", 2)]
+    for statement in (markers, post_market, literacy, date):
+        assert statement not in statements, "the marker finding on the settled-away regime is dropped"
+        assert statement in data["trace"]["unsupported_claims_discarded"]
+
+    decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
+    for statement in (markers, post_market, literacy, date):
+        assert decisions[statement]["status"] == "rejected"
+        assert "EU AI Act Article 2" in decisions[statement]["reason"]
+        assert "not reaching the scenario" in decisions[statement]["reason"]
+
+    gate_records = verifier_step(data)["engagement_states"]
+    assert gate_records == [{
+        "source_id": "ai-act",
+        "state": "closed",
+        "conflict": False,
+        "open": [],
+        "closed": [exclusion],
+    }]
+    assert len(llm.calls) == 5, "no corrective re-prompt fired: the dropped findings never reached the Summarizer"
+
+
+def test_the_gdpr_completeness_block_inherits_the_gate(live_client):
+    """The GDPR completeness block inherits the engagement gate (issue #87):
+    the completeness findings drafted over an applicability retrieval for a
+    regime the household-exception Exclusion Finding settles away are
+    rejected with recorded reasons — no conditional-limb noise."""
+    exclusion = (
+        "The processing is purely personal or household activity, so the GDPR "
+        "does not reach it."
+    )
+    information = (
+        "The individuals whose data are processed must be told about the processing "
+        "and can exercise their access rights."
+    )
+    records = "The processing must appear in the records of processing activities."
+    dpbdd = (
+        "The processing must embed data protection by design and by default with "
+        "security measures proportionate to the risk."
+    )
+    accountability = "The company must be able to demonstrate compliance through documented measures."
+    llm = duty_llm(
+        (exclusion, "E1", Strength.moderate),
+        (information, "E2", Strength.moderate),
+        (records, "E3", Strength.weak),
+        (dpbdd, "E4", Strength.moderate),
+        (accountability, "E5", Strength.weak),
+    )
+    llm.plan = Plan(targets=[ResearchTarget(query="GDPR applicability household exception")])
+    script_summaries(llm, [
+        "Article 2 sets the GDPR's perimeter — who the regulation covers — which is what the exclusion conclusion turns on.",
+    ])
+    retriever = FakeRetriever(per_query={
+        "GDPR applicability household exception": [
+            GDPR_HOUSEHOLD_SCOPE_CHUNK,
+            GDPR_INFORMATION_CHUNK,
+            GDPR_RECORDS_CHUNK,
+            GDPR_DPBYD_CHUNK,
+            GDPR_ACCOUNTABILITY_CHUNK,
+        ],
+    })
+    install_fake_pipeline(llm, retriever)
+
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "personal-household-activity",
+                "description": "An individual keeps a private family blog and manages a household address book by hand, with no professional or commercial processing.",
+            },
+            "question": "What EU regulatory obligations apply to this processing?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert retriever.queries == ["GDPR applicability household exception"]
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert exclusion in statements, "the Exclusion Finding carries the Perimeter Citation"
+    by_statement = {f["statement"]: f for f in data["answer"]["findings"]}
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[exclusion]["citations"]] == [("gdpr", 2)]
+    for statement in (information, records, dpbdd, accountability):
+        assert statement not in statements, "the completeness finding on the settled-away regime is dropped"
+        assert statement in data["trace"]["unsupported_claims_discarded"]
+
+    decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
+    for statement in (information, records, dpbdd, accountability):
+        assert decisions[statement]["status"] == "rejected"
+        assert "GDPR Article 2" in decisions[statement]["reason"]
+        assert "not reaching the scenario" in decisions[statement]["reason"]
+
+    gate_records = verifier_step(data)["engagement_states"]
+    assert gate_records == [{
+        "source_id": "gdpr",
+        "state": "closed",
+        "conflict": False,
+        "open": [],
+        "closed": [exclusion],
+    }]
+    assert len(llm.calls) == 5, "no corrective re-prompt fired: the dropped findings never reached the Summarizer"
