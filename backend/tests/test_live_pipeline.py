@@ -1674,6 +1674,35 @@ def planner_rubric() -> dict[str, str]:
         "vendor model trigger": "names or implies a generative AI model supplied by a vendor",
         "model provider duty area": "model-provider duty area",
         "vendor duties": "documentation, downstream information, and policies",
+        "ai-act marker rule": "a confirmed high-risk AI regime earns the AI-Act marker duty areas",
+        "ai-act markers": (
+            "the provider-side obligations and the compliance markers the deployer "
+            "verifies in its vendor (conformity assessment, CE marking, EU-database registration)"
+        ),
+        "ai-act post-market": "the post-market monitoring and serious-incident reporting channel",
+        "ai-act literacy": "AI literacy for the staff operating or supervising the system",
+        "ai-act application date": "the application date that decides whether the duties are in force",
+        "gdpr completeness rule": "a confirmed GDPR engagement earns the completeness duty areas",
+        "gdpr completeness": (
+            "information and access rights, records of processing activities, data "
+            "protection by design and by default with security of processing, and accountability"
+        ),
+        "gdpr breach authority": (
+            "a breach scenario adds the notification-authority detail "
+            "(which supervisory authority receives the breach notification)"
+        ),
+        "gdpr breach complaints": (
+            "the complaint exposure (the data subjects' complaint right and the authority's corrective powers)"
+        ),
+        "gdpr transfer trigger": "where inference or storage may sit outside the EEA",
+        "gdpr transfer target": "a third-country transfer target",
+        "dora machinery rule": "a confirmed DORA engagement earns the reporting-machinery duty areas",
+        "dora reporting machinery": "the incident-reporting templates, channels, and the authority's feedback",
+        "dora review strategy": "the post-incident review with its communication strategy",
+        "dora size status check": (
+            "the size and status check that decides between the full and the simplified ICT risk-management framework"
+        ),
+        "dora proportionality": "the proportionality that scales the duties to the entity",
         "operative only": "(articles, annexes)",
         "exact vocabulary": "exact vocabulary",
         "guidance not constraint": "guidance, not a constraint",
@@ -1789,6 +1818,51 @@ def test_planner_rubric_keeps_one_target_per_duty_area_of_a_confirmed_regulation
     assert planner_rubric["guidance not constraint"] in planner_system
 
 
+def test_planner_rubric_adds_the_ai_act_marker_duty_areas_for_a_confirmed_high_risk_regime(live_client, planner_rubric):
+    """The AI-Act markers rule (issue #87): per confirmed high-risk AI regime,
+    the marker duty areas earn their own targets — the provider-side
+    obligations and compliance markers, the post-market monitoring and
+    serious-incident reporting channel, AI literacy, and the application date
+    — so the AI scenarios stop missing the systematic blocks the eval's
+    ground truth expects."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["ai-act marker rule"] in planner_system
+    assert planner_rubric["ai-act markers"] in planner_system
+    assert planner_rubric["ai-act post-market"] in planner_system
+    assert planner_rubric["ai-act literacy"] in planner_system
+    assert planner_rubric["ai-act application date"] in planner_system
+
+
+def test_planner_rubric_adds_the_gdpr_completeness_duty_areas_for_a_confirmed_engagement(live_client, planner_rubric):
+    """The GDPR completeness rule (issue #87): per confirmed GDPR engagement,
+    the mid-weight duties that drop case to case — information and access
+    rights, records, DPbDD and security, accountability — earn their own
+    targets, with the breach additions (notification-authority detail,
+    complaint exposure) and the third-country transfer target where
+    inference or storage may sit outside the EEA on top."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["gdpr completeness rule"] in planner_system
+    assert planner_rubric["gdpr completeness"] in planner_system
+    assert planner_rubric["gdpr breach authority"] in planner_system
+    assert planner_rubric["gdpr breach complaints"] in planner_system
+    assert planner_rubric["gdpr transfer trigger"] in planner_system
+    assert planner_rubric["gdpr transfer target"] in planner_system
+
+
+def test_planner_rubric_adds_the_dora_machinery_duty_areas_for_a_confirmed_engagement(live_client, planner_rubric):
+    """The DORA machinery rule (issue #87): per confirmed DORA engagement, the
+    reporting machinery — templates, channels, the authority's feedback — the
+    post-incident review with its communication strategy, the size and status
+    check, and proportionality earn their own targets, so the template
+    provisions stop being missed everywhere."""
+    planner_system = recorded_system_prompts(live_client)["planner"]
+    assert planner_rubric["dora machinery rule"] in planner_system
+    assert planner_rubric["dora reporting machinery"] in planner_system
+    assert planner_rubric["dora review strategy"] in planner_system
+    assert planner_rubric["dora size status check"] in planner_system
+    assert planner_rubric["dora proportionality"] in planner_system
+
+
 @pytest.fixture
 def researcher_rubric() -> dict[str, str]:
     """The Researcher rubric's load-bearing phrases (ticket #70)."""
@@ -1810,6 +1884,11 @@ def researcher_rubric() -> dict[str, str]:
         "stated facts instead": "draft the claim the stated facts support instead",
         "open stays draftable": "A contingency the scenario text genuinely leaves open is still drafted as today",
         "open visible downstream": "moderate Finding with its referral Actions",
+        "vendor verification rule": "the deployer's vendor-verification claims belong in the draft",
+        "vendor markers": (
+            "the provider's conformity assessment, CE marking, and EU-database registration "
+            "are the compliance markers the deployer verifies before adopting the system"
+        ),
         "grounded only": "grounded ONLY in the listed evidence",
         "given labels only": "never reference a label that was not given to you",
     }
@@ -1873,6 +1952,20 @@ def test_researcher_rubric_must_draft_the_engagement_claim_when_the_pool_holds_t
     # The defined-terms citation rule and the grounding discipline survive.
     assert researcher_rubric["definitional citation"] in researcher_system
     assert researcher_rubric["grounded only"] in researcher_system
+
+
+def test_researcher_rubric_drafts_the_deployer_vendor_verification_claims(live_client, researcher_rubric):
+    """The vendor-verification wording (issue #87): when the scenario has the
+    company deploying a provider-supplied system, the deployer's claims about
+    verifying the provider's conformity assessment, CE marking, and
+    EU-database registration belong in the draft — what the company verifies
+    about its vendor, not only the duties it owes itself."""
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
+    assert researcher_rubric["vendor verification rule"] in researcher_system
+    assert researcher_rubric["vendor markers"] in researcher_system
+    # The grounding discipline survives the addition.
+    assert researcher_rubric["grounded only"] in researcher_system
+    assert researcher_rubric["given labels only"] in researcher_system
 
 
 @pytest.fixture
@@ -2581,3 +2674,442 @@ def test_duty_limbs_on_an_ai_act_regime_settled_away_are_dropped(live_client):
     assert "EU AI Act Article 2" in decisions[duty]["reason"]
     gate_records = verifier_step(data)["engagement_states"]
     assert [r["state"] for r in gate_records if r["source_id"] == "ai-act"] == ["closed"]
+
+
+# --- The duty-area blocks: additive targets for confirmed regimes (issue #87) ---
+
+
+def duty_llm(*claim_triples: tuple[str, "str | list[str]", Strength]) -> "ScriptedLlm":
+    """A scripted run over (statement, evidence-labels, strength) triples, each
+    verified supported — the duty-area blocks' raw material, the engagement
+    gate's ``gate_llm`` with a per-claim Strength."""
+    from src.live_workflow import Verdict
+
+    claims = [
+        DraftClaim(statement=statement, evidence_refs=refs if isinstance(refs, list) else [refs])
+        for statement, refs, _ in claim_triples
+    ]
+    verdicts = [
+        Verdict(
+            statement=statement,
+            supported=True,
+            strength=strength,
+            evidence_refs=refs if isinstance(refs, list) else [refs],
+        )
+        for statement, refs, strength in claim_triples
+    ]
+    llm = make_offline_llm()
+    llm.claims = DraftClaims(claims=claims)
+    llm.verdicts = Verdicts(verdicts=verdicts)
+    llm.proposals = ActionProposals(proposals=[])
+    return llm
+
+
+def plan_with_reserved_first(targets):
+    """The duty-block plans' shape: the first target is the reserved
+    engagement-threshold one, the rest the block's duty areas in plan order."""
+    from src.live_workflow import Plan, ResearchTarget
+
+    return Plan(targets=[
+        ResearchTarget(query=targets[0], reserved=True),
+        *(ResearchTarget(query=query) for query in targets[1:]),
+    ])
+
+def script_summaries(llm: "ScriptedLlm", relevance: list[str]) -> None:
+    """Script one Provision relevance per cited provision (P1..Pn in the
+    Summarizer's first-mention order), so a duty-block run needs no Summarizer
+    corrective re-prompt and the five-call script stays exact."""
+    llm.summaries = Summaries(summaries=[
+        ProvisionSummary(ref=f"P{index}", relevance=text, strength=Strength.weak)
+        for index, text in enumerate(relevance, 1)
+    ])
+
+
+AI_CLASSIFICATION_CHUNK = make_chunk(
+    source_id="ai-act", number=6,
+    text="AI systems referred to in Annex III shall be considered high-risk AI systems.",
+    title="Classification rules for high-risk AI systems",
+)
+AI_PROVIDER_MARKERS_CHUNK = make_chunk(
+    source_id="ai-act", number=16,
+    text="Providers of high-risk AI systems shall have the system undergo the conformity assessment, affix the CE marking, and register it in the EU database.",
+    title="Obligations of providers",
+)
+AI_POST_MARKET_CHUNK = make_chunk(
+    source_id="ai-act", number=72,
+    text="Providers shall establish a post-market monitoring system and report serious incidents.",
+    title="Post-market monitoring by providers",
+)
+AI_LITERACY_CHUNK = make_chunk(
+    source_id="ai-act", number=4,
+    text="Providers and deployers of AI systems shall ensure a sufficient level of AI literacy of their staff.",
+    title="AI literacy",
+)
+AI_APPLICATION_DATE_CHUNK = make_chunk(
+    source_id="ai-act", number=113,
+    text="Chapters III and IV apply from 2 August 2026.",
+    title="Application of this Regulation",
+)
+
+# The AI-Act markers block's targets (issue #87): the reserved
+# engagement-threshold target plus one target per marker duty area, each
+# retrieving the provision that carries it. The keys are the plan's targets
+# in order, the reserved engagement-threshold target first.
+RECRUITMENT_RETRIEVALS = {
+    "high-risk classification": [AI_CLASSIFICATION_CHUNK],
+    "provider obligations and compliance markers": [AI_PROVIDER_MARKERS_CHUNK],
+    "post-market monitoring and serious-incident reporting": [AI_POST_MARKET_CHUNK],
+    "AI literacy": [AI_LITERACY_CHUNK],
+    "application date": [AI_APPLICATION_DATE_CHUNK],
+}
+
+
+def test_the_ai_act_marker_block_lands_for_a_confirmed_high_risk_regime(live_client):
+    """The AI-Act markers block (issue #87): a confirmed high-risk AI regime's
+    plan carries the marker duty areas as their own targets, and the Answer
+    carries a Finding for each — the engagement claim, the provider-side
+    compliance markers, the post-market monitoring and serious-incident
+    reporting channel, AI literacy, and the application date — with the AI
+    Act's engagement open, so nothing is touched by the gate."""
+    engagement = (
+        "The CV-screening system is a high-risk AI system, so the AI Act's full "
+        "Chapter III regime applies to its deployment alongside the GDPR."
+    )
+    markers = (
+        "Before adopting the screener the company verifies the provider's conformity "
+        "assessment, CE marking, and EU-database registration."
+    )
+    post_market = (
+        "After deployment the provider keeps post-market monitoring of the screener, "
+        "and the company reports serious incidents to the provider."
+    )
+    literacy = "The staff operating and supervising the screener must have sufficient AI literacy."
+    date = "The screener's high-risk deployer duties apply from 2 August 2026."
+    llm = duty_llm(
+        (engagement, "E1", Strength.moderate),
+        (markers, "E2", Strength.moderate),
+        (post_market, "E3", Strength.weak),
+        (literacy, "E4", Strength.weak),
+        (date, "E5", Strength.weak),
+    )
+    llm.plan = plan_with_reserved_first(list(RECRUITMENT_RETRIEVALS))
+    script_summaries(llm, [
+        "Article 6 classifies the screening system as high-risk, which engages the Chapter III regime the other findings develop.",
+        "Article 16's provider duties define the compliance markers of conformity assessment, CE marking, and registration the deployer verifies.",
+        "Article 72 keeps the provider monitoring the system after deployment, the channel through which the deployer's serious-incident reports flow.",
+        "Article 4 obliges the deployer to ensure its staff have sufficient AI literacy to oversee the screener.",
+        "Article 113 fixes the date the high-risk duties apply from, confirming they are in force at the time of use.",
+    ])
+    retriever = FakeRetriever(per_query=RECRUITMENT_RETRIEVALS)
+    install_fake_pipeline(llm, retriever)
+
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "hr-ai-cv-screening",
+                "description": "A company uses an AI system to screen job applications, scoring each applicant's CV and recorded video interview so recruiters can prioritise candidates.",
+            },
+            "question": "What regulatory requirements should the company consider before using this AI system for recruitment?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # The block's targets land: every planned duty-area target reached retrieval.
+    assert retriever.queries == list(RECRUITMENT_RETRIEVALS)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    for statement in (engagement, markers, post_market, literacy, date):
+        assert statement in statements, "the marker block's finding lands in the Answer"
+
+    by_statement = {f["statement"]: f for f in data["answer"]["findings"]}
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[engagement]["citations"]] == [("ai-act", 6)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[markers]["citations"]] == [("ai-act", 16)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[post_market]["citations"]] == [("ai-act", 72)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[literacy]["citations"]] == [("ai-act", 4)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[date]["citations"]] == [("ai-act", 113)]
+
+    assert data["trace"]["unsupported_claims_discarded"] == []
+    assert len(llm.calls) == 5, "the block lands on its own: no corrective re-prompt fired"
+    assert verifier_step(data)["engagement_states"] == [{
+        "source_id": "ai-act",
+        "state": "open",
+        "conflict": False,
+        "open": [engagement],
+        "closed": [],
+    }]
+
+
+GDPR_INFORMATION_CHUNK = make_chunk(
+    source_id="gdpr", number=13,
+    text="The controller shall inform the data subject of the processing's purposes, legal basis, retention and rights.",
+    title="Information to be provided where personal data are collected",
+)
+GDPR_RECORDS_CHUNK = make_chunk(
+    source_id="gdpr", number=30,
+    text="Each controller shall maintain records of processing activities under its responsibility.",
+    title="Records of processing activities",
+)
+GDPR_DPBYD_CHUNK = make_chunk(
+    source_id="gdpr", number=25,
+    text="The controller shall implement data protection by design and by default.",
+    title="Data protection by design and by default",
+)
+GDPR_ACCOUNTABILITY_CHUNK = make_chunk(
+    source_id="gdpr", number=24,
+    text="The controller shall implement measures capable of demonstrating that processing complies with the Regulation.",
+    title="Responsibility of the controller",
+)
+GDPR_COMPETENCE_CHUNK = make_chunk(
+    source_id="gdpr", number=55,
+    text="Each supervisory authority is competent for the territory of its own Member State.",
+    title="Competence",
+)
+GDPR_COMPLAINT_CHUNK = make_chunk(
+    source_id="gdpr", number=77,
+    text="Every data subject has the right to lodge a complaint with a supervisory authority.",
+    title="Right to lodge a complaint",
+)
+GDPR_TRANSFER_CHUNK = make_chunk(
+    source_id="gdpr", number=44,
+    text="Any transfer of personal data to a third country shall take place only if the conditions of this Chapter are complied with.",
+    title="General principle for transfers",
+)
+
+# The GDPR completeness block's targets (issue #87) for the retailer breach:
+# the reserved principles threshold, the four completeness duty areas, the
+# breach additions — notification-authority detail and complaint exposure —
+# the third-country transfer target, and the applicability target for DORA,
+# whose retrieval seats the perimeter provision first and the reporting
+# provision behind it — the pool the drafted DORA machinery limb must be kept
+# honest against. The keys are the plan's targets in order, the reserved
+# engagement-threshold target first; the plan fits the 1-8 budget.
+RETAILER_COMPLETENESS_RETRIEVALS = {
+    "principles relating to processing": [PRINCIPLES_CHUNK],
+    "information and access rights": [GDPR_INFORMATION_CHUNK],
+    "records of processing activities": [GDPR_RECORDS_CHUNK],
+    "data protection by design and by default and security": [GDPR_DPBYD_CHUNK],
+    "accountability": [GDPR_ACCOUNTABILITY_CHUNK],
+    "notification authority and complaint exposure": [GDPR_COMPETENCE_CHUNK, GDPR_COMPLAINT_CHUNK],
+    "third-country transfer safeguards": [GDPR_TRANSFER_CHUNK],
+    "DORA applicability financial entities": [DORA_SCOPE_CHUNK, DORA_REPORTING_CHUNK],
+}
+
+
+def test_the_gdpr_completeness_block_lands_while_the_gate_drops_the_closed_regimes_machinery_limb(live_client):
+    """The GDPR completeness block plus the gate's honesty (issue #87): the
+    confirmed GDPR engagement's completeness targets land — information and
+    access rights, records, DPbDD and security, accountability, the breach
+    additions, and the third-country transfer analysis — while the DORA
+    machinery limb drafted for the regime the kept Exclusion Finding settles
+    away is rejected with a recorded reason: the added findings inherit the
+    engagement gate, so no conditional-limb noise is reintroduced."""
+    exclusion = (
+        "DORA's incident regime covers financial entities only, and the company is an "
+        "online shop rather than a financial entity, so the regime does not reach it."
+    )
+    principles = "The retailer's processing of the breached customer data must respect the data-protection principles."
+    information = (
+        "Affected customers must be told about the breach and can exercise their access "
+        "rights over the processing."
+    )
+    records = "The breach response must appear in the retailer's records of processing activities."
+    dpbdd = (
+        "The retailer's database processing must embed data protection by design and by "
+        "default with security measures proportionate to the risk."
+    )
+    accountability = "The retailer must be able to demonstrate compliance through documented measures."
+    authority = (
+        "The notification goes to the competent supervisory authority, and affected "
+        "customers can lodge complaints the retailer must anticipate."
+    )
+    transfer = (
+        "Where the breached customer data are hosted outside the EEA, any transfer to the "
+        "third country rests on the GDPR's transfer safeguards."
+    )
+    machinery_limb = "The company must report the incident through DORA's templates and channels."
+    llm = duty_llm(
+        (exclusion, "E9", Strength.moderate),
+        (principles, "E1", Strength.weak),
+        (information, "E2", Strength.moderate),
+        (records, "E3", Strength.weak),
+        (dpbdd, "E4", Strength.moderate),
+        (accountability, "E5", Strength.weak),
+        (authority, ["E6", "E7"], Strength.moderate),
+        (transfer, "E8", Strength.weak),
+        (machinery_limb, "E10", Strength.moderate),
+    )
+    llm.plan = plan_with_reserved_first(list(RETAILER_COMPLETENESS_RETRIEVALS))
+    script_summaries(llm, [
+        "Article 2 sets DORA's perimeter — who the regime covers — which is what the exclusion conclusion turns on.",
+        "Article 5's principles govern the retailer's handling of the breached customer data.",
+        "Article 13 obliges the retailer to tell affected customers about the breach and answer their access requests.",
+        "Article 30 requires the breach response to appear in the records of processing activities.",
+        "Article 25 requires the database processing to embed data protection by design and by default.",
+        "Article 24 obliges the retailer to demonstrate compliance through documented measures.",
+        "Article 55 identifies the competent supervisory authority the notification goes to.",
+        "Article 77 gives affected customers the complaint right the retailer must anticipate.",
+        "Article 44 conditions any transfer of the breached customer data to a third country on the Chapter V safeguards.",
+    ])
+    retriever = FakeRetriever(per_query=RETAILER_COMPLETENESS_RETRIEVALS)
+    install_fake_pipeline(llm, retriever)
+
+    data = post_gate_scenario(live_client)
+
+    # The completeness block's targets land: every planned target reached retrieval.
+    assert retriever.queries == list(RETAILER_COMPLETENESS_RETRIEVALS)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    for statement in (exclusion, principles, information, records, dpbdd, accountability, authority, transfer):
+        assert statement in statements, "the completeness block's finding lands in the Answer"
+    assert machinery_limb not in statements, "the closed regime's machinery limb is kept honest"
+
+    by_statement = {f["statement"]: f for f in data["answer"]["findings"]}
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[exclusion]["citations"]] == [("dora", 2)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[authority]["citations"]] == [("gdpr", 55), ("gdpr", 77)]
+
+    assert machinery_limb in data["trace"]["unsupported_claims_discarded"]
+    decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
+    assert decisions[machinery_limb]["status"] == "rejected"
+    assert "DORA Article 2" in decisions[machinery_limb]["reason"]
+    assert "not reaching the scenario" in decisions[machinery_limb]["reason"]
+
+    gate_records = verifier_step(data)["engagement_states"]
+    assert gate_records == [{
+        "source_id": "dora",
+        "state": "closed",
+        "conflict": False,
+        "open": [],
+        "closed": [exclusion],
+    }]
+    assert len(llm.calls) == 5, "no corrective re-prompt fired: the dropped limb never reached the Summarizer"
+
+
+DORA_FEEDBACK_CHUNK = make_chunk(
+    source_id="dora", number=22,
+    text="The competent authority shall acknowledge receipt of the notification and give feedback on the reports.",
+    title="Responsibility of financial entities",
+)
+DORA_REVIEW_CHUNK = make_chunk(
+    source_id="dora", number=13,
+    text="Financial entities shall conduct a post-incident review after a major ICT-related incident.",
+    title="Post-incident review",
+)
+DORA_COMMUNICATION_CHUNK = make_chunk(
+    source_id="dora", number=14,
+    text="Financial entities shall put in place a communication strategy for ICT-related incidents.",
+    title="Communication",
+)
+DORA_SIMPLIFIED_CHUNK = make_chunk(
+    source_id="dora", number=16,
+    text="Small and non-interconnected investment entities may follow the simplified ICT risk-management framework.",
+    title="Simplified ICT risk-management framework",
+)
+DORA_PROPORTIONALITY_CHUNK = make_chunk(
+    source_id="dora", number=4,
+    text="Financial entities shall size their ICT risk framework in proportion to their nature, scale and risk profile.",
+    title="Proportionality",
+)
+
+# The DORA machinery block's targets (issue #87) for the bank outage: the
+# reserved financial-entity threshold, the reporting machinery, the
+# post-incident review with its communication strategy, the size/status
+# check, and proportionality. The keys are the plan's targets in order, the
+# reserved engagement-threshold target first.
+BANK_MACHINERY_RETRIEVALS = {
+    "financial entity perimeter": [DORA_SCOPE_CHUNK],
+    "incident reporting templates and channels": [DORA_REPORTING_CHUNK],
+    "authority feedback on incident reports": [DORA_FEEDBACK_CHUNK],
+    "post-incident review and communication strategy": [DORA_REVIEW_CHUNK, DORA_COMMUNICATION_CHUNK],
+    "size and status check": [DORA_SIMPLIFIED_CHUNK],
+    "proportionality": [DORA_PROPORTIONALITY_CHUNK],
+}
+
+
+def test_the_dora_machinery_block_lands_for_a_confirmed_dora_engagement(live_client):
+    """The DORA machinery block (issue #87): a confirmed DORA engagement's
+    plan carries the machinery duty areas as their own targets, and the Answer
+    carries a Finding for each — the engagement claim, the reporting
+    machinery, the authority's feedback, the post-incident review with its
+    communication strategy, the size and status check, and proportionality —
+    with DORA's engagement open, so the block survives the gate untouched."""
+    engagement = (
+        "As a credit institution the bank falls within DORA, and the cloud failure is an "
+        "ICT-related incident affecting a critical function."
+    )
+    machinery = (
+        "Once the outage is classified major, the bank reports it through initial, "
+        "intermediate, and final reports within the harmonised templates and time limits."
+    )
+    feedback = "The authority's acknowledgement and feedback on the reports close the supervisory loop."
+    review = (
+        "The major incident triggers a post-incident review, and a communication strategy "
+        "frames what clients and stakeholders are told."
+    )
+    size_status = (
+        "The size and status check applies: as a credit institution the bank cannot use the "
+        "simplified framework and must comply with the general framework of Articles 5 to 15."
+    )
+    proportionality = (
+        "The bank's incident-response duties scale to its size and risk profile under the "
+        "proportionality principle."
+    )
+    llm = duty_llm(
+        (engagement, "E1", Strength.moderate),
+        (machinery, "E2", Strength.strong),
+        (feedback, "E3", Strength.weak),
+        (review, ["E4", "E5"], Strength.weak),
+        (size_status, "E6", Strength.weak),
+        (proportionality, "E7", Strength.weak),
+    )
+    llm.plan = plan_with_reserved_first(list(BANK_MACHINERY_RETRIEVALS))
+    script_summaries(llm, [
+        "Article 2 brings the bank within DORA as a credit institution, engaging the incident regime the other findings develop.",
+        "Article 19 obliges the bank to report the major incident through initial, intermediate, and final reports within the templates and time limits.",
+        "Article 22 provides the authority's acknowledgement and feedback on the reports, closing the supervisory loop.",
+        "Article 13 requires a post-incident review once the major incident has disrupted core activities.",
+        "Article 14's communication-strategy duty frames what clients and stakeholders are told.",
+        "Article 16 requires the size and status check that routes the bank to the general framework.",
+        "Article 4 scales the bank's incident-response duties to its size and risk profile.",
+    ])
+    retriever = FakeRetriever(per_query=BANK_MACHINERY_RETRIEVALS)
+    install_fake_pipeline(llm, retriever)
+
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "bank-cloud-outage",
+                "description": "A bank relies on an external cloud provider to host critical systems used for online banking. A major technical failure at the provider makes the bank's online banking services unavailable to customers for several hours.",
+            },
+            "question": "What regulatory obligations should the bank consider in relation to this incident?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # The machinery block's targets land: every planned duty-area target reached retrieval.
+    assert retriever.queries == list(BANK_MACHINERY_RETRIEVALS)
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    for statement in (engagement, machinery, feedback, review, size_status, proportionality):
+        assert statement in statements, "the machinery block's finding lands in the Answer"
+
+    by_statement = {f["statement"]: f for f in data["answer"]["findings"]}
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[engagement]["citations"]] == [("dora", 2)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[machinery]["citations"]] == [("dora", 19)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[feedback]["citations"]] == [("dora", 22)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[review]["citations"]] == [("dora", 13), ("dora", 14)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[size_status]["citations"]] == [("dora", 16)]
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[proportionality]["citations"]] == [("dora", 4)]
+
+    assert data["trace"]["unsupported_claims_discarded"] == []
+    assert len(llm.calls) == 5, "the block lands on its own: no corrective re-prompt fired"
+    assert verifier_step(data)["engagement_states"] == [{
+        "source_id": "dora",
+        "state": "open",
+        "conflict": False,
+        "open": [engagement],
+        "closed": [],
+    }]
