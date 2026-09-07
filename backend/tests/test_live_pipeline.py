@@ -2367,27 +2367,10 @@ GDPR_SECURITY_CHUNK = make_chunk(
 
 def gate_llm(*claim_pairs: tuple[str, "str | list[str]"], strength: Strength = Strength.moderate) -> "ScriptedLlm":
     """A scripted run over the given (statement, evidence-labels) pairs, each
-    verified supported — the raw material the engagement gate reads."""
-    from src.live_workflow import Verdict
-
-    claims = [
-        DraftClaim(statement=statement, evidence_refs=refs if isinstance(refs, list) else [refs])
-        for statement, refs in claim_pairs
-    ]
-    verdicts = [
-        Verdict(
-            statement=statement,
-            supported=True,
-            strength=strength,
-            evidence_refs=refs if isinstance(refs, list) else [refs],
-        )
-        for statement, refs in claim_pairs
-    ]
-    llm = make_offline_llm()
-    llm.claims = DraftClaims(claims=claims)
-    llm.verdicts = Verdicts(verdicts=verdicts)
-    llm.proposals = ActionProposals(proposals=[])
-    return llm
+    verified supported at one uniform Strength — the raw material the
+    engagement gate reads. The duty-blocks' ``duty_llm`` with the strength
+    pinned across the claims."""
+    return duty_llm(*((statement, refs, strength) for statement, refs in claim_pairs))
 
 
 RETAILER_RETRIEVALS = {
@@ -2715,10 +2698,12 @@ def plan_with_reserved_first(targets):
         *(ResearchTarget(query=query) for query in targets[1:]),
     ])
 
+
 def script_summaries(llm: "ScriptedLlm", relevance: list[str]) -> None:
     """Script one Provision relevance per cited provision (P1..Pn in the
-    Summarizer's first-mention order), so a duty-block run needs no Summarizer
-    corrective re-prompt and the five-call script stays exact."""
+    Summarizer's first-mention order), every rating 'weak' — the blocks'
+    tests assert landing, not ratings — so a duty-block run needs no
+    Summarizer corrective re-prompt and the five-call script stays exact."""
     llm.summaries = Summaries(summaries=[
         ProvisionSummary(ref=f"P{index}", relevance=text, strength=Strength.weak)
         for index, text in enumerate(relevance, 1)
