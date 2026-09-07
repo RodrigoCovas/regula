@@ -1891,6 +1891,10 @@ def researcher_rubric() -> dict[str, str]:
             "the provider's conformity assessment, CE marking, and EU-database registration "
             "are the compliance markers the deployer verifies before adopting the system"
         ),
+        "decisive citations": "name only the provisions that decide it",
+        "framing rides on framing claims": "rides only when the claim is about that framing itself",
+        "no embellishments": "Never pad a claim with cross-reference embellishments",
+        "no plumbing": "generic plumbing citations that decide nothing",
         "grounded only": "grounded ONLY in the listed evidence",
         "given labels only": "never reference a label that was not given to you",
     }
@@ -1970,6 +1974,24 @@ def test_researcher_rubric_drafts_the_deployer_vendor_verification_claims(live_c
     assert researcher_rubric["given labels only"] in researcher_system
 
 
+def test_researcher_rubric_cites_only_the_provisions_that_decide_the_claim(live_client, researcher_rubric):
+    """The citation-discipline rule (issue #88): a claim's evidence labels name
+    only the provisions that decide it — the ones its truth turns on; a
+    framing-only reference rides only when the claim is about the framing
+    itself, and cross-reference embellishments, auxiliary elaborations, and
+    generic plumbing citations are never padded on. Prompt language only — the
+    deterministic per-finding cap stays a contingency."""
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
+    assert researcher_rubric["decisive citations"] in researcher_system
+    assert researcher_rubric["framing rides on framing claims"] in researcher_system
+    assert researcher_rubric["no embellishments"] in researcher_system
+    assert researcher_rubric["no plumbing"] in researcher_system
+    # The rules the discipline must not contradict survive beside it.
+    assert researcher_rubric["definitional citation"] in researcher_system
+    assert researcher_rubric["must draft anchor"] in researcher_system
+    assert researcher_rubric["grounded only"] in researcher_system
+
+
 @pytest.fixture
 def verifier_rubric() -> dict[str, str]:
     """The Verifier rubric's load-bearing phrases (ticket #70)."""
@@ -1992,6 +2014,12 @@ def verifier_rubric() -> dict[str, str]:
         "strong": "directly and explicitly establish the claim",
         "weak": "framing only (definitions, vocabulary)",
         "bare string": "never an object or rationale",
+        "refs decisive": "list only the provisions that decide the claim",
+        "refs framing rides": "rides only when the claim is about that framing itself",
+        "refs drop embellishments": (
+            "cross-reference embellishments, auxiliary elaborations, and generic plumbing citations"
+        ),
+        "refs decisive survive": "while the decisive citations",
     }
 
 
@@ -2055,6 +2083,23 @@ def test_verifier_rubric_gains_the_worked_within_regime_annex_iii_example(live_c
     # The cross-regime example and the strength contract survive the addition.
     assert verifier_rubric["example setup"] in verifier_system
     assert verifier_rubric["exclusion supported"] in verifier_system
+
+
+def test_verifier_rubric_keeps_only_the_decisive_provisions_in_evidence_refs(live_client, verifier_rubric):
+    """The citation-discipline rule on the refs the Verifier keeps (issue #88):
+    evidence_refs names only the provisions that decide the claim — the ones
+    its truth turns on; a framing-only reference rides only when the claim is
+    about the framing itself, and cross-reference embellishments, auxiliary
+    elaborations, and generic plumbing citations are dropped while the
+    decisive citations — and every moderate or strong anchor — stay."""
+    verifier_system = recorded_system_prompts(live_client)["verifier"]
+    assert verifier_rubric["refs decisive"] in verifier_system
+    assert verifier_rubric["refs framing rides"] in verifier_system
+    assert verifier_rubric["refs drop embellishments"] in verifier_system
+    assert verifier_rubric["refs decisive survive"] in verifier_system
+    # The supported bar and the strength contract survive the addition.
+    assert verifier_rubric["supported bar"] in verifier_system
+    assert verifier_rubric["bare string"] in verifier_system
 
 
 # --- Reserved-anchor backstop: trace + one corrective re-prompt (issue #84) ----
@@ -3274,3 +3319,115 @@ def test_the_gdpr_completeness_block_inherits_the_gate(live_client):
         "closed": [exclusion],
     }]
     assert len(llm.calls) == 5, "no corrective re-prompt fired: the dropped findings never reached the Summarizer"
+
+
+# --- Citation discipline: decisive citations only (issue #88) -------------------
+
+
+DISCIPLINE_RETRIEVALS = {
+    "principles relating to processing": [PRINCIPLES_CHUNK],
+    "security of processing": [GDPR_SECURITY_CHUNK, GDPR_DEFINITIONS_CHUNK],
+}
+
+
+def discipline_llm() -> "ScriptedLlm":
+    """A scripted run under the citation discipline (issue #88): the duty
+    claim's draft pads itself with the definitions Article's label, but the
+    disciplined Verdict keeps only the provision that decides it; the framing
+    reference rides only on the claim that is about the framing, and the
+    reserved engagement anchor's decisive citation survives untouched."""
+    engagement = (
+        "The company's processing of applicant data must respect the data-protection "
+        "principles the GDPR sets for it."
+    )
+    duty = (
+        "The company must implement appropriate technical and organisational security "
+        "measures for the applicant data."
+    )
+    framing = "The company acts as a controller of the applicant data within the GDPR's defined roles."
+    return ScriptedLlm(
+        plan=Plan(targets=[
+            ResearchTarget(query="principles relating to processing", reserved=True),
+            ResearchTarget(query="security of processing"),
+        ]),
+        claims=DraftClaims(claims=[
+            DraftClaim(statement=engagement, evidence_refs=["E1"]),
+            DraftClaim(statement=duty, evidence_refs=["E2", "E3"]),
+            DraftClaim(statement=framing, evidence_refs=["E3"]),
+        ]),
+        verdicts=Verdicts(verdicts=[
+            grounded_verdict(engagement, Strength.strong, ["E1"]),
+            grounded_verdict(duty, Strength.moderate, ["E2"]),
+            grounded_verdict(framing, Strength.weak, ["E3"]),
+        ]),
+        proposals=ActionProposals(proposals=[]),
+        summaries=Summaries(summaries=[
+            ProvisionSummary(
+                ref="P1",
+                relevance="Article 5's principles are the threshold the processing must respect.",
+                strength=Strength.strong,
+            ),
+            ProvisionSummary(
+                ref="P2",
+                relevance="Article 32 imposes the security measures the duty finding turns on.",
+                strength=Strength.moderate,
+            ),
+            ProvisionSummary(
+                ref="P3",
+                relevance="Article 4 supplies the controller role the framing finding decides with.",
+                strength=Strength.weak,
+            ),
+        ]),
+    )
+
+
+def test_citation_discipline_drops_framing_only_citations_and_keeps_decisive_ones_and_anchors(live_client):
+    """The discipline's scripted outcome (issue #88): the duty finding cites
+    only the provision that decides it — the framing-only reference it drafted
+    is gone from the Answer even though the definitions chunk sat in the pool;
+    the decisive citations survive; and the reserved engagement anchor rides
+    the framing provision it decides with, no corrective re-prompt owed."""
+    llm = discipline_llm()
+    install_fake_pipeline(llm, FakeRetriever(per_query=DISCIPLINE_RETRIEVALS))
+
+    resp = live_client.post(
+        "/api/analyze",
+        json={
+            "scenario": {
+                "id": "lending-app-data",
+                "description": "A Spanish fintech evaluating loan applications automatically from applicant data",
+            },
+            "question": "What data-protection duties bind the company when it processes applicant data?",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    engagement = (
+        "The company's processing of applicant data must respect the data-protection "
+        "principles the GDPR sets for it."
+    )
+    duty = (
+        "The company must implement appropriate technical and organisational security "
+        "measures for the applicant data."
+    )
+    framing = "The company acts as a controller of the applicant data within the GDPR's defined roles."
+
+    by_statement = {f["statement"]: f for f in data["answer"]["findings"]}
+    assert set(by_statement) == {engagement, duty, framing}, "every disciplined verdict stayed"
+    # Framing-only citation dropped: the duty finding cites only the provision
+    # that decides it, though the definitions chunk sat in the Evidence pool.
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[duty]["citations"]] == [("gdpr", 32)]
+    # The decisive citation survives: the reserved engagement anchor rides the
+    # principles provision it decides with.
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[engagement]["citations"]] == [("gdpr", 5)]
+    # The framing reference rides only on the claim that is about the framing.
+    assert [(c["source_id"], c["article_number"]) for c in by_statement[framing]["citations"]] == [("gdpr", 4)]
+
+    # The Answer's citation list: one entry per cited provision, the definitions
+    # one present exactly once.
+    citations = data["answer"]["citations"]
+    assert sorted(c["article_number"] for c in citations) == [4, 5, 32]
+
+    assert data["trace"]["unsupported_claims_discarded"] == []
+    assert len(llm.calls) == 5, "the anchor landed in the first pass: no corrective re-prompt owed"

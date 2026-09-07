@@ -450,10 +450,16 @@ _RESEARCHER_SYSTEM = (
     "whose contingency the scenario's facts exclude — "
     "draft the claim the stated facts support instead. A contingency the scenario text "
     "genuinely leaves open is still drafted as today, so the open question stays visible "
-    "downstream as a moderate Finding with its referral Actions. Each claim is grounded "
-    "ONLY in the listed evidence. For every claim list the evidence labels it relies on; "
-    "never reference a label that was not given to you. If the evidence supports nothing "
-    "relevant, return an empty claims list."
+    "downstream as a moderate Finding with its referral Actions. Cite with discipline: the "
+    "evidence labels a claim lists name only the provisions that decide it — the ones its "
+    "truth turns on. A framing-only reference — a definition, a perimeter, the principles — "
+    "rides only when the claim is about that framing itself (deciding engagement, exclusion, "
+    "or classification), the way a claim turning on a defined term cites the provision that "
+    "defines it. Never pad a claim with cross-reference embellishments, auxiliary "
+    "elaborations, or generic plumbing citations that decide nothing for it. Each claim is "
+    "grounded ONLY in the listed evidence. For every claim list the evidence labels it "
+    "relies on; never reference a label that was not given to you. If the evidence supports "
+    "nothing relevant, return an empty claims list."
 )
 
 _VERIFIER_SYSTEM = (
@@ -481,7 +487,12 @@ _VERIFIER_SYSTEM = (
     "claim, 'moderate' when derived from provisions read together or contingent on facts the "
     "scenario text leaves open, 'weak' when the provisions supply framing only (definitions, "
     "vocabulary); evidence_refs — the labels of the supporting provisions, empty for unsupported "
-    "claims."
+    "claims, kept with the same citation discipline: list only the provisions that decide the "
+    "claim — the ones its truth turns on; a framing-only reference — a definition, a perimeter, "
+    "the principles — rides only when the claim is about that framing itself (deciding "
+    "engagement, exclusion, or classification); cross-reference embellishments, auxiliary "
+    "elaborations, and generic plumbing citations that decide nothing are dropped, while the "
+    "decisive citations — and every moderate or strong anchor — stay."
 )
 
 _PROPOSER_SYSTEM = (
