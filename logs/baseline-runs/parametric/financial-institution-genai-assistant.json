@@ -1,0 +1,297 @@
+{
+    "findings": [
+        {
+            "statement": "The financial institution is a deployer of the generative AI system and must take measures to ensure a sufficient level of AI literacy among the customer-service employees who operate it.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 4"
+                }
+            ]
+        },
+        {
+            "statement": "The technology company supplying the system is its provider and must ensure the system is designed so that customers interacting with it are informed that they are interacting with an AI system, unless this is obvious in the context of use.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 50(1)"
+                }
+            ]
+        },
+        {
+            "statement": "Assisting customer-service employees is not a use case listed in Annex III, so the deployment as described does not make the system high-risk and does not by itself trigger the deployer obligations in Article 26.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Annex III"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26"
+                }
+            ]
+        },
+        {
+            "statement": "The processing of customer conversations containing personal data must rest on a lawful basis under Article 6(1) and comply with the Article 5(1) principles, including purpose limitation and data minimisation, in what is disclosed to the AI service.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 6(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 5(1)"
+                }
+            ]
+        },
+        {
+            "statement": "The institution must inform customers about the processing of their conversations, including its purposes, the recipients of the data and any intended transfer outside the EEA.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 13"
+                }
+            ]
+        },
+        {
+            "statement": "The institution may have the AI provider process customer conversations on its behalf only if the provider gives sufficient guarantees of implementing appropriate technical and organisational measures and is bound by a written contract meeting the requirements of Article 28(3).",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 28(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 28(3)"
+                }
+            ]
+        },
+        {
+            "statement": "Because the AI service is hosted on infrastructure operated by another cloud provider, that cloud provider acts as a sub-processor whose engagement requires the institution's prior specific or general written authorisation and the flow-down of equivalent data protection obligations.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 28(2)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 28(4)"
+                }
+            ]
+        },
+        {
+            "statement": "Where the processing of customer conversations through the system is likely to result in a high risk to the customers, the institution must carry out a data protection impact assessment before starting the processing.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 35(1)"
+                }
+            ]
+        },
+        {
+            "statement": "Any transfer of customer conversations to a country outside the EEA requires compliance with Chapter V of the GDPR, namely an adequacy decision, appropriate safeguards, or a derogation for specific situations.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 44"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 46(1)"
+                }
+            ]
+        },
+        {
+            "statement": "As a financial entity within DORA, the institution must integrate the management of ICT third-party risk arising from the AI provider and the cloud provider into its overall ICT risk management framework and keep a register of information on those arrangements and contracts.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 2(1)"
+                },
+                {
+                    "source_id": "dora",
+                    "provision": "Article 28"
+                }
+            ]
+        },
+        {
+            "statement": "The institution's contracts with the AI provider and the cloud provider must specify, among other things, the services and functions covered, all locations where services are provided and where data is stored, processed or transmitted including cloud locations, the data protection measures, conditions for access to and recovery and return of data, subcontracting arrangements and termination rights.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 30"
+                }
+            ]
+        },
+        {
+            "statement": "The institution must monitor the performance and security of the AI provider and the cloud provider on a regular basis, which addresses its current limited visibility into how the service is operated.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 31"
+                }
+            ]
+        },
+        {
+            "statement": "The institution must perform a preliminary assessment of the ICT concentration risk arising from relying on the AI provider and its underlying cloud provider for customer-facing operations.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 29"
+                }
+            ]
+        },
+        {
+            "statement": "Where the AI service or its hosting supports critical or important functions, the institution must maintain an exit strategy enabling it to switch to alternative ICT third-party providers or to bring the functions back in-house.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 32"
+                }
+            ]
+        }
+    ],
+    "summaries": [
+        {
+            "source_id": "ai-act",
+            "provision": "Article 4",
+            "relevance": "Establishes the deployer obligation that clearly binds the institution here — ensuring AI literacy among the customer-service staff operating the system — and anchors the AI Act's application to it as a deployer.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 50(1)",
+            "relevance": "Places the customer-facing transparency duty on the provider, telling the institution what it is entitled to rely on when customers converse through the system.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Annex III",
+            "relevance": "Defines the high-risk use cases that the customer-service deployment does not match, underpinning the conclusion that this use is not high-risk as such.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26",
+            "relevance": "Holds the deployer obligations that would apply only if the system were used for a listed high-risk purpose, marking the boundary of the institution's deployer duties.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 6(1)",
+            "relevance": "The threshold requirement for processing customer conversations at all — without a lawful basis the deployment cannot lawfully run.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 5(1)",
+            "relevance": "Supplies the principles — especially purpose limitation and minimisation — that constrain how much and which conversation data may flow into the generative service.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 13",
+            "relevance": "Obliges the institution to tell customers how their conversations are used, including recipients and transfers, which the opaque AI and hosting chain makes non-obvious.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 28(1)",
+            "relevance": "Gates the engagement of the AI provider and cloud host as processors on sufficient guarantees of appropriate technical and organisational measures.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 28(3)",
+            "relevance": "The mandatory content of the controller-processor contract — the legal instrument through which the institution disciplines an opaque external AI provider.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 28(2)",
+            "relevance": "Directly governs the scenario's hosting chain: the AI provider may not bring in the cloud provider as sub-processor without the institution's authorisation.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 28(4)",
+            "relevance": "Ensures the cloud provider is bound by equivalent data protection obligations down the processing chain.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 35(1)",
+            "relevance": "Triggers a prior impact assessment where processing customer conversations through the system is likely to result in high risk.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 44",
+            "relevance": "The gateway rule making any third-country transfer of customer conversations lawful only under Chapter V conditions.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 46(1)",
+            "relevance": "Identifies the safeguards-plus-enforceable-rights route that typically authorises transfers absent an adequacy decision.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 2(1)",
+            "relevance": "Brings the financial institution within DORA and thus within the ICT third-party risk regime that frames the whole external-provider analysis.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 28",
+            "relevance": "Requires ICT third-party risk management to be integrated into the institution's risk framework and documented in a register covering both the AI provider and the cloud provider.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 30",
+            "relevance": "The decisive provision against limited visibility: contracts must specify services, data locations including cloud locations, data protection measures, access and return of data, subcontracting and termination.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 31",
+            "relevance": "Imposes regular monitoring of provider performance and security — the standing answer to the institution's limited visibility into how the service is operated.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 29",
+            "relevance": "Requires a preliminary assessment of the concentration risk created by stacking an AI provider on a single cloud provider for customer-facing operations.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 32",
+            "relevance": "Requires exit planning where the AI or hosting services support critical or important functions — contingent on that characterisation being settled.",
+            "strength": "moderate"
+        }
+    ],
+    "actions": [
+        "Confirm the institution's category among the financial entities listed in DORA Article 2(1) and that no exclusion in that article applies.",
+        "Determine whether the AI service and the hosting arrangement support critical or important functions, which decides whether DORA Articles 28(3) and 32 apply to these arrangements.",
+        "Establish where the AI provider and its cloud host store, process or provide support from, and whether customer conversations are accessible from or transferred to countries outside the EEA, so the applicable Chapter V route under the GDPR can be settled.",
+        "Verify whether any actual or planned use of the system falls within an Annex III high-risk category, such as creditworthiness evaluation, which would engage Article 26 deployer obligations under the AI Act.",
+        "Assess whether processing customer conversations through the system is likely to result in a high risk to the customers requiring a prior DPIA under GDPR Article 35(1)."
+    ]
+}

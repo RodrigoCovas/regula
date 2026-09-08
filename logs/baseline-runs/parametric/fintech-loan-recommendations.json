@@ -1,0 +1,373 @@
+{
+    "findings": [
+        {
+            "statement": "The AI system evaluates applicants' creditworthiness to recommend whether loans are approved, so it is a high-risk AI system under Article 6(2) of the AI Act as a system listed in Annex III point 5(b), and the point 5(b) carve-out for financial-fraud detection does not cover this use.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 6(2)"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Annex III point 5(b)"
+                }
+            ]
+        },
+        {
+            "statement": "As deployer, the company must take appropriate technical and organisational measures to ensure it uses the high-risk system in accordance with the provider's instructions of use, and must keep the system's automatically-generated logs for at least six months.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(1)"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(5)"
+                }
+            ]
+        },
+        {
+            "statement": "The employees who review the recommendations must be assigned human oversight with the necessary competence, training, authority and support, and must be able to understand the system's limitations, remain aware of automation bias, correctly interpret its output and disregard, override or reverse the recommendation before the final loan decision.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(2)"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 14(4)"
+                }
+            ]
+        },
+        {
+            "statement": "The company must take measures to ensure, to its best extent, a sufficient level of AI literacy among the staff operating the credit-assessment system, taking account of their technical knowledge, experience, education and training and the context of use.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 4"
+                }
+            ]
+        },
+        {
+            "statement": "To the extent the company exercises control over the input data, it must ensure the applicants' income, employment and debt data fed to the system is relevant and sufficiently representative for the system's intended purpose.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(3)"
+                }
+            ]
+        },
+        {
+            "statement": "Because the system is an Annex III point 5(b) system, the company must complete a fundamental rights impact assessment before first use if it is a financial institution within the meaning referred to in Article 27(1)(c) of the AI Act.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 27"
+                }
+            ]
+        },
+        {
+            "statement": "Applicants subject to a loan decision taken on the basis of the system's output have the right to obtain clear and meaningful explanations of the role of the AI system in the decision-making procedure and the main elements of the decision.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 86"
+                }
+            ]
+        },
+        {
+            "statement": "The AI Act obligations attaching to this use of the system, including the Article 26 deployer duties and the Article 86 explanation right, apply from 2 August 2026, while the Article 4 AI-literacy obligation has applied since 2 February 2025.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 113"
+                }
+            ]
+        },
+        {
+            "statement": "The company may process applicants' income, employment and debt data only on a lawful basis in Article 6(1) of the GDPR, and that processing must comply with the Article 5(1) principles, including fairness, transparency, purpose limitation and data minimisation.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 6(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 5(1)"
+                }
+            ]
+        },
+        {
+            "statement": "Automated refusal of an online credit application is the GDPR's own example of a decision producing legal effects, so the company must not make the loan decisions on the basis of solely automated processing unless a ground in Article 22(2) applies together with the Article 22(3) safeguards, including the right to obtain human intervention, to express a point of view and to contest the decision; the employees' review of the recommendation before the final decision is the factor that determines whether the decision is 'based solely on automated processing' under Article 22(1).",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 22(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 22(2)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 22(3)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Recital 71"
+                }
+            ]
+        },
+        {
+            "statement": "Where Article 22 applies to the loan decisions, the company must inform applicants of the existence of automated decision-making including profiling and give meaningful information about the logic involved, its significance and envisaged consequences, and applicants can obtain that meaningful information on access request.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 13(2)(f)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 15(1)(h)"
+                }
+            ]
+        },
+        {
+            "statement": "The loan decisions are based on systematic and extensive automated evaluation of applicants and produce legal effects, so the company must carry out a data protection impact assessment under GDPR Article 35(3)(a), using the information provided under AI Act Article 13 to comply with that duty as Article 26(9) of the AI Act directs.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 35(3)(a)"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(9)"
+                }
+            ]
+        },
+        {
+            "statement": "DORA applies to the company only if it falls within a category of financial entities listed in DORA Article 2(1), such as a credit institution or a provider of crowdfunding services; the scenario does not establish the company's status.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 2(1)"
+                }
+            ]
+        },
+        {
+            "statement": "If DORA applies, the AI lending system is an ICT system within the meaning of DORA Article 3 and must be addressed in a sound, comprehensive and documented ICT risk-management framework whose implementation the company's management body defines, approves and oversees.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 3"
+                },
+                {
+                    "source_id": "dora",
+                    "provision": "Article 6(1)"
+                },
+                {
+                    "source_id": "dora",
+                    "provision": "Article 5(2)"
+                }
+            ]
+        },
+        {
+            "statement": "If DORA applies and the AI system is supplied by an ICT third-party service provider, the company must maintain and regularly update a register of information on the arrangement and, where the system supports a critical or important function, ensure the contract contains the key contractual provisions DORA requires.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 28(3)"
+                },
+                {
+                    "source_id": "dora",
+                    "provision": "Article 30"
+                }
+            ]
+        }
+    ],
+    "summaries": [
+        {
+            "source_id": "ai-act",
+            "provision": "Article 6(2)",
+            "relevance": "Together with Annex III point 5(b), this provision is the gateway that brings the company's creditworthiness tooling into the AI Act's high-risk regime and activates every deployer-side duty the answer describes.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Annex III point 5(b)",
+            "relevance": "Lists creditworthiness evaluation of natural persons as a high-risk use, which matches exactly this system's purpose, and its financial-fraud carve-out confirms the company's use is not excluded.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(1)",
+            "relevance": "States the deployer's baseline duty to use the high-risk system in line with the provider's instructions, anchoring the company's operational obligations for the lending workflow.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(5)",
+            "relevance": "Sets the log-retention duty that preserves a record of the system's role in loan decisions for review and accountability.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(2)",
+            "relevance": "Requires the human oversight that the scenario's employee review must satisfy, defining who may oversee the recommendations and with what competence, authority and support.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 14(4)",
+            "relevance": "Defines what effective human oversight must enable for a high-risk creditworthiness system, giving content to the reviewers' role in the loan decision.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 4",
+            "relevance": "Imposes the AI-literacy duty on the deployer's staff, which here covers the employees operating the credit-assessment system, and it applies independently of the 2026 high-risk timeline.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(3)",
+            "relevance": "Extends the deployer's duties to the applicant data fed into the system, tying the AI Act regime to the quality of the financial inputs used in lending decisions.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 27",
+            "relevance": "Adds a possible fundamental rights impact assessment for this Annex III point 5(b) use, contingent on the company qualifying as a financial institution.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 86",
+            "relevance": "Creates the applicants' own right to an explanation of the system's role in their loan decision, complementing the GDPR transparency regime.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 113",
+            "relevance": "Fixes when these AI Act duties bite for the company's use of the system, distinguishing the live Article 4 duty from the 2026 high-risk obligations.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(9)",
+            "relevance": "Connects the AI Act deployer regime to GDPR data protection impact assessment, making the DPIA part of the company's high-risk-system compliance rather than a free-standing GDPR task.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 6(1)",
+            "relevance": "The core provision on the lawfulness question: the company can process applicants' income, employment and debt data only on one of its lawful bases.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 5(1)",
+            "relevance": "Supplies the data protection principles that constrain how the company collects and uses applicants' financial information for credit assessment.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 22(1)",
+            "relevance": "Governs whether the AI-recommended loan decisions may rest on solely automated processing, the pivotal data protection issue raised by the human-review setup.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 22(2)",
+            "relevance": "Defines the only grounds on which a solely automated credit decision could lawfully proceed.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 22(3)",
+            "relevance": "Sets the safeguards, including human intervention, expression of a point of view and contestation, that protect applicants if Article 22 is engaged by the lending workflow.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Recital 71",
+            "relevance": "Confirms by express example that automated refusal of an online credit application produces legal effects, placing this scenario squarely in Article 22's field.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 13(2)(f)",
+            "relevance": "Requires the company to tell applicants about the automated decision-making and its logic, the main transparency duty attached to this use.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 15(1)(h)",
+            "relevance": "Gives applicants a parallel access right to the meaningful information about the logic, significance and consequences of the automated decision.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 35(3)(a)",
+            "relevance": "Makes the data protection impact assessment mandatory for exactly this processing, a systematic and extensive automated evaluation of persons on which legal-effect decisions are based.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 2(1)",
+            "relevance": "Decides whether DORA reaches the company at all, since the scenario's fintech label does not establish membership of any listed financial entity category.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 3",
+            "relevance": "Supplies the ICT-system definitions that bring the AI credit-assessment tooling within DORA's risk-management architecture.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 5(2)",
+            "relevance": "Places responsibility for the ICT risk arrangements covering the lending system with the company's management body.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 6(1)",
+            "relevance": "Requires the ICT risk-management framework within which the AI system's use in loan processing must be addressed if DORA applies.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 28(3)",
+            "relevance": "Creates the register of information obligation that would document any third-party supply of the AI system.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 30",
+            "relevance": "Governs the contractual protections owed when an AI system supporting the lender's critical or important functions comes from an ICT third-party provider.",
+            "strength": "moderate"
+        }
+    ],
+    "actions": [
+        "Settle the company's regulatory status and authorisations to determine whether it falls within a category of financial entities listed in DORA Article 2(1).",
+        "Establish who developed and supplied the AI system and whether the company put its name on it or substantially modified it, which decides whether it also carries AI Act provider obligations in addition to deployer obligations.",
+        "Verify whether the company is a financial institution within the meaning referred to in AI Act Article 27(1)(c), which settles whether a fundamental rights impact assessment is required before first use.",
+        "Identify the GDPR Article 6(1) lawful basis relied on for the processing of applicants' financial data and assess whether the employees' review is such that the loan decision is not based 'solely' on automated processing under GDPR Article 22(1).",
+        "Establish whether the AI system is supplied by an ICT third-party service provider and whether it supports a critical or important function of the company for DORA purposes."
+    ]
+}

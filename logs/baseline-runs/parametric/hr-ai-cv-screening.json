@@ -1,0 +1,253 @@
+{
+    "findings": [
+        {
+            "statement": "The AI system falls in the high-risk category: it is intended to analyse and filter job applications and to evaluate candidates, which Annex III point 4(a) of the AI Act lists as a high-risk use, and AI systems referred to in Annex III are considered high-risk under Article 6(2).",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Annex III point 4(a)"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 6(2)"
+                }
+            ]
+        },
+        {
+            "statement": "The system profiles applicants within the meaning of GDPR Article 4(4), since it automatically evaluates personal aspects derived from their CVs and video interviews to score their suitability for work; because the AI Act always treats Annex III systems that profile natural persons as high-risk, the Article 6(3) derogation cannot lower the classification.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 6(3)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 4(4)"
+                }
+            ]
+        },
+        {
+            "statement": "As deployer, the company must take appropriate technical and organisational measures to use the system in accordance with the provider's instructions for use, and must assign human oversight of the system to natural persons with the necessary competence, training, authority and support.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(1)"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(2)"
+                }
+            ]
+        },
+        {
+            "statement": "The company must, to the extent it exercises control over the input data, ensure that the CVs and recorded videos fed to the system are relevant and sufficiently representative in view of the system's intended purpose.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(4)"
+                }
+            ]
+        },
+        {
+            "statement": "Before putting the system into use at the workplace, the company, as an employer deploying a high-risk AI system, must inform workers' representatives and the affected workers that they will be subject to its use.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(7)"
+                }
+            ]
+        },
+        {
+            "statement": "Before using the system the company must carry out a data protection impact assessment under GDPR Article 35(1): systematically scoring every applicant on the basis of automated processing of CV and video data is a systematic and extensive evaluation of personal aspects, including profiling, on which significant decisions are based, matching Article 35(3)(a); the AI Act requires the deployer to use the provider's Article 13 information to comply with this DPIA obligation.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 35(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 35(3)(a)"
+                },
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 26(9)"
+                }
+            ]
+        },
+        {
+            "statement": "Because recruiters rather than the system decide which candidates to prioritise, the stated workflow is not solely automated decision-making; the company must nonetheless ensure that no decision producing legal or similarly significant effects on an applicant rests on the automated score alone, since Article 22(1) grants applicants the right not to be subject to such decisions, Recital 71 names e-recruiting as the paradigm case, and the Article 22(3) safeguards apply where an exception permits such a decision.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 22(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 22(3)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Recital 71"
+                }
+            ]
+        },
+        {
+            "statement": "The company must, at the time applicants' CV and video data are obtained, inform them of the processing's purposes and legal basis, and of the existence of automated decision-making and profiling referred to in Article 22(1) and (4), with meaningful information about the logic involved, its significance and the envisaged consequences.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 13(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 13(2)(f)"
+                }
+            ]
+        },
+        {
+            "statement": "The processing of applicants' CVs and recorded video interviews must rest on one of the lawful bases in GDPR Article 6(1).",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 6(1)"
+                }
+            ]
+        },
+        {
+            "statement": "As a private company screening its own job applicants, the company is not among the deployer categories Article 27(1) subjects to a fundamental rights impact assessment - bodies governed by public law, private entities providing public services, or deployers of Annex III point 5(b) and (c) systems - so the AI Act does not require a fundamental rights impact assessment for this deployment.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 27(1)"
+                }
+            ]
+        }
+    ],
+    "summaries": [
+        {
+            "source_id": "ai-act",
+            "provision": "Annex III point 4(a)",
+            "relevance": "This is the list item that captures the company's exact use case (analysing and filtering job applications and evaluating candidates), and the entire high-risk classification on which the AI Act conclusions rest turns on it.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 6(2)",
+            "relevance": "This rule converts the Annex III listing into high-risk status and thereby determines which regime of AI Act obligations the company faces.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 6(3)",
+            "relevance": "This provision supplies the only escape route from high-risk classification and, through its carve-out for profiling systems, forecloses that route for this scoring system.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(1)",
+            "relevance": "This is the deployer's core operating duty and anchors everything the company must do before and while using the system in recruitment.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(2)",
+            "relevance": "This duty shapes how the company must organise the recruiters who exercise human oversight over the automated scores.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(4)",
+            "relevance": "This duty attaches directly to the company's control over the CV and video data fed into the system, the main bias-relevant lever available to it.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(7)",
+            "relevance": "This provision imposes the pre-deployment information duty specific to employers using high-risk AI at the workplace, directly matching the company's situation.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 26(9)",
+            "relevance": "This provision links the AI Act deployer regime to the GDPR DPIA obligation, tying the two regulations' requirements into a single pre-use step.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 27(1)",
+            "relevance": "Its scope list of deployers decides whether a fundamental rights impact assessment is required, and it excludes a private recruiter on the scenario's facts.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 4(4)",
+            "relevance": "This definition determines that the automated scoring constitutes profiling, which both bars the AI Act derogation and frames the GDPR analysis.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 6(1)",
+            "relevance": "It supplies the lawful-basis requirement that any processing of CV and video data must satisfy before deployment.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 13(1)",
+            "relevance": "It sets the baseline information the company owes applicants at the moment their data is collected.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 13(2)(f)",
+            "relevance": "It extends the information duty to the automated scoring and profiling, the feature that most distinguishes this recruitment pipeline.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 22(1)",
+            "relevance": "It fixes the boundary between lawful human-reviewed screening and a solely automated decision, the central design constraint on how recruiters may use the scores.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 22(3)",
+            "relevance": "It prescribes the safeguards (human intervention, expression of view, contest) that apply if any candidate decision ends up within an exception to Article 22(1).",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Recital 71",
+            "relevance": "It identifies e-recruiting as the paradigm case of the significant-effect decisions the Article 22 regime targets, situating the scenario within that regime.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 35(1)",
+            "relevance": "It makes the DPIA a pre-processing requirement, giving it its place among the steps to take before using the system.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 35(3)(a)",
+            "relevance": "This provision names the exact situation at issue - systematic and extensive automated evaluation of personal aspects through profiling driving significant decisions - and decides that a DPIA is mandatory here.",
+            "strength": "strong"
+        }
+    ],
+    "actions": [
+        "Determine whether the company acts only as deployer or also as provider of the system (e.g. if it developed it in-house, substantially modified it, or puts it into service under its own name), since provider obligations would add to the deployer obligations identified.",
+        "Settle what the video-interview analysis actually infers: whether it infers emotions (engaging the Article 5(1)(f) prohibition in the workplace area) and whether it involves biometric or other special-category data within GDPR Article 9.",
+        "Verify which lawful basis under GDPR Article 6(1) - and, if special-category data is involved, which Article 9(2) condition - the company will rely on for processing applicants' CVs and recorded videos.",
+        "Verify the provider's instructions for use and the human oversight measures they require, so that the recruiters' prioritisation of candidates satisfies Article 26(1) and 26(2).",
+        "Determine whether the company is a financial entity within DORA's Article 2 scope, since DORA imposes obligations only on financial entities and this answer rests on none of its provisions."
+    ]
+}

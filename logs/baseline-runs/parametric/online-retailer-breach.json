@@ -1,0 +1,171 @@
+{
+    "findings": [
+        {
+            "statement": "The attackers' confirmed unauthorized access to customers' names, email addresses, postal addresses and order information constitutes a personal data breach under the GDPR, which expressly covers unauthorized access to personal data.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 4(12)"
+                }
+            ]
+        },
+        {
+            "statement": "The company, as the controller of its customer database, must notify the competent supervisory authority of the breach without undue delay and, where feasible, no later than 72 hours after becoming aware of it, unless the breach is unlikely to result in a risk to the rights and freedoms of natural persons.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 4(7)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 33(1)"
+                }
+            ]
+        },
+        {
+            "statement": "The supervisory-authority notification must state the nature of the breach, the categories and approximate numbers of data subjects and records concerned, the likely consequences and the measures taken or proposed; because the company does not yet know whether data was downloaded, it may supply these particulars in phases without further undue delay.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 33(3)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 33(4)"
+                }
+            ]
+        },
+        {
+            "statement": "The company must document the breach, its effects and the remedial action taken in its internal records irrespective of whether the breach is notified, so that the supervisory authority can verify compliance.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 33(5)"
+                }
+            ]
+        },
+        {
+            "statement": "Where the breach is likely to result in a high risk to the rights and freedoms of natural persons, the company must also communicate it to the affected customers without undue delay, including the description and content the GDPR prescribes for that communication.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 34(1)"
+                },
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 34(2)"
+                }
+            ]
+        },
+        {
+            "statement": "The company remains under a duty to implement appropriate technical and organizational measures to secure the personal data concerned, including the ability to restore its availability and access after the incident.",
+            "strength": "strong",
+            "citations": [
+                {
+                    "source_id": "gdpr",
+                    "provision": "Article 32(1)"
+                }
+            ]
+        },
+        {
+            "statement": "DORA's incident-reporting and operational-resilience regime does not apply to the company, which as an online retailer is not among the financial entities to which DORA addresses its obligations.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "dora",
+                    "provision": "Article 2(1)"
+                }
+            ]
+        },
+        {
+            "statement": "The EU AI Act imposes no obligations in this scenario, which involves no AI system and no provider, deployer or other actor falling within the AI Act's scope.",
+            "strength": "moderate",
+            "citations": [
+                {
+                    "source_id": "ai-act",
+                    "provision": "Article 2(1)"
+                }
+            ]
+        }
+    ],
+    "summaries": [
+        {
+            "source_id": "gdpr",
+            "provision": "Article 4(12)",
+            "relevance": "Classifies the attackers' confirmed unauthorized access as a personal data breach, which is the gateway to every notification, communication and documentation duty relied on across the answer.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 4(7)",
+            "relevance": "Supplies the controller concept that locates the notification, communication and security duties on the retailer rather than on another actor.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 33(1)",
+            "relevance": "Sets the primary duty and the 72-hour clock the company must work to after becoming aware of the breach, subject to the risk exception counsel must assess.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 33(3)",
+            "relevance": "Fixes the minimum content of the supervisory-authority notification the company must prepare for this breach.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 33(4)",
+            "relevance": "Resolves the scenario's open fact, the unknown exfiltration, by allowing the notification particulars to be completed in phases once known.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 33(5)",
+            "relevance": "Requires internal record-keeping that stands independent of any notification decision, covering this breach whatever counsel concludes on risk.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 34(1)",
+            "relevance": "Governs whether the affected customers must themselves be told, turning the answer's second pillar on a high-risk assessment the facts leave open.",
+            "strength": "strong"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 34(2)",
+            "relevance": "Prescribes what any customer communication must contain if the high-risk threshold is met.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "gdpr",
+            "provision": "Article 32(1)",
+            "relevance": "Grounds the continuing security duty the breach leaves in force, including the ability to restore the affected data's availability and access.",
+            "strength": "moderate"
+        },
+        {
+            "source_id": "dora",
+            "provision": "Article 2(1)",
+            "relevance": "Defines the financial-entity perimeter that excludes the online retailer from DORA's incident-reporting regime.",
+            "strength": "weak"
+        },
+        {
+            "source_id": "ai-act",
+            "provision": "Article 2(1)",
+            "relevance": "Defines the AI-actor scope that this data-breach scenario falls outside, so no AI Act duty is triggered.",
+            "strength": "weak"
+        }
+    ],
+    "actions": [
+        "Verify on the company's facts that it falls within the GDPR's territorial scope (Article 3), which the scenario does not state.",
+        "Settle whether the breach is nonetheless unlikely to result in a risk to individuals' rights and freedoms, removing the Article 33(1) notification duty, in light of the unresolved question of whether data was downloaded.",
+        "Assess whether the breach is likely to result in a high risk requiring customer communication under Article 34(1), including whether any Article 34(3) exception applies.",
+        "Identify the competent supervisory authority, including whether the company's cross-border processing requires determining a lead supervisory authority.",
+        "Establish whether any processor operated or hosted the affected database, since a processor's duty to notify the controller of a breach arises under Article 33(2)."
+    ]
+}
