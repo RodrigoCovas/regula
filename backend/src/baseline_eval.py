@@ -137,16 +137,6 @@ FULL_CORPUS_VARIANT = "full-corpus"
 PARAMETRIC_MARKER = "baseline-parametric: agent-produced (OpenCode harness)"
 FULL_CORPUS_MARKER = "baseline-full-corpus: agent-produced (OpenCode harness)"
 
-
-def _variant_specs() -> Dict[str, VariantSpec]:
-    """The variant registry, in comparison-column order (parametric first).
-    Read fresh on every run: the canonical directory constants stay the
-    module-level test seam they are."""
-    return {
-        PARAMETRIC_VARIANT: VariantSpec(PARAMETRIC_VARIANT, PARAMETRIC_MARKER, BASELINE_DIR),
-        FULL_CORPUS_VARIANT: VariantSpec(FULL_CORPUS_VARIANT, FULL_CORPUS_MARKER, FULL_CORPUS_DIR),
-    }
-
 _TRACE_SUMMARY = "Agent-produced baseline answer; no workflow stages ran."
 
 # The stored template shape (ADR-0017), validated key-exact — nothing is
@@ -230,6 +220,16 @@ class VariantSpec:
     name: str
     marker: str
     default_dir: Path
+
+
+def _variant_specs() -> Dict[str, VariantSpec]:
+    """The variant registry, in comparison-column order (parametric first).
+    Read fresh on every run: the canonical directory constants stay the
+    module-level test seam they are."""
+    return {
+        PARAMETRIC_VARIANT: VariantSpec(PARAMETRIC_VARIANT, PARAMETRIC_MARKER, BASELINE_DIR),
+        FULL_CORPUS_VARIANT: VariantSpec(FULL_CORPUS_VARIANT, FULL_CORPUS_MARKER, FULL_CORPUS_DIR),
+    }
 
 
 @dataclass
