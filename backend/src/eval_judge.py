@@ -104,6 +104,21 @@ class SummaryJudge(Protocol):
     def compare(self, pairs: List[RelevancePair]) -> Dict[str, PairFidelityVerdict]: ...
 
 
+def judge_naming_its_failures(judge: SummaryJudge) -> SummaryJudge:
+    """The judge with its failures annotated: when an LLM call aborts the run,
+    the message must say which call it was — the judge's LlmErrors are
+    re-raised prefixed with "judge", so they read differently from the
+    workflow stages' own failures under the CLI's single abort message."""
+    class _BlamedJudge:
+        def compare(self, pairs):
+            try:
+                return judge.compare(pairs)
+            except LlmError as error:
+                raise LlmError(f"summary-fidelity judge: {error}") from error
+
+    return _BlamedJudge()
+
+
 _JUDGE_SYSTEM = (
     "You are the strict judge of a regulatory research assistant's evaluation. You compare "
     "pairs of Provision relevance statements — an expected one (hand-authored ground truth) "

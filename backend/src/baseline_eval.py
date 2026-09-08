@@ -69,7 +69,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Union
+from typing import Dict, Iterable, List, Mapping, Optional, Protocol
 
 from .config import ConfigurationError, Settings, chat_client, load_settings
 from .corpus import load_documents
@@ -81,9 +81,8 @@ from .eval_harness import (
     format_score,
     parse_provision,
 )
-from .eval_judge import SummaryFidelityJudge, SummaryJudge
+from .eval_judge import SummaryFidelityJudge, SummaryJudge, judge_naming_its_failures
 from .llm import LlmError
-from .live_eval import _judge_naming_its_failures
 from .live_workflow import SEEK_COUNSEL_ACTION
 from .models import (
     PROVISION_NUMBER_FIELDS,
@@ -110,7 +109,8 @@ class BaselineEvalRefused(RuntimeError):
 # spellings; the misspelled `parametrized/` was renamed before any artifact
 # referenced it.
 LOGS_DIR = Path(__file__).resolve().parents[2] / "logs"
-BASELINE_DIR = LOGS_DIR / "baseline-runs" / "parametric"
+REPO_ROOT = LOGS_DIR.parent
+PARAMETRIC_DIR = LOGS_DIR / "baseline-runs" / "parametric"
 FULL_CORPUS_DIR = LOGS_DIR / "baseline-runs" / "full-corpus"
 _REPORT_GLOB = "live-eval-report-*.json"
 
@@ -227,17 +227,19 @@ def _variant_specs() -> Dict[str, VariantSpec]:
     Read fresh on every run: the canonical directory constants stay the
     module-level test seam they are."""
     return {
-        PARAMETRIC_VARIANT: VariantSpec(PARAMETRIC_VARIANT, PARAMETRIC_MARKER, BASELINE_DIR),
+        PARAMETRIC_VARIANT: VariantSpec(PARAMETRIC_VARIANT, PARAMETRIC_MARKER, PARAMETRIC_DIR),
         FULL_CORPUS_VARIANT: VariantSpec(FULL_CORPUS_VARIANT, FULL_CORPUS_MARKER, FULL_CORPUS_DIR),
     }
 
 
 @dataclass
 class VariantOutcome:
-    """One variant's scored run: the report in the shared shape plus the
-    drop records its own files produced."""
+    """One variant's scored run: its Execution-trace marker (the provenance
+    the artifact carries), the report in the shared shape, and the drop
+    records its own files produced."""
 
     name: str
+    marker: str
     report: EvalReport
     drops: DropRecords
 
@@ -276,102 +278,109 @@ class BaselineComparison:
     outcomes: Dict[str, VariantOutcome]
 
 
-def _refuse(path: Path, problem: str) -> BaselineEvalRefused:
-    """The one refusal shape: every message names the file and the problem."""
-    return BaselineEvalRefused(f"{path}: {problem}")
+class _FileChecks:
+    """The checks one stored or report file must pass: every refusal names
+    the file and the problem, so the file path travels with the checks
+    instead of threading through every validator."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def refuse(self, problem: str) -> BaselineEvalRefused:
+        """The one refusal shape."""
+        return BaselineEvalRefused(f"{self.path}: {problem}")
+
+    def read_json(self) -> object:
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise self.refuse(f"cannot be read as JSON ({error})") from error
+
+    def non_empty_str(self, where: str, value: object) -> str:
+        if not isinstance(value, str) or not value:
+            raise self.refuse(f"{where} must be a non-empty string")
+        return value
+
+    def strength(self, where: str, value: object) -> Strength:
+        if not isinstance(value, str):
+            raise self.refuse(f"{where} must be a bare 'strong'/'moderate'/'weak' string")
+        try:
+            return Strength(value)
+        except ValueError:
+            raise self.refuse(
+                f"{where} carries invalid strength {value!r} — "
+                "expected 'strong', 'moderate', or 'weak'",
+            ) from None
+
+    def source_id(self, where: str, value: object, known: set[str]) -> str:
+        source = self.non_empty_str(f"{where} source_id", value)
+        if source not in known:
+            raise self.refuse(
+                f"{where} names unknown source id {source!r} "
+                f"(known sources: {', '.join(sorted(known))})"
+            )
+        return source
+
+    def exact_keys(self, where: str, value: object, keys: set[str]) -> dict:
+        if not isinstance(value, dict) or set(value) != keys:
+            raise self.refuse(f"{where} must carry exactly the keys {sorted(keys)}")
+        return value
+
+    def numeric(self, where: str, value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise self.refuse(f"{where} must be a number")
+        return float(value)
 
 
-def _read_json(path: Path) -> object:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise _refuse(path, f"cannot be read as JSON ({error})") from error
-
-
-def _non_empty_str(path: Path, where: str, value: object) -> str:
-    if not isinstance(value, str) or not value:
-        raise _refuse(path, f"{where} must be a non-empty string")
-    return value
-
-
-def _strength(path: Path, where: str, value: object) -> Strength:
-    if not isinstance(value, str):
-        raise _refuse(path, f"{where} must be a bare 'strong'/'moderate'/'weak' string")
-    try:
-        return Strength(value)
-    except ValueError:
-        raise _refuse(
-            path,
-            f"{where} carries invalid strength {value!r} — "
-            "expected 'strong', 'moderate', or 'weak'",
-        ) from None
-
-
-def _source_id(path: Path, where: str, value: object, known: set[str]) -> str:
-    source = _non_empty_str(path, f"{where} source_id", value)
-    if source not in known:
-        raise _refuse(
-            path,
-            f"{where} names unknown source id {source!r} "
-            f"(known sources: {', '.join(sorted(known))})",
-        )
-    return source
-
-
-def _exact_keys(path: Path, where: str, value: object, keys: set[str]) -> dict:
-    if not isinstance(value, dict) or set(value) != keys:
-        raise _refuse(path, f"{where} must carry exactly the keys {sorted(keys)}")
-    return value
-
-
-def _validate_case_file(path: Path, data: object, known_sources: set[str]) -> CaseFile:
+def _validate_case_file(checks: _FileChecks, data: object, known_sources: set[str]) -> CaseFile:
     """Validate one stored case file against the template shape, key-exact
     and type-exact: a mismatch refuses the run naming file and problem —
     no normalization (ADR-0017)."""
+    path = checks.path
     if not isinstance(data, dict):
-        raise _refuse(path, "the file is not a JSON object")
+        raise checks.refuse("the file is not a JSON object")
     if set(data) != _STORED_KEYS:
-        raise _refuse(path, f"expected exactly the keys {sorted(_STORED_KEYS)}, got {sorted(data)}")
+        raise checks.refuse(f"expected exactly the keys {sorted(_STORED_KEYS)}, got {sorted(data)}")
 
     raw_findings = data["findings"]
     if not isinstance(raw_findings, list):
-        raise _refuse(path, "'findings' must be a list")
+        raise checks.refuse("'findings' must be a list")
     findings = []
     for index, raw_finding in enumerate(raw_findings):
         where = f"finding {index}"
-        finding = _exact_keys(path, where, raw_finding, _FINDING_KEYS)
-        statement = _non_empty_str(path, f"{where} statement", finding["statement"])
-        strength = _strength(path, where, finding["strength"])
+        finding = checks.exact_keys(where, raw_finding, _FINDING_KEYS)
+        statement = checks.non_empty_str(f"{where} statement", finding["statement"])
+        strength = checks.strength(where, finding["strength"])
         raw_citations = finding["citations"]
         if not isinstance(raw_citations, list) or not raw_citations:
-            raise _refuse(path, f"{where} must carry a non-empty citations list")
+            raise checks.refuse(f"{where} must carry a non-empty citations list")
         citations = []
         for c_index, raw_citation in enumerate(raw_citations):
             c_where = f"{where} citation {c_index}"
-            citation = _exact_keys(path, c_where, raw_citation, _CITATION_KEYS)
+            citation = checks.exact_keys(c_where, raw_citation, _CITATION_KEYS)
             citations.append(StoredCitation(
-                source_id=_source_id(path, c_where, citation["source_id"], known_sources),
-                provision=_non_empty_str(path, f"{c_where} provision", citation["provision"]),
+                source_id=checks.source_id(c_where, citation["source_id"], known_sources),
+                provision=checks.non_empty_str(f"{c_where} provision", citation["provision"]),
             ))
         findings.append(StoredFinding(statement=statement, strength=strength, citations=citations))
 
     raw_summaries = data["summaries"]
     if not isinstance(raw_summaries, list):
-        raise _refuse(path, "'summaries' must be a list")
+        raise checks.refuse("'summaries' must be a list")
     summaries = []
     for index, raw_summary in enumerate(raw_summaries):
         where = f"summary {index}"
-        summary = _exact_keys(path, where, raw_summary, _SUMMARY_KEYS)
+        summary = checks.exact_keys(where, raw_summary, _SUMMARY_KEYS)
         summaries.append(StoredSummary(
-            source_id=_source_id(path, where, summary["source_id"], known_sources),
-            provision=_non_empty_str(path, f"{where} provision", summary["provision"]),
-            relevance=_non_empty_str(path, f"{where} relevance", summary["relevance"]),
-            strength=_strength(path, where, summary["strength"]),
+            source_id=checks.source_id(where, summary["source_id"], known_sources),
+            provision=checks.non_empty_str(f"{where} provision", summary["provision"]),
+            relevance=checks.non_empty_str(f"{where} relevance", summary["relevance"]),
+            strength=checks.strength(where, summary["strength"]),
         ))
 
     raw_actions = data["actions"]
     if not isinstance(raw_actions, list) or not all(isinstance(action, str) for action in raw_actions):
-        raise _refuse(path, "'actions' must be a list of strings")
+        raise checks.refuse("'actions' must be a list of strings")
 
     return CaseFile(
         findings=findings,
@@ -388,6 +397,21 @@ def _citation_for(target: ProvisionTarget, label: str) -> Citation:
         "provision": label,
         PROVISION_NUMBER_FIELDS[target.kind]: target.number,
     })
+
+
+def _parsed_target(
+    checks: _FileChecks, source_id: str, label: str, drops: DropRecords
+) -> Optional[ProvisionTarget]:
+    """The label's structural target, or None once the drop is recorded —
+    the one shape both the citation and the summary loops share (ADR-0017):
+    a label that does not parse is dropped, recorded, and counted."""
+    try:
+        return parse_provision(source_id, label)
+    except ValueError as error:
+        drops.unparseable_labels.append(
+            DroppedLabel(file=checks.path, label=label, reason=str(error))
+        )
+        return None
 
 
 def load_baseline_case(
@@ -418,30 +442,23 @@ def load_baseline_case(
     ever fabricated.
     """
     sources = known_sources if known_sources is not None else set(load_documents())
-    case = _validate_case_file(path, _read_json(path), sources)
+    checks = _FileChecks(path)
+    case = _validate_case_file(checks, checks.read_json(), sources)
 
     findings: List[Finding] = []
     for stored in case.findings:
         citations: List[Citation] = []
         for stored_citation in stored.citations:
-            try:
-                target = parse_provision(stored_citation.source_id, stored_citation.provision)
-            except ValueError as error:
-                drops.unparseable_labels.append(
-                    DroppedLabel(file=path, label=stored_citation.provision, reason=str(error))
-                )
+            target = _parsed_target(checks, stored_citation.source_id, stored_citation.provision, drops)
+            if target is None:
                 continue
             citations.append(_citation_for(target, stored_citation.provision))
         findings.append(Finding(statement=stored.statement, strength=stored.strength, citations=citations))
 
     summaries: Dict[ProvisionTarget, GroundedSummary] = {}
     for stored_summary in case.summaries:
-        try:
-            target = parse_provision(stored_summary.source_id, stored_summary.provision)
-        except ValueError as error:
-            drops.unparseable_labels.append(
-                DroppedLabel(file=path, label=stored_summary.provision, reason=str(error))
-            )
+        target = _parsed_target(checks, stored_summary.source_id, stored_summary.provision, drops)
+        if target is None:
             continue
         if target in summaries:
             drops.duplicate_summaries.append(
@@ -491,19 +508,16 @@ def _discover_case_files(directory: Path) -> Dict[str, Path]:
 
 
 def _newest_report(logs_dir: Path) -> Path:
-    reports = sorted(logs_dir.glob(_REPORT_GLOB))
+    """The newest pipeline report by file time — not by name, which a
+    lexicographic max would misread the day a ``glm53_v10`` report lands
+    below ``glm53_v8``."""
+    reports = list(logs_dir.glob(_REPORT_GLOB))
     if not reports:
         raise BaselineEvalRefused(
             f"No pipeline report found in {logs_dir} (no {_REPORT_GLOB} files). "
             "Run the live eval first or pass --report PATH."
         )
-    return reports[-1]
-
-
-def _numeric(path: Path, where: str, value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise _refuse(path, f"{where} must be a number")
-    return float(value)
+    return max(reports, key=lambda path: (path.stat().st_mtime_ns, path.name))
 
 
 def _parse_report(path: Path) -> tuple[Optional[str], Dict[str, PipelineCaseResult]]:
@@ -511,27 +525,28 @@ def _parse_report(path: Path) -> tuple[Optional[str], Dict[str, PipelineCaseResu
     per-case numbers keyed by case id. Anything malformed refuses naming
     file and problem — a comparison over a half-readable report would be
     quote-worthy nonsense."""
-    data = _read_json(path)
+    checks = _FileChecks(path)
+    data = checks.read_json()
     if not isinstance(data, dict) or not isinstance(data.get("scenarios"), list):
-        raise _refuse(path, "the report must be a JSON object with a 'scenarios' list")
+        raise checks.refuse("the report must be a JSON object with a 'scenarios' list")
     model = data.get("llm_model")
     if model is not None and not isinstance(model, str):
-        raise _refuse(path, "'llm_model' must be a string")
+        raise checks.refuse("'llm_model' must be a string")
     results: Dict[str, PipelineCaseResult] = {}
     for entry in data["scenarios"]:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
-            raise _refuse(path, "every scenario entry needs a string 'id'")
+            raise checks.refuse("every scenario entry needs a string 'id'")
         if entry["id"] in results:
-            raise _refuse(path, f"two scenario entries carry id {entry['id']!r}")
+            raise checks.refuse(f"two scenario entries carry id {entry['id']!r}")
         results[entry["id"]] = PipelineCaseResult(
             id=entry["id"],
-            precision=_numeric(path, f"case {entry['id']!r} precision", entry.get("precision")),
-            recall=_numeric(path, f"case {entry['id']!r} recall", entry.get("recall")),
-            f1=_numeric(path, f"case {entry['id']!r} f1", entry.get("f1")),
+            precision=checks.numeric(f"case {entry['id']!r} precision", entry.get("precision")),
+            recall=checks.numeric(f"case {entry['id']!r} recall", entry.get("recall")),
+            f1=checks.numeric(f"case {entry['id']!r} f1", entry.get("f1")),
             summary_fidelity=(
                 None
                 if entry.get("summary_fidelity") is None
-                else _numeric(path, f"case {entry['id']!r} summary_fidelity", entry["summary_fidelity"])
+                else checks.numeric(f"case {entry['id']!r} summary_fidelity", entry["summary_fidelity"])
             ),
         )
     return model, results
@@ -546,7 +561,7 @@ def _default_judge(settings: Settings) -> SummaryJudge:
             "OPENROUTER_API_KEY is not set. Export it (or put it in "
             "backend/.env.local) and re-run."
         )
-    return _judge_naming_its_failures(SummaryFidelityJudge(chat_client(settings)))
+    return judge_naming_its_failures(SummaryFidelityJudge(chat_client(settings)))
 
 
 def _adapt_variant(
@@ -611,10 +626,11 @@ def run_baseline_eval(
     overrides the newest-report default, and the judge seam is injectable
     for the same reason.
     """
+    specs = _variant_specs()
     overrides = variant_dirs or {}
     files = {
         name: _discover_case_files(overrides.get(name) or spec.default_dir)
-        for name, spec in _variant_specs().items()
+        for name, spec in specs.items()
     }
     resolved_report = report_path if report_path is not None else _newest_report(LOGS_DIR)
     pipeline_model, pipeline_by_id = _parse_report(resolved_report)
@@ -631,11 +647,12 @@ def run_baseline_eval(
     # refuses without a single judge call having been spent.
     adapted = {
         name: _adapt_variant(files[name], spec.marker, known_sources)
-        for name, spec in _variant_specs().items()
+        for name, spec in specs.items()
     }
     outcomes = {
         name: VariantOutcome(
             name=name,
+            marker=specs[name].marker,
             report=_evaluate_variant(responses, fidelity_judge),
             drops=drops,
         )
@@ -690,7 +707,18 @@ def _pipeline_means(cases: List[ComparisonCase]) -> tuple[float, Optional[float]
     )
 
 
-def _cell_text(result: Union[PipelineCaseResult, EvalScenarioResult]) -> str:
+class _CaseMetrics(Protocol):
+    """The four component numbers both answering-path results carry — the
+    pipeline's read from the report artifact, the baselines' measured by
+    the shared loop (ADR-0010)."""
+
+    precision: float
+    recall: float
+    f1: float
+    summary_fidelity: Optional[float]
+
+
+def _cell_text(result: _CaseMetrics) -> str:
     """One answering path's four component numbers as one printed cell."""
     return (
         f"{result.precision:.3f} / {result.recall:.3f} / "
@@ -759,10 +787,8 @@ def _default_output_path() -> Path:
     return LOGS_DIR / f"{_ARTIFACT_STEM}-{date}.json"
 
 
-def _cell(result: Union[PipelineCaseResult, EvalScenarioResult]) -> dict:
-    """One answering path's four component numbers, as the table shows them.
-    Both result types carry the same four fields — the pipeline's read from
-    the report artifact, the baselines' measured by the shared loop."""
+def _cell(result: _CaseMetrics) -> dict:
+    """One answering path's four component numbers, as the table shows them."""
     return {
         "precision": result.precision,
         "recall": result.recall,
@@ -778,26 +804,41 @@ def _drops_counts(drops: DropRecords) -> dict:
     }
 
 
+def _artifact_path(path: Path) -> str:
+    """The path as the artifact records it: relative to the repo root when
+    the file lives inside the tree — the artifact travels — else absolute."""
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def _drops_records(drops: DropRecords) -> dict:
     """The two drop accounts as plain data — file, label, and (for labels)
     the parse failure — so the deterministic resolutions stay visible."""
     return {
         "duplicate_summaries": [
-            {"file": str(duplicate.file), "label": duplicate.label}
+            {"file": _artifact_path(duplicate.file), "label": duplicate.label}
             for duplicate in drops.duplicate_summaries
         ],
         "unparseable_labels": [
-            {"file": str(dropped.file), "label": dropped.label, "reason": dropped.reason}
+            {"file": _artifact_path(dropped.file), "label": dropped.label, "reason": dropped.reason}
             for dropped in drops.unparseable_labels
         ],
     }
 
 
-def _variant_artifact(report: EvalReport) -> dict:
+def _variant_artifact(report: EvalReport, marker: str) -> dict:
     """One variant's report in the pipeline report's shape: per-case
     expected/produced dumps and per-pair fidelity verdicts (issue #83's
-    persistence rule, inherited unchanged), with the mode the runs pinned."""
-    return {"mode": Mode.live.value, **asdict(report)}
+    persistence rule, inherited unchanged), with the mode the runs pinned
+    and the variant's Execution-trace marker naming its provenance — so
+    artifacts never mix variants (spec #90, story 19)."""
+    return {
+        "mode": Mode.live.value,
+        "execution_trace_marker": marker,
+        **asdict(report),
+    }
 
 
 def _comparison_artifact(comparison: BaselineComparison) -> dict:
@@ -846,12 +887,19 @@ def combined_artifact(comparison: BaselineComparison, configured_model: str) -> 
     table data — the single place to quote.
 
     No model-consistency gate: the operator controls model matching manually,
-    so both models travel side by side and the reader decides."""
+    so both models travel side by side and the reader decides. The two
+    fidelity judges are named alongside — the pipeline report's fidelity was
+    judged by its own run's model, the baselines' by the configured one —
+    so a fidelity delta between differing judges reads as what it is."""
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "configured_model": configured_model,
         "pipeline_model": comparison.pipeline_model,
-        "pipeline_report": str(comparison.report_path),
+        "fidelity_judge_models": {
+            "pipeline": comparison.pipeline_model,
+            "baselines": configured_model,
+        },
+        "pipeline_report": _artifact_path(comparison.report_path),
         "threat_note": THREAT_NOTE,
         "case_inventory": [case.case_id for case in comparison.cases],
         "drops": {
@@ -861,7 +909,7 @@ def combined_artifact(comparison: BaselineComparison, configured_model: str) -> 
             name: _drops_records(outcome.drops) for name, outcome in comparison.outcomes.items()
         },
         "variants": {
-            name: _variant_artifact(outcome.report)
+            name: _variant_artifact(outcome.report, outcome.marker)
             for name, outcome in comparison.outcomes.items()
         },
         "comparison": _comparison_artifact(comparison),
@@ -894,7 +942,7 @@ def main(argv: list | None = None) -> int:
         "--parametric-dir",
         type=Path,
         default=None,
-        help=f"directory holding the parametric case files (default: {BASELINE_DIR})",
+        help=f"directory holding the parametric case files (default: {PARAMETRIC_DIR})",
     )
     parser.add_argument(
         "--full-corpus-dir",

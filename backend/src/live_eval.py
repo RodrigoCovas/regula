@@ -90,7 +90,7 @@ from .eval_harness import (
     format_score,
     scenario_definition_hash,
 )
-from .eval_judge import SummaryFidelityJudge, SummaryJudge
+from .eval_judge import SummaryFidelityJudge, SummaryJudge, judge_naming_its_failures
 from .llm import LlmError
 from .models import AnalyzeRequest, AnalyzeResponse, Mode
 
@@ -329,21 +329,6 @@ class CheckpointedRun:
             ) from error
 
 
-def _judge_naming_its_failures(judge: SummaryJudge) -> SummaryJudge:
-    """The judge with its failures annotated: when an LLM call aborts the run,
-    the message must say which call it was — the judge's LlmErrors are
-    re-raised prefixed with "judge", so they read differently from the
-    workflow stages' own failures under the CLI's single abort message."""
-    class _BlamedJudge:
-        def compare(self, pairs):
-            try:
-                return judge.compare(pairs)
-            except LlmError as error:
-                raise LlmError(f"summary-fidelity judge: {error}") from error
-
-    return _BlamedJudge()
-
-
 def ensure_runnable(settings: Settings) -> None:
     """Refuse clearly when the run's prerequisites are missing.
 
@@ -456,7 +441,7 @@ def run_live_eval(
             judge=(
                 judge
                 if judge is not None
-                else _judge_naming_its_failures(SummaryFidelityJudge(chat_client(settings)))
+                else judge_naming_its_failures(SummaryFidelityJudge(chat_client(settings)))
             ),
             on_result=checkpoint.on_result if checkpoint is not None else None,
         )

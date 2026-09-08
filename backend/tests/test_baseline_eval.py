@@ -10,6 +10,7 @@ write.
 """
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -158,6 +159,19 @@ def _payload(case: EvalScenario, *, citations: Optional[int] = None, summaries: 
         else [],
         "actions": ["Confirm the company's facts with the compliance officer."],
     }
+
+
+def _duplicate_summaries_override(case: EvalScenario) -> dict:
+    """A valid case file whose summaries repeat the same structural target —
+    the second under a sub-reference label: the first-wins gate drops the
+    later duplicate and counts it (ADR-0017)."""
+    override = _payload(case, citations=1)
+    label = _unique_expected_citations(case)[0]["provision"]
+    override["summaries"] = [
+        {"source_id": "gdpr", "provision": label, "relevance": "First summary stands.", "strength": "moderate"},
+        {"source_id": "gdpr", "provision": f"{label}(12)", "relevance": "Later duplicate falls.", "strength": "weak"},
+    ]
+    return override
 
 
 def _write_variant_dir(
@@ -470,12 +484,8 @@ def test_adapter_maps_the_stored_shape_through_the_answer_citations_builder(tmp_
 
 
 def test_duplicate_summaries_resolve_first_wins_and_are_counted(tmp_path, query_log_path):
-    override = _payload(_FIRST_CASE, citations=1)
+    override = _duplicate_summaries_override(_FIRST_CASE)
     label = _unique_expected_citations(_FIRST_CASE)[0]["provision"]
-    override["summaries"] = [
-        {"source_id": "gdpr", "provision": label, "relevance": "First summary stands.", "strength": "moderate"},
-        {"source_id": "gdpr", "provision": f"{label}(12)", "relevance": "Later duplicate falls.", "strength": "weak"},
-    ]
     dirs = _write_dirs(
         tmp_path, {PARAMETRIC_VARIANT: {_FIRST_FILE: override}}
     )
@@ -796,7 +806,7 @@ def test_malformed_pipeline_report_refuses_naming_file_and_problem(
 
 def _point_defaults_at(monkeypatch, logs: Path, dirs: Mapping[str, Path]) -> None:
     monkeypatch.setattr(baseline_eval, "LOGS_DIR", logs)
-    monkeypatch.setattr(baseline_eval, "BASELINE_DIR", dirs[PARAMETRIC_VARIANT])
+    monkeypatch.setattr(baseline_eval, "PARAMETRIC_DIR", dirs[PARAMETRIC_VARIANT])
     monkeypatch.setattr(baseline_eval, "FULL_CORPUS_DIR", dirs[FULL_CORPUS_VARIANT])
 
 
@@ -823,6 +833,23 @@ def test_newest_report_wins_by_default(tmp_path, monkeypatch, query_log_path):
     logs.mkdir()
     _write_report(logs / "live-eval-report-2026-09-01-a.json")
     newest = _write_report(logs / "live-eval-report-2026-09-08-b.json")
+    dirs = _write_dirs(tmp_path)
+    _point_defaults_at(monkeypatch, logs, dirs)
+
+    comparison = run_baseline_eval(_settings(query_log_path), judge=AgreeingJudge())
+
+    assert comparison.report_path == newest
+
+
+def test_newest_report_wins_by_mtime_not_alphabetical_order(tmp_path, monkeypatch, query_log_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    older = _write_report(logs / "live-eval-report-2026-09-10-glm53_v8.json")
+    newest = _write_report(logs / "live-eval-report-2026-09-10-glm53_v10.json")
+    # Pin the file times: `v10` sorts below `v8` lexicographically, so only
+    # a newest-by-mtime rule can pick the file actually written last.
+    os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(newest, ns=(2_000_000_000, 2_000_000_000))
     dirs = _write_dirs(tmp_path)
     _point_defaults_at(monkeypatch, logs, dirs)
 
@@ -963,6 +990,14 @@ def test_artifact_metadata_carries_both_models_note_and_case_inventory(tmp_path,
     # produced the left column.
     assert artifact["configured_model"] == "z-ai/glm-5.3-flash"
     assert artifact["pipeline_model"] == "z-ai/pipeline-model"
+    # The two fidelity judges are named side by side: the pipeline report's
+    # fidelity was judged by its own run's model, the baselines' by the
+    # configured one — when they differ, the fidelity deltas compare across
+    # judges, and the artifact says so.
+    assert artifact["fidelity_judge_models"] == {
+        "pipeline": "z-ai/pipeline-model",
+        "baselines": "z-ai/glm-5.3-flash",
+    }
     assert artifact["pipeline_report"] == str(report)
     # Generation time is a real UTC stamp.
     assert datetime.fromisoformat(artifact["generated_at"]).tzinfo is not None
@@ -980,9 +1015,15 @@ def test_artifact_metadata_carries_both_models_note_and_case_inventory(tmp_path,
 def test_artifact_variants_carry_the_pipeline_report_shape(tmp_path, query_log_path):
     _, artifact = _artifact(tmp_path, query_log_path)
 
-    for variant in VARIANTS:
+    for variant, marker in (
+        (PARAMETRIC_VARIANT, PARAMETRIC_MARKER),
+        (FULL_CORPUS_VARIANT, FULL_CORPUS_MARKER),
+    ):
         variant_artifact = artifact["variants"][variant]
         assert variant_artifact["mode"] == "live"
+        # The variant's Execution-trace marker rides the artifact, naming its
+        # provenance, so artifacts never mix variants (issue #90, story 19).
+        assert variant_artifact["execution_trace_marker"] == marker
         assert variant_artifact["mean_f1"] == pytest.approx(1.0)
         assert variant_artifact["mean_summary_fidelity"] == pytest.approx(1.0)
         assert len(variant_artifact["scenarios"]) == len(LIVE_EVAL_SCENARIOS)
@@ -1041,13 +1082,34 @@ def test_artifact_comparison_table_data_carries_unmeasured_fidelity_as_none(tmp_
     assert artifact["comparison"]["delta_vs_pipeline"][FULL_CORPUS_VARIANT]["summary_fidelity"] is None
 
 
+def test_artifact_paths_travel_relative_to_the_repo_root(tmp_path, monkeypatch, query_log_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    report = _write_report(logs / _REPORT)
+    dirs = _write_dirs(
+        tmp_path, {PARAMETRIC_VARIANT: {_FIRST_FILE: _duplicate_summaries_override(_FIRST_CASE)}}
+    )
+    monkeypatch.setattr(baseline_eval, "REPO_ROOT", tmp_path.resolve())
+
+    comparison = run_baseline_eval(
+        _settings(query_log_path),
+        judge=AgreeingJudge(),
+        variant_dirs=dirs,
+        report_path=report,
+    )
+    artifact = baseline_eval.combined_artifact(comparison, "z-ai/glm-5.3-flash")
+
+    # Files inside the tree travel relative — the artifact stays portable —
+    # and files outside it keep their absolute paths (every other test pins
+    # that fallback through fixture directories outside the patched root).
+    assert artifact["pipeline_report"] == f"logs/{_REPORT}"
+    duplicate_record = artifact["drop_records"][PARAMETRIC_VARIANT]["duplicate_summaries"][0]
+    assert duplicate_record["file"] == f"{PARAMETRIC_VARIANT}/{_FIRST_FILE}"
+
+
 def test_artifact_surfaces_drop_counts_and_records_per_variant(tmp_path, query_log_path):
-    duplicate = _payload(_FIRST_CASE, citations=1)
+    duplicate = _duplicate_summaries_override(_FIRST_CASE)
     label = _unique_expected_citations(_FIRST_CASE)[0]["provision"]
-    duplicate["summaries"] = [
-        {"source_id": "gdpr", "provision": label, "relevance": "First summary stands.", "strength": "moderate"},
-        {"source_id": "gdpr", "provision": f"{label}(12)", "relevance": "Later duplicate falls.", "strength": "weak"},
-    ]
     junk = _payload(_FIRST_CASE, citations=1)
     junk["findings"][0]["citations"].append({"source_id": "gdpr", "provision": "Section 12"})
     dirs = _write_dirs(
