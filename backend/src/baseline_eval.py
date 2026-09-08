@@ -59,7 +59,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from .config import ConfigurationError, Settings, chat_client, load_settings
 from .corpus import load_documents
@@ -84,7 +84,6 @@ from .models import (
     Finding,
     GroundedSummary,
     Mode,
-    ProvisionKind,
     ProvisionTarget,
     Strength,
     Trace,
@@ -149,7 +148,6 @@ class StoredSummary:
 class CaseFile:
     """One validated baseline case file, ready for the adapter."""
 
-    path: Path
     findings: List[StoredFinding]
     summaries: List[StoredSummary]
     actions: List[str]
@@ -312,7 +310,6 @@ def _validate_case_file(path: Path, data: object, known_sources: set[str]) -> Ca
         raise _refuse(path, "'actions' must be a list of strings")
 
     return CaseFile(
-        path=path,
         findings=findings,
         summaries=summaries,
         actions=list(raw_actions),
@@ -322,11 +319,11 @@ def _validate_case_file(path: Path, data: object, known_sources: set[str]) -> Ca
 def _citation_for(target: ProvisionTarget, label: str) -> Citation:
     """One derived Citation targeting the parsed provision: the exactly-one
     number field comes from the kind (``PROVISION_NUMBER_FIELDS``)."""
-    if target.kind is ProvisionKind.article:
-        return Citation(source_id=target.source_id, provision=label, article_number=target.number)
-    if target.kind is ProvisionKind.recital:
-        return Citation(source_id=target.source_id, provision=label, recital_number=target.number)
-    return Citation(source_id=target.source_id, provision=label, annex_number=target.number)
+    return Citation.model_validate({
+        "source_id": target.source_id,
+        "provision": label,
+        PROVISION_NUMBER_FIELDS[target.kind]: target.number,
+    })
 
 
 def load_parametric_case(path: Path, drops: DropRecords) -> AnalyzeResponse:
@@ -394,18 +391,21 @@ def load_parametric_case(path: Path, drops: DropRecords) -> AnalyzeResponse:
 
 
 def _discover_case_files(directory: Path) -> Dict[str, Path]:
-    """The ten case files keyed by Scenario id: every ``*.json`` file must be
-    named for a live Scenario id (a typo'd or stray file refuses the run) and
-    all ten must be present."""
+    """The ten case files keyed by Scenario id: every file in the directory
+    must be named for a live Scenario id — a typo'd or stray file refuses the
+    run and can never be silently skipped — and all ten must be present."""
     if not directory.is_dir():
         raise BaselineEvalRefused(f"Baseline directory {directory} does not exist")
     scenario_ids = {case.scenario_id for case in LIVE_EVAL_SCENARIOS}
     files: Dict[str, Path] = {}
-    for path in sorted(directory.glob("*.json")):
-        if path.stem not in scenario_ids:
+    for path in sorted(directory.iterdir()):
+        if not path.is_file():
+            continue
+        if path.suffix != ".json" or path.stem not in scenario_ids:
             raise BaselineEvalRefused(
-                f"{path} is not one of the ten live Scenario ids — rename or remove it "
-                f"(expected one of: {', '.join(sorted(scenario_ids))})"
+                f"{path} is not one of the ten live Scenario case files — rename or remove it "
+                f"(expected exactly ten files named <scenario-id>.json: "
+                f"{', '.join(sorted(scenario_ids))})"
             )
         files[path.stem] = path
     missing = [case.scenario_id for case in LIVE_EVAL_SCENARIOS if case.scenario_id not in files]
@@ -515,6 +515,7 @@ def run_baseline_eval(
     }
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
+        # ``responses`` covers exactly the live Scenario ids the harness requests.
         return responses[request.scenario.id or ""]
 
     fidelity_judge = judge if judge is not None else _default_judge(settings)
@@ -538,7 +539,7 @@ def run_baseline_eval(
     )
 
 
-def _mean_of_measured(values) -> Optional[float]:
+def _mean_of_measured(values: Iterable[Optional[float]]) -> Optional[float]:
     """The mean over the measured values only — an unmeasured component is
     never dressed up as a zero."""
     measured = [value for value in values if value is not None]
