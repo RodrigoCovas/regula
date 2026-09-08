@@ -1,13 +1,14 @@
-"""Baseline-eval operator command (spec #90, ticket #91): score the
-Parametric baseline with the shared eval harness and print the comparison
+"""Baseline-eval operator command (spec #90, tickets #91–#92): score both
+baseline variants with the shared eval harness and print the comparison
 against the newest pipeline report.
 
 The Baseline comparison measures what the workflow's machinery adds by
-scoring answers produced without it. The Parametric baseline's answers are
-stored — one structured completion per live case, generated in the OpenCode
-agent harness — under ``logs/baseline-runs/parametric/`` as
-``<scenario-id>.json`` in the stored template shape ``{findings, summaries,
-actions}`` (ADR-0017). This command loads each file for the ten live cases
+scoring answers produced without it. Both variants' answers are stored — one
+structured completion per live case, generated in the OpenCode agent harness
+— under ``logs/baseline-runs/<variant>/`` (``parametric/``,
+``full-corpus/``) as ``<scenario-id>.json`` in the stored template shape
+``{findings, summaries, actions}`` (ADR-0017). This command loads each
+variant's file for the ten live cases
 (``eval_harness.LIVE_EVAL_SCENARIOS``), validates it strictly — wrong keys,
 wrong types, invalid strength, unknown source id, missing or unreadable
 file, or a filename outside the ten live Scenario ids refuse the run naming
@@ -16,8 +17,9 @@ shared evaluation harness consumes: Findings with Citations derived from the
 parsed provision labels (sub-references fold onto the provision they
 refine), Provision relevance and Citation strength attached through the
 existing answer-citations builder, and the standing seek-counsel Action
-appended last. The variant's Execution-trace marker names its provenance
-(``baseline-parametric: agent-produced (OpenCode harness)``).
+appended last. Each variant's Execution-trace marker names its provenance
+(``baseline-parametric: agent-produced (OpenCode harness)`` /
+``baseline-full-corpus: agent-produced (OpenCode harness)``).
 
 Scoring is the shared loop itself (``evaluate_scenarios``, mode pinned to
 live): the same provision-coverage scorer and the same strict fidelity judge
@@ -33,8 +35,8 @@ duplicate summaries for the same structural target resolve first-wins — the
 pipeline's own duplicate gate — with later duplicates recorded and counted;
 a citation or summary whose provision label does not parse is dropped,
 recorded, and counted, so one junk label neither voids the run nor quietly
-flatters precision. The drop counts ride the result; the artifact that
-surfaces them in full lands with the combined-artifact ticket.
+flatters precision. The drop counts ride the result per variant and surface
+in the combined artifact.
 
 The two exceptions aside, nothing is normalized inside the pipeline:
 malformed files are fixed by hand before the comparison runs.
@@ -42,24 +44,32 @@ malformed files are fixed by hand before the comparison runs.
 Run from the repository root:
 
     python -m backend.src.baseline_eval [--report PATH] [--parametric-dir PATH]
+        [--full-corpus-dir PATH] [--output PATH]
 
 and inside the stack:
 
     docker compose exec backend python -m backend.src.baseline_eval
 
+Zero arguments is the day-to-day invocation: the newest
+``live-eval-report-*.json`` in the logs tree is compared against the
+canonical variant directories, and the combined artifact is written to
+``logs/baseline-eval-report-<UTC-date>.json``. ``--output`` moves the
+artifact.
+
 Refusals exit 1; a judge or provider failure mid-run aborts with exit 1;
 Ctrl-C pauses with exit 130; success prints the comparison table — per-case
-precision, recall, coverage F1, and summary fidelity for pipeline and
-parametric — with the per-variant means and the Δ(pipeline − parametric)
-footer.
+precision, recall, coverage F1, and summary fidelity for pipeline,
+parametric, and full-corpus — with the per-variant means and the
+Δ(pipeline − baseline) footer.
 """
 
 import argparse
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Union
 
 from .config import ConfigurationError, Settings, chat_client, load_settings
 from .corpus import load_documents
@@ -96,14 +106,36 @@ class BaselineEvalRefused(RuntimeError):
 
 
 # Canonical file locations (ADR-0017): module constants so tests can point
-# them at fixture directories.
+# them at fixture directories. The directory names carry the canonical
+# spellings; the misspelled `parametrized/` was renamed before any artifact
+# referenced it.
 LOGS_DIR = Path(__file__).resolve().parents[2] / "logs"
 BASELINE_DIR = LOGS_DIR / "baseline-runs" / "parametric"
+FULL_CORPUS_DIR = LOGS_DIR / "baseline-runs" / "full-corpus"
 _REPORT_GLOB = "live-eval-report-*.json"
 
-# The variant's Execution-trace marker (spec #90): provenance travels with
-# every answer so artifacts never mix variants.
+# The artifact's name follows the spec's convention: UTC-dated, under the
+# logs tree beside the pipeline reports it compares against.
+_ARTIFACT_STEM = "baseline-eval-report"
+
+# The ADR-0017 threat note, verbatim: it must ride the artifact so the
+# numbers are never quoted without their caveat.
+THREAT_NOTE = (
+    "The current runs were produced by agents with tools such as WebFetch "
+    "available, which is a threat to validity: a Parametric baseline with "
+    "web access is not strictly parametric. The runs are kept and scored "
+    "anyway, the threat is recorded with the artifact, and toolless runs "
+    "(an agent with every tool denied, or raw API calls) remain the planned "
+    "follow-up before any external claim."
+)
+
+# Each variant's Execution-trace marker (spec #90): provenance travels with
+# every answer so artifacts never mix variants. The names are the canonical
+# directory spellings (ADR-0017).
+PARAMETRIC_VARIANT = "parametric"
+FULL_CORPUS_VARIANT = "full-corpus"
 PARAMETRIC_MARKER = "baseline-parametric: agent-produced (OpenCode harness)"
+FULL_CORPUS_MARKER = "baseline-full-corpus: agent-produced (OpenCode harness)"
 
 _TRACE_SUMMARY = "Agent-produced baseline answer; no workflow stages ran."
 
@@ -192,24 +224,27 @@ class PipelineCaseResult:
 
 @dataclass
 class ComparisonCase:
-    """One live case joined across the two answering paths."""
+    """One live case joined across the three answering paths."""
 
     case_id: str
     pipeline: PipelineCaseResult
     parametric: EvalScenarioResult
+    full_corpus: EvalScenarioResult
 
 
 @dataclass
 class BaselineComparison:
-    """The run's outcome: the joined per-case comparison, the parametric
-    report in the shared shape, and the drop records (full surfacing lands
-    with the combined-artifact ticket)."""
+    """The run's outcome: the joined per-case comparison, each variant's
+    report in the shared shape, and each variant's drop records (the
+    combined artifact surfaces them in full)."""
 
     report_path: Path
     pipeline_model: Optional[str]
     cases: List[ComparisonCase]
     parametric_report: EvalReport
-    drops: DropRecords
+    full_corpus_report: EvalReport
+    parametric_drops: DropRecords
+    full_corpus_drops: DropRecords
 
 
 def _refuse(path: Path, problem: str) -> BaselineEvalRefused:
@@ -326,14 +361,17 @@ def _citation_for(target: ProvisionTarget, label: str) -> Citation:
     })
 
 
-def load_parametric_case(
+def load_baseline_case(
     path: Path,
     drops: DropRecords,
+    marker: str,
     known_sources: Optional[set[str]] = None,
 ) -> AnalyzeResponse:
-    """Load, validate, and adapt one stored parametric case file into the
+    """Load, validate, and adapt one stored baseline case file into the
     response shape the shared harness consumes (ADR-0017).
 
+    ``marker`` is the variant's Execution-trace marker — the only thing that
+    differs between the variants, so a case never loses its provenance.
     ``known_sources`` is the set of Corpus source ids a citation may name;
     it loads from the Corpus when omitted — a run hoists the set and pays
     for it once.
@@ -394,7 +432,7 @@ def load_parametric_case(
     )
     return AnalyzeResponse(
         answer=answer,
-        trace=Trace(workflow=PARAMETRIC_MARKER, summary=_TRACE_SUMMARY),
+        trace=Trace(workflow=marker, summary=_TRACE_SUMMARY),
     )
 
 
@@ -482,14 +520,50 @@ def _default_judge(settings: Settings) -> SummaryJudge:
     return _judge_naming_its_failures(SummaryFidelityJudge(chat_client(settings)))
 
 
+def _adapt_variant(
+    files: Dict[str, Path],
+    marker: str,
+    known_sources: set[str],
+) -> tuple[Dict[str, AnalyzeResponse], DropRecords]:
+    """One variant's files adapted into the response shape, drops recorded on
+    the variant's own account. Validation happens here — before any judge
+    call is spent — so a malformed file anywhere refuses the run for free."""
+    drops = DropRecords()
+    responses: Dict[str, AnalyzeResponse] = {
+        scenario_id: load_baseline_case(path, drops, marker, known_sources)
+        for scenario_id, path in files.items()
+    }
+    return responses, drops
+
+
+def _evaluate_variant(
+    responses: Dict[str, AnalyzeResponse],
+    judge: SummaryJudge,
+) -> EvalReport:
+    """Score one adapted variant over the ten live cases with the shared
+    loop, pinned to live mode — the same scoring a pipeline run pays."""
+
+    def respond(request: AnalyzeRequest) -> AnalyzeResponse:
+        # ``responses`` covers exactly the live Scenario ids the harness requests.
+        return responses[request.scenario.id or ""]
+
+    return evaluate_scenarios(
+        LIVE_EVAL_SCENARIOS,
+        respond,
+        mode=Mode.live,
+        judge=judge,
+    )
+
+
 def run_baseline_eval(
     settings: Settings,
     judge: Optional[SummaryJudge] = None,
     parametric_dir: Optional[Path] = None,
+    full_corpus_dir: Optional[Path] = None,
     report_path: Optional[Path] = None,
 ) -> BaselineComparison:
-    """Score the Parametric baseline over the ten live cases with the shared
-    harness and join it against the pipeline report.
+    """Score both baseline variants over the ten live cases with the shared
+    harness and join them against the pipeline report.
 
     Everything validates before anything is measured: the case files are
     discovered, validated, and adapted first, and the report is parsed and
@@ -499,14 +573,19 @@ def run_baseline_eval(
     one. Mode is pinned to live per case (artifact-shape compatibility), the
     pipeline numbers are read from the report, never re-run, and the join
     follows the live case list: a report lacking one of the ten cases
-    refuses rather than comparing a subset.
+    refuses rather than comparing a subset. There is no model-consistency
+    gate — the operator controls model matching manually — so both the
+    configured model and the pipeline report's model travel with the
+    result's metadata.
 
-    ``parametric_dir`` and ``report_path`` override the canonical file
-    locations (tests; the CLI passes its flags); the judge seam is
-    injectable for the same reason.
+    ``parametric_dir``, ``full_corpus_dir``, and ``report_path`` override
+    the canonical file locations (tests; the CLI passes its flags); the
+    judge seam is injectable for the same reason.
     """
-    directory = parametric_dir if parametric_dir is not None else BASELINE_DIR
-    files = _discover_case_files(directory)
+    parametric = parametric_dir if parametric_dir is not None else BASELINE_DIR
+    full_corpus = full_corpus_dir if full_corpus_dir is not None else FULL_CORPUS_DIR
+    parametric_files = _discover_case_files(parametric)
+    full_corpus_files = _discover_case_files(full_corpus)
     resolved_report = report_path if report_path is not None else _newest_report(LOGS_DIR)
     pipeline_model, pipeline_by_id = _parse_report(resolved_report)
     missing = [case.id for case in LIVE_EVAL_SCENARIOS if case.id not in pipeline_by_id]
@@ -516,35 +595,36 @@ def run_baseline_eval(
             "the comparison joins on the live case list."
         )
 
-    drops = DropRecords()
-    known_sources = set(load_documents())
-    responses: Dict[str, AnalyzeResponse] = {
-        scenario_id: load_parametric_case(path, drops, known_sources)
-        for scenario_id, path in files.items()
-    }
-
-    def respond(request: AnalyzeRequest) -> AnalyzeResponse:
-        # ``responses`` covers exactly the live Scenario ids the harness requests.
-        return responses[request.scenario.id or ""]
-
     fidelity_judge = judge if judge is not None else _default_judge(settings)
-    report = evaluate_scenarios(
-        LIVE_EVAL_SCENARIOS,
-        respond,
-        mode=Mode.live,
-        judge=fidelity_judge,
+    known_sources = set(load_documents())
+    parametric_responses, parametric_drops = _adapt_variant(
+        parametric_files, PARAMETRIC_MARKER, known_sources
     )
+    full_corpus_responses, full_corpus_drops = _adapt_variant(
+        full_corpus_files, FULL_CORPUS_MARKER, known_sources
+    )
+    parametric_report = _evaluate_variant(parametric_responses, fidelity_judge)
+    full_corpus_report = _evaluate_variant(full_corpus_responses, fidelity_judge)
 
     cases = [
-        ComparisonCase(case_id=case.id, pipeline=pipeline_by_id[case.id], parametric=result)
-        for case, result in zip(LIVE_EVAL_SCENARIOS, report.scenarios)
+        ComparisonCase(
+            case_id=case.id,
+            pipeline=pipeline_by_id[case.id],
+            parametric=parametric_result,
+            full_corpus=full_corpus_result,
+        )
+        for case, parametric_result, full_corpus_result in zip(
+            LIVE_EVAL_SCENARIOS, parametric_report.scenarios, full_corpus_report.scenarios
+        )
     ]
     return BaselineComparison(
         report_path=resolved_report,
         pipeline_model=pipeline_model,
         cases=cases,
-        parametric_report=report,
-        drops=drops,
+        parametric_report=parametric_report,
+        full_corpus_report=full_corpus_report,
+        parametric_drops=parametric_drops,
+        full_corpus_drops=full_corpus_drops,
     )
 
 
@@ -555,26 +635,44 @@ def _mean_of_measured(values: Iterable[Optional[float]]) -> Optional[float]:
     return sum(measured) / len(measured) if measured else None
 
 
-def _delta(pipeline: Optional[float], parametric: Optional[float]) -> str:
-    if pipeline is None or parametric is None:
-        return "n/a"
-    return f"{pipeline - parametric:+.3f}"
+def _delta_value(pipeline: Optional[float], baseline: Optional[float]) -> Optional[float]:
+    """The numeric Δ(pipeline − baseline), unmeasured where either side is."""
+    if pipeline is None or baseline is None:
+        return None
+    return pipeline - baseline
+
+
+def _delta(pipeline: Optional[float], baseline: Optional[float]) -> str:
+    value = _delta_value(pipeline, baseline)
+    return "n/a" if value is None else f"{value:+.3f}"
+
+
+def _pipeline_means(cases: List[ComparisonCase]) -> tuple[float, Optional[float]]:
+    """The pipeline side's aggregate pair — the numbers both the printed
+    footer and the artifact's table data quote: coverage F1 over all the
+    joined cases, fidelity over the measured ones only."""
+    return (
+        sum(case.pipeline.f1 for case in cases) / len(cases),
+        _mean_of_measured(case.pipeline.summary_fidelity for case in cases),
+    )
 
 
 def print_comparison(comparison: BaselineComparison) -> None:
     """The operator-facing output: one row per case — precision, recall,
-    coverage F1, and summary fidelity for pipeline and parametric — then the
-    per-variant means and the Δ(pipeline − parametric) footer. The pipeline
-    report that produced the left column is named alongside its model."""
+    coverage F1, and summary fidelity for pipeline, parametric, and
+    full-corpus — then the per-variant means and the Δ(pipeline − baseline)
+    footer. The pipeline report that produced the left column is named
+    alongside its model."""
     cases = comparison.cases
-    print(f"Baseline comparison: pipeline vs parametric ({len(cases)} case(s))")
+    print(f"Baseline comparison: pipeline vs parametric vs full-corpus ({len(cases)} case(s))")
     model = comparison.pipeline_model or "unknown model"
     print(f"Pipeline report: {comparison.report_path} (model: {model})")
     print()
     pipeline_caption = "pipeline (precision / recall / F1 / fidelity)"
+    parametric_caption = "parametric (precision / recall / F1 / fidelity)"
     print(
         f"  {'case':<40}{pipeline_caption:<48}"
-        "parametric (precision / recall / F1 / fidelity)"
+        f"{parametric_caption:<44}full-corpus (precision / recall / F1 / fidelity)"
     )
     for case in cases:
         pipeline_cell = (
@@ -585,21 +683,155 @@ def print_comparison(comparison: BaselineComparison) -> None:
             f"{case.parametric.precision:.3f} / {case.parametric.recall:.3f} / "
             f"{case.parametric.f1:.3f} / {format_score(case.parametric.summary_fidelity)}"
         )
-        print(f"  {case.case_id:<40}{pipeline_cell:<48}{parametric_cell}")
+        full_corpus_cell = (
+            f"{case.full_corpus.precision:.3f} / {case.full_corpus.recall:.3f} / "
+            f"{case.full_corpus.f1:.3f} / {format_score(case.full_corpus.summary_fidelity)}"
+        )
+        print(
+            f"  {case.case_id:<40}{pipeline_cell:<48}{parametric_cell:<44}{full_corpus_cell}"
+        )
     print()
-    pipeline_f1 = sum(case.pipeline.f1 for case in cases) / len(cases)
+    pipeline_f1, pipeline_fidelity = _pipeline_means(cases)
     parametric_f1 = comparison.parametric_report.mean_f1
-    pipeline_fidelity = _mean_of_measured(case.pipeline.summary_fidelity for case in cases)
+    full_corpus_f1 = comparison.full_corpus_report.mean_f1
     parametric_fidelity = comparison.parametric_report.mean_summary_fidelity
+    full_corpus_fidelity = comparison.full_corpus_report.mean_summary_fidelity
     print(
         f"  Mean coverage F1: pipeline {pipeline_f1:.3f} | parametric {parametric_f1:.3f} | "
-        f"Δ(pipeline − parametric) {_delta(pipeline_f1, parametric_f1)}"
+        f"full-corpus {full_corpus_f1:.3f} | "
+        f"Δ(pipeline − parametric) {_delta(pipeline_f1, parametric_f1)} | "
+        f"Δ(pipeline − full-corpus) {_delta(pipeline_f1, full_corpus_f1)}"
     )
     print(
         f"  Mean summary fidelity: pipeline {format_score(pipeline_fidelity)} | "
         f"parametric {format_score(parametric_fidelity)} | "
-        f"Δ(pipeline − parametric) {_delta(pipeline_fidelity, parametric_fidelity)}"
+        f"full-corpus {format_score(full_corpus_fidelity)} | "
+        f"Δ(pipeline − parametric) {_delta(pipeline_fidelity, parametric_fidelity)} | "
+        f"Δ(pipeline − full-corpus) {_delta(pipeline_fidelity, full_corpus_fidelity)}"
     )
+
+
+def _default_output_path() -> Path:
+    """The UTC-dated artifact path the spec's convention names, under the
+    logs tree beside the pipeline reports it compares against."""
+    date = datetime.now(timezone.utc).date().isoformat()
+    return LOGS_DIR / f"{_ARTIFACT_STEM}-{date}.json"
+
+
+def _cell(result: Union[PipelineCaseResult, EvalScenarioResult]) -> dict:
+    """One answering path's four component numbers, as the table shows them.
+    Both result types carry the same four fields — the pipeline's read from
+    the report artifact, the baselines' measured by the shared loop."""
+    return {
+        "precision": result.precision,
+        "recall": result.recall,
+        "f1": result.f1,
+        "summary_fidelity": result.summary_fidelity,
+    }
+
+
+def _drops_counts(drops: DropRecords) -> dict:
+    return {
+        "duplicate_summaries": len(drops.duplicate_summaries),
+        "unparseable_labels": len(drops.unparseable_labels),
+    }
+
+
+def _drops_records(drops: DropRecords) -> dict:
+    """The two drop accounts as plain data — file, label, and (for labels)
+    the parse failure — so the deterministic resolutions stay visible."""
+    return {
+        "duplicate_summaries": [
+            {"file": str(duplicate.file), "label": duplicate.label}
+            for duplicate in drops.duplicate_summaries
+        ],
+        "unparseable_labels": [
+            {"file": str(dropped.file), "label": dropped.label, "reason": dropped.reason}
+            for dropped in drops.unparseable_labels
+        ],
+    }
+
+
+def _variant_artifact(report: EvalReport) -> dict:
+    """One variant's report in the pipeline report's shape: per-case
+    expected/produced dumps and per-pair fidelity verdicts (issue #83's
+    persistence rule, inherited unchanged), with the mode the runs pinned."""
+    return {"mode": Mode.live.value, **asdict(report)}
+
+
+def _comparison_artifact(comparison: BaselineComparison) -> dict:
+    """The table data: per-case rows for all three answering paths, the
+    per-variant means, and the Δ(pipeline − baseline) footers as data —
+    the single place to quote."""
+    cases = comparison.cases
+    pipeline_f1, pipeline_fidelity = _pipeline_means(cases)
+    means = {
+        "pipeline": {"f1": pipeline_f1, "summary_fidelity": pipeline_fidelity},
+        PARAMETRIC_VARIANT: {
+            "f1": comparison.parametric_report.mean_f1,
+            "summary_fidelity": comparison.parametric_report.mean_summary_fidelity,
+        },
+        FULL_CORPUS_VARIANT: {
+            "f1": comparison.full_corpus_report.mean_f1,
+            "summary_fidelity": comparison.full_corpus_report.mean_summary_fidelity,
+        },
+    }
+    return {
+        "cases": [
+            {
+                "case_id": case.case_id,
+                "pipeline": _cell(case.pipeline),
+                PARAMETRIC_VARIANT: _cell(case.parametric),
+                FULL_CORPUS_VARIANT: _cell(case.full_corpus),
+            }
+            for case in cases
+        ],
+        "means": means,
+        "delta_vs_pipeline": {
+            PARAMETRIC_VARIANT: {
+                "f1": _delta_value(pipeline_f1, comparison.parametric_report.mean_f1),
+                "summary_fidelity": _delta_value(
+                    pipeline_fidelity, comparison.parametric_report.mean_summary_fidelity
+                ),
+            },
+            FULL_CORPUS_VARIANT: {
+                "f1": _delta_value(pipeline_f1, comparison.full_corpus_report.mean_f1),
+                "summary_fidelity": _delta_value(
+                    pipeline_fidelity, comparison.full_corpus_report.mean_summary_fidelity
+                ),
+            },
+        },
+    }
+
+
+def combined_artifact(comparison: BaselineComparison, configured_model: str) -> dict:
+    """The one combined JSON artifact: the metadata block (configured model,
+    the pipeline report's model, generation time, the ADR-0017 threat note
+    verbatim, the case inventory, the per-variant drop counts and records),
+    both variants' per-case results in the pipeline report's shape, and the
+    table data — the single place to quote.
+
+    No model-consistency gate: the operator controls model matching manually,
+    so both models travel side by side and the reader decides."""
+    drops = {
+        PARAMETRIC_VARIANT: comparison.parametric_drops,
+        FULL_CORPUS_VARIANT: comparison.full_corpus_drops,
+    }
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "configured_model": configured_model,
+        "pipeline_model": comparison.pipeline_model,
+        "pipeline_report": str(comparison.report_path),
+        "threat_note": THREAT_NOTE,
+        "case_inventory": [case.case_id for case in comparison.cases],
+        "drops": {name: _drops_counts(records) for name, records in drops.items()},
+        "drop_records": {name: _drops_records(records) for name, records in drops.items()},
+        "variants": {
+            PARAMETRIC_VARIANT: _variant_artifact(comparison.parametric_report),
+            FULL_CORPUS_VARIANT: _variant_artifact(comparison.full_corpus_report),
+        },
+        "comparison": _comparison_artifact(comparison),
+    }
 
 
 def main(argv: list | None = None) -> int:
@@ -607,11 +839,13 @@ def main(argv: list | None = None) -> int:
     configuration are wrong (the message names the file and the problem),
     abort with exit 1 when the fidelity judge's provider call fails —
     infrastructure failure is never measured quality — pause with exit 130
-    on Ctrl-C, otherwise print the comparison table and exit 0.
+    on Ctrl-C, otherwise print the comparison table, write the combined
+    artifact (default: the UTC-dated path under the logs tree; ``--output``
+    moves it), and exit 0.
     ``argv`` defaults to the process arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Score the parametric baseline with the shared eval harness and "
+            "Score both baseline variants with the shared eval harness and "
             "print the comparison against the pipeline report."
         ),
     )
@@ -628,6 +862,20 @@ def main(argv: list | None = None) -> int:
         default=None,
         help=f"directory holding the parametric case files (default: {BASELINE_DIR})",
     )
+    parser.add_argument(
+        "--full-corpus-dir",
+        type=Path,
+        default=None,
+        help=f"directory holding the full-corpus case files (default: {FULL_CORPUS_DIR})",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        default=None,
+        help="where the combined artifact is written "
+        f"(default: {_ARTIFACT_STEM}-<UTC-date>.json under {LOGS_DIR})",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -635,6 +883,7 @@ def main(argv: list | None = None) -> int:
         comparison = run_baseline_eval(
             settings,
             parametric_dir=args.parametric_dir,
+            full_corpus_dir=args.full_corpus_dir,
             report_path=args.report,
         )
     except (BaselineEvalRefused, ConfigurationError) as error:
@@ -647,6 +896,12 @@ def main(argv: list | None = None) -> int:
         print("Baseline eval paused: interrupted.", file=sys.stderr)
         return 130
     print_comparison(comparison)
+    output = args.output if args.output is not None else _default_output_path()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(combined_artifact(comparison, settings.llm_model), indent=2) + "\n"
+    )
+    print(f"Combined artifact written to {output}")
     return 0
 
 
