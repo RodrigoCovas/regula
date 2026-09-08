@@ -60,7 +60,7 @@ Refusals exit 1; a judge or provider failure mid-run aborts with exit 1;
 Ctrl-C pauses with exit 130; success prints the comparison table — per-case
 precision, recall, coverage F1, and summary fidelity for pipeline,
 parametric, and full-corpus — with the per-variant means and the
-Δ(pipeline − baseline) footer.
+Δ(pipeline − baseline) footers.
 """
 
 import argparse
@@ -69,7 +69,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Union
+from typing import Dict, Iterable, List, Mapping, Optional, Union
 
 from .config import ConfigurationError, Settings, chat_client, load_settings
 from .corpus import load_documents
@@ -136,6 +136,16 @@ PARAMETRIC_VARIANT = "parametric"
 FULL_CORPUS_VARIANT = "full-corpus"
 PARAMETRIC_MARKER = "baseline-parametric: agent-produced (OpenCode harness)"
 FULL_CORPUS_MARKER = "baseline-full-corpus: agent-produced (OpenCode harness)"
+
+
+def _variant_specs() -> Dict[str, VariantSpec]:
+    """The variant registry, in comparison-column order (parametric first).
+    Read fresh on every run: the canonical directory constants stay the
+    module-level test seam they are."""
+    return {
+        PARAMETRIC_VARIANT: VariantSpec(PARAMETRIC_VARIANT, PARAMETRIC_MARKER, BASELINE_DIR),
+        FULL_CORPUS_VARIANT: VariantSpec(FULL_CORPUS_VARIANT, FULL_CORPUS_MARKER, FULL_CORPUS_DIR),
+    }
 
 _TRACE_SUMMARY = "Agent-produced baseline answer; no workflow stages ran."
 
@@ -211,6 +221,27 @@ class DropRecords:
     unparseable_labels: List[DroppedLabel] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class VariantSpec:
+    """One baseline variant's identity: its canonical name (the directory
+    spelling, ADR-0017), the Execution-trace marker naming its provenance,
+    and its canonical case-file directory."""
+
+    name: str
+    marker: str
+    default_dir: Path
+
+
+@dataclass
+class VariantOutcome:
+    """One variant's scored run: the report in the shared shape plus the
+    drop records its own files produced."""
+
+    name: str
+    report: EvalReport
+    drops: DropRecords
+
+
 @dataclass
 class PipelineCaseResult:
     """One case's numbers read from the pipeline report artifact — never re-run."""
@@ -224,27 +255,25 @@ class PipelineCaseResult:
 
 @dataclass
 class ComparisonCase:
-    """One live case joined across the three answering paths."""
+    """One live case joined across the three answering paths: the pipeline's
+    numbers read from the report, plus each variant's result keyed by its
+    canonical name."""
 
     case_id: str
     pipeline: PipelineCaseResult
-    parametric: EvalScenarioResult
-    full_corpus: EvalScenarioResult
+    baselines: Dict[str, EvalScenarioResult]
 
 
 @dataclass
 class BaselineComparison:
-    """The run's outcome: the joined per-case comparison, each variant's
-    report in the shared shape, and each variant's drop records (the
-    combined artifact surfaces them in full)."""
+    """The run's outcome: the joined per-case comparison and each variant's
+    scored outcome keyed by its canonical name (the combined artifact
+    surfaces the drop records in full)."""
 
     report_path: Path
     pipeline_model: Optional[str]
     cases: List[ComparisonCase]
-    parametric_report: EvalReport
-    full_corpus_report: EvalReport
-    parametric_drops: DropRecords
-    full_corpus_drops: DropRecords
+    outcomes: Dict[str, VariantOutcome]
 
 
 def _refuse(path: Path, problem: str) -> BaselineEvalRefused:
@@ -558,8 +587,7 @@ def _evaluate_variant(
 def run_baseline_eval(
     settings: Settings,
     judge: Optional[SummaryJudge] = None,
-    parametric_dir: Optional[Path] = None,
-    full_corpus_dir: Optional[Path] = None,
+    variant_dirs: Optional[Mapping[str, Path]] = None,
     report_path: Optional[Path] = None,
 ) -> BaselineComparison:
     """Score both baseline variants over the ten live cases with the shared
@@ -578,14 +606,16 @@ def run_baseline_eval(
     configured model and the pipeline report's model travel with the
     result's metadata.
 
-    ``parametric_dir``, ``full_corpus_dir``, and ``report_path`` override
-    the canonical file locations (tests; the CLI passes its flags); the
-    judge seam is injectable for the same reason.
+    ``variant_dirs`` overrides the canonical per-variant directories, keyed
+    by the variant names (tests; the CLI passes its flags); ``report_path``
+    overrides the newest-report default, and the judge seam is injectable
+    for the same reason.
     """
-    parametric = parametric_dir if parametric_dir is not None else BASELINE_DIR
-    full_corpus = full_corpus_dir if full_corpus_dir is not None else FULL_CORPUS_DIR
-    parametric_files = _discover_case_files(parametric)
-    full_corpus_files = _discover_case_files(full_corpus)
+    overrides = variant_dirs or {}
+    files = {
+        name: _discover_case_files(overrides.get(name) or spec.default_dir)
+        for name, spec in _variant_specs().items()
+    }
     resolved_report = report_path if report_path is not None else _newest_report(LOGS_DIR)
     pipeline_model, pipeline_by_id = _parse_report(resolved_report)
     missing = [case.id for case in LIVE_EVAL_SCENARIOS if case.id not in pipeline_by_id]
@@ -597,34 +627,37 @@ def run_baseline_eval(
 
     fidelity_judge = judge if judge is not None else _default_judge(settings)
     known_sources = set(load_documents())
-    parametric_responses, parametric_drops = _adapt_variant(
-        parametric_files, PARAMETRIC_MARKER, known_sources
-    )
-    full_corpus_responses, full_corpus_drops = _adapt_variant(
-        full_corpus_files, FULL_CORPUS_MARKER, known_sources
-    )
-    parametric_report = _evaluate_variant(parametric_responses, fidelity_judge)
-    full_corpus_report = _evaluate_variant(full_corpus_responses, fidelity_judge)
+    # Both variants adapt before either is scored: a malformed file anywhere
+    # refuses without a single judge call having been spent.
+    adapted = {
+        name: _adapt_variant(files[name], spec.marker, known_sources)
+        for name, spec in _variant_specs().items()
+    }
+    outcomes = {
+        name: VariantOutcome(
+            name=name,
+            report=_evaluate_variant(responses, fidelity_judge),
+            drops=drops,
+        )
+        for name, (responses, drops) in adapted.items()
+    }
 
     cases = [
         ComparisonCase(
             case_id=case.id,
             pipeline=pipeline_by_id[case.id],
-            parametric=parametric_result,
-            full_corpus=full_corpus_result,
+            baselines={
+                name: outcome.report.scenarios[index]
+                for name, outcome in outcomes.items()
+            },
         )
-        for case, parametric_result, full_corpus_result in zip(
-            LIVE_EVAL_SCENARIOS, parametric_report.scenarios, full_corpus_report.scenarios
-        )
+        for index, case in enumerate(LIVE_EVAL_SCENARIOS)
     ]
     return BaselineComparison(
         report_path=resolved_report,
         pipeline_model=pipeline_model,
         cases=cases,
-        parametric_report=parametric_report,
-        full_corpus_report=full_corpus_report,
-        parametric_drops=parametric_drops,
-        full_corpus_drops=full_corpus_drops,
+        outcomes=outcomes,
     )
 
 
@@ -657,57 +690,65 @@ def _pipeline_means(cases: List[ComparisonCase]) -> tuple[float, Optional[float]
     )
 
 
+def _cell_text(result: Union[PipelineCaseResult, EvalScenarioResult]) -> str:
+    """One answering path's four component numbers as one printed cell."""
+    return (
+        f"{result.precision:.3f} / {result.recall:.3f} / "
+        f"{result.f1:.3f} / {format_score(result.summary_fidelity)}"
+    )
+
+
+def _caption(name: str) -> str:
+    """A column's caption: the variant's name over the four components."""
+    return f"{name} (precision / recall / F1 / fidelity)"
+
+
 def print_comparison(comparison: BaselineComparison) -> None:
     """The operator-facing output: one row per case — precision, recall,
-    coverage F1, and summary fidelity for pipeline, parametric, and
-    full-corpus — then the per-variant means and the Δ(pipeline − baseline)
-    footer. The pipeline report that produced the left column is named
-    alongside its model."""
+    coverage F1, and summary fidelity for the pipeline and each baseline
+    variant in registry order — then the per-variant means and the
+    Δ(pipeline − baseline) footers. The pipeline report that produced the
+    left column is named alongside its model."""
     cases = comparison.cases
-    print(f"Baseline comparison: pipeline vs parametric vs full-corpus ({len(cases)} case(s))")
+    names = list(comparison.outcomes)
+    print(f"Baseline comparison: pipeline vs {' vs '.join(names)} ({len(cases)} case(s))")
     model = comparison.pipeline_model or "unknown model"
     print(f"Pipeline report: {comparison.report_path} (model: {model})")
     print()
-    pipeline_caption = "pipeline (precision / recall / F1 / fidelity)"
-    parametric_caption = "parametric (precision / recall / F1 / fidelity)"
-    print(
-        f"  {'case':<40}{pipeline_caption:<48}"
-        f"{parametric_caption:<44}full-corpus (precision / recall / F1 / fidelity)"
-    )
+    last = len(names) - 1
+    header = f"  {'case':<40}{'pipeline (precision / recall / F1 / fidelity)':<48}"
+    for index, name in enumerate(names):
+        header += f"{_caption(name):<44}" if index < last else _caption(name)
+    print(header)
     for case in cases:
-        pipeline_cell = (
-            f"{case.pipeline.precision:.3f} / {case.pipeline.recall:.3f} / "
-            f"{case.pipeline.f1:.3f} / {format_score(case.pipeline.summary_fidelity)}"
-        )
-        parametric_cell = (
-            f"{case.parametric.precision:.3f} / {case.parametric.recall:.3f} / "
-            f"{case.parametric.f1:.3f} / {format_score(case.parametric.summary_fidelity)}"
-        )
-        full_corpus_cell = (
-            f"{case.full_corpus.precision:.3f} / {case.full_corpus.recall:.3f} / "
-            f"{case.full_corpus.f1:.3f} / {format_score(case.full_corpus.summary_fidelity)}"
-        )
-        print(
-            f"  {case.case_id:<40}{pipeline_cell:<48}{parametric_cell:<44}{full_corpus_cell}"
-        )
+        row = f"  {case.case_id:<40}{_cell_text(case.pipeline):<48}"
+        for index, name in enumerate(names):
+            cell = _cell_text(case.baselines[name])
+            row += f"{cell:<44}" if index < last else cell
+        print(row)
     print()
     pipeline_f1, pipeline_fidelity = _pipeline_means(cases)
-    parametric_f1 = comparison.parametric_report.mean_f1
-    full_corpus_f1 = comparison.full_corpus_report.mean_f1
-    parametric_fidelity = comparison.parametric_report.mean_summary_fidelity
-    full_corpus_fidelity = comparison.full_corpus_report.mean_summary_fidelity
     print(
-        f"  Mean coverage F1: pipeline {pipeline_f1:.3f} | parametric {parametric_f1:.3f} | "
-        f"full-corpus {full_corpus_f1:.3f} | "
-        f"Δ(pipeline − parametric) {_delta(pipeline_f1, parametric_f1)} | "
-        f"Δ(pipeline − full-corpus) {_delta(pipeline_f1, full_corpus_f1)}"
+        f"  Mean coverage F1: pipeline {pipeline_f1:.3f} | "
+        + " | ".join(f"{name} {comparison.outcomes[name].report.mean_f1:.3f}" for name in names)
+        + " | "
+        + " | ".join(
+            f"Δ(pipeline − {name}) {_delta(pipeline_f1, comparison.outcomes[name].report.mean_f1)}"
+            for name in names
+        )
     )
     print(
         f"  Mean summary fidelity: pipeline {format_score(pipeline_fidelity)} | "
-        f"parametric {format_score(parametric_fidelity)} | "
-        f"full-corpus {format_score(full_corpus_fidelity)} | "
-        f"Δ(pipeline − parametric) {_delta(pipeline_fidelity, parametric_fidelity)} | "
-        f"Δ(pipeline − full-corpus) {_delta(pipeline_fidelity, full_corpus_fidelity)}"
+        + " | ".join(
+            f"{name} {format_score(comparison.outcomes[name].report.mean_summary_fidelity)}"
+            for name in names
+        )
+        + " | "
+        + " | ".join(
+            f"Δ(pipeline − {name}) "
+            f"{_delta(pipeline_fidelity, comparison.outcomes[name].report.mean_summary_fidelity)}"
+            for name in names
+        )
     )
 
 
@@ -763,17 +804,15 @@ def _comparison_artifact(comparison: BaselineComparison) -> dict:
     """The table data: per-case rows for all three answering paths, the
     per-variant means, and the Δ(pipeline − baseline) footers as data —
     the single place to quote."""
-    cases = comparison.cases
-    pipeline_f1, pipeline_fidelity = _pipeline_means(cases)
+    pipeline_f1, pipeline_fidelity = _pipeline_means(comparison.cases)
     means = {
         "pipeline": {"f1": pipeline_f1, "summary_fidelity": pipeline_fidelity},
-        PARAMETRIC_VARIANT: {
-            "f1": comparison.parametric_report.mean_f1,
-            "summary_fidelity": comparison.parametric_report.mean_summary_fidelity,
-        },
-        FULL_CORPUS_VARIANT: {
-            "f1": comparison.full_corpus_report.mean_f1,
-            "summary_fidelity": comparison.full_corpus_report.mean_summary_fidelity,
+        **{
+            name: {
+                "f1": outcome.report.mean_f1,
+                "summary_fidelity": outcome.report.mean_summary_fidelity,
+            }
+            for name, outcome in comparison.outcomes.items()
         },
     }
     return {
@@ -781,25 +820,20 @@ def _comparison_artifact(comparison: BaselineComparison) -> dict:
             {
                 "case_id": case.case_id,
                 "pipeline": _cell(case.pipeline),
-                PARAMETRIC_VARIANT: _cell(case.parametric),
-                FULL_CORPUS_VARIANT: _cell(case.full_corpus),
+                **{name: _cell(result) for name, result in case.baselines.items()},
             }
-            for case in cases
+            for case in comparison.cases
         ],
         "means": means,
         "delta_vs_pipeline": {
-            PARAMETRIC_VARIANT: {
-                "f1": _delta_value(pipeline_f1, comparison.parametric_report.mean_f1),
+            name: {
+                "f1": _delta_value(pipeline_f1, comparison.outcomes[name].report.mean_f1),
                 "summary_fidelity": _delta_value(
-                    pipeline_fidelity, comparison.parametric_report.mean_summary_fidelity
+                    pipeline_fidelity,
+                    comparison.outcomes[name].report.mean_summary_fidelity,
                 ),
-            },
-            FULL_CORPUS_VARIANT: {
-                "f1": _delta_value(pipeline_f1, comparison.full_corpus_report.mean_f1),
-                "summary_fidelity": _delta_value(
-                    pipeline_fidelity, comparison.full_corpus_report.mean_summary_fidelity
-                ),
-            },
+            }
+            for name in comparison.outcomes
         },
     }
 
@@ -813,10 +847,6 @@ def combined_artifact(comparison: BaselineComparison, configured_model: str) -> 
 
     No model-consistency gate: the operator controls model matching manually,
     so both models travel side by side and the reader decides."""
-    drops = {
-        PARAMETRIC_VARIANT: comparison.parametric_drops,
-        FULL_CORPUS_VARIANT: comparison.full_corpus_drops,
-    }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "configured_model": configured_model,
@@ -824,11 +854,15 @@ def combined_artifact(comparison: BaselineComparison, configured_model: str) -> 
         "pipeline_report": str(comparison.report_path),
         "threat_note": THREAT_NOTE,
         "case_inventory": [case.case_id for case in comparison.cases],
-        "drops": {name: _drops_counts(records) for name, records in drops.items()},
-        "drop_records": {name: _drops_records(records) for name, records in drops.items()},
+        "drops": {
+            name: _drops_counts(outcome.drops) for name, outcome in comparison.outcomes.items()
+        },
+        "drop_records": {
+            name: _drops_records(outcome.drops) for name, outcome in comparison.outcomes.items()
+        },
         "variants": {
-            PARAMETRIC_VARIANT: _variant_artifact(comparison.parametric_report),
-            FULL_CORPUS_VARIANT: _variant_artifact(comparison.full_corpus_report),
+            name: _variant_artifact(outcome.report)
+            for name, outcome in comparison.outcomes.items()
         },
         "comparison": _comparison_artifact(comparison),
     }
@@ -882,8 +916,14 @@ def main(argv: list | None = None) -> int:
         settings = load_settings()
         comparison = run_baseline_eval(
             settings,
-            parametric_dir=args.parametric_dir,
-            full_corpus_dir=args.full_corpus_dir,
+            variant_dirs={
+                name: dir_
+                for name, dir_ in (
+                    (PARAMETRIC_VARIANT, args.parametric_dir),
+                    (FULL_CORPUS_VARIANT, args.full_corpus_dir),
+                )
+                if dir_ is not None
+            },
             report_path=args.report,
         )
     except (BaselineEvalRefused, ConfigurationError) as error:

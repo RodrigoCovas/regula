@@ -21,7 +21,9 @@ from pydantic import BaseModel, SecretStr
 import src.baseline_eval as baseline_eval
 from src.baseline_eval import (
     FULL_CORPUS_MARKER,
+    FULL_CORPUS_VARIANT,
     PARAMETRIC_MARKER,
+    PARAMETRIC_VARIANT,
     BaselineEvalRefused,
     DropRecords,
     main,
@@ -49,7 +51,7 @@ from src.models import Mode, ProvisionKind, ProvisionTarget, Strength
 
 from fakes import ROLE_MISMATCH_VERDICT, ScriptedJudge
 
-VARIANTS = ("parametric", "full-corpus")
+VARIANTS = (PARAMETRIC_VARIANT, FULL_CORPUS_VARIANT)
 
 
 def _settings(query_log_path) -> Settings:
@@ -189,19 +191,18 @@ def _write_dirs(
     overrides_by_variant: Optional[Mapping[str, Mapping[str, object]]] = None,
     *,
     minimal: bool = False,
-) -> tuple[Path, Path]:
-    """Both variant directories: one valid file per live Scenario id each.
-    ``overrides_by_variant`` maps a variant name to its per-file overrides
-    (None deletes, str writes raw bytes); a variant absent from the map
-    stays all-valid."""
+) -> dict[str, Path]:
+    """Both variant directories, keyed by variant name: one valid file per
+    live Scenario id each. ``overrides_by_variant`` maps a variant name to
+    its per-file overrides (None deletes, str writes raw bytes); a variant
+    absent from the map stays all-valid."""
     overrides_by_variant = overrides_by_variant or {}
-    parametric = _write_variant_dir(
-        tmp_path, "parametric", overrides_by_variant.get("parametric"), minimal=minimal
-    )
-    full_corpus = _write_variant_dir(
-        tmp_path, "full-corpus", overrides_by_variant.get("full-corpus"), minimal=minimal
-    )
-    return parametric, full_corpus
+    return {
+        variant: _write_variant_dir(
+            tmp_path, variant, overrides_by_variant.get(variant), minimal=minimal
+        )
+        for variant in (PARAMETRIC_VARIANT, FULL_CORPUS_VARIANT)
+    }
 
 
 def _write_report(
@@ -259,14 +260,11 @@ def _run(
 ):
     """The one run-seam invocation most tests share: both fixture variant
     directories (overrides keyed by variant) against the synthetic report."""
-    parametric_dir, full_corpus_dir = _write_dirs(
-        tmp_path, overrides_by_variant, minimal=minimal
-    )
+    dirs = _write_dirs(tmp_path, overrides_by_variant, minimal=minimal)
     return run_baseline_eval(
         settings,
         judge=judge,
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report if report is not None else tmp_path / _REPORT,
     )
 
@@ -291,18 +289,18 @@ def test_scores_all_ten_cases_for_both_variants_with_the_scripted_judge(tmp_path
     # Every file cites exactly its case's expected targets: full coverage on
     # both answering paths.
     for case in comparison.cases:
-        assert case.parametric.precision == 1.0
-        assert case.parametric.recall == 1.0
-        assert case.parametric.f1 == 1.0
-        assert case.parametric.summary_fidelity == 1.0
-        assert case.full_corpus.precision == 1.0
-        assert case.full_corpus.recall == 1.0
-        assert case.full_corpus.f1 == 1.0
-        assert case.full_corpus.summary_fidelity == 1.0
-    assert comparison.parametric_report.mean_f1 == pytest.approx(1.0)
-    assert comparison.parametric_report.mean_summary_fidelity == pytest.approx(1.0)
-    assert comparison.full_corpus_report.mean_f1 == pytest.approx(1.0)
-    assert comparison.full_corpus_report.mean_summary_fidelity == pytest.approx(1.0)
+        assert case.baselines[PARAMETRIC_VARIANT].precision == 1.0
+        assert case.baselines[PARAMETRIC_VARIANT].recall == 1.0
+        assert case.baselines[PARAMETRIC_VARIANT].f1 == 1.0
+        assert case.baselines[PARAMETRIC_VARIANT].summary_fidelity == 1.0
+        assert case.baselines[FULL_CORPUS_VARIANT].precision == 1.0
+        assert case.baselines[FULL_CORPUS_VARIANT].recall == 1.0
+        assert case.baselines[FULL_CORPUS_VARIANT].f1 == 1.0
+        assert case.baselines[FULL_CORPUS_VARIANT].summary_fidelity == 1.0
+    assert comparison.outcomes[PARAMETRIC_VARIANT].report.mean_f1 == pytest.approx(1.0)
+    assert comparison.outcomes[PARAMETRIC_VARIANT].report.mean_summary_fidelity == pytest.approx(1.0)
+    assert comparison.outcomes[FULL_CORPUS_VARIANT].report.mean_f1 == pytest.approx(1.0)
+    assert comparison.outcomes[FULL_CORPUS_VARIANT].report.mean_summary_fidelity == pytest.approx(1.0)
     # The pipeline side joins per case, never re-run.
     assert comparison.report_path == report
     assert comparison.pipeline_model == "z-ai/test-model"
@@ -312,54 +310,52 @@ def test_scores_all_ten_cases_for_both_variants_with_the_scripted_judge(tmp_path
     assert comparison.cases[0].pipeline.summary_fidelity == 0.8
     assert comparison.cases[1].pipeline.f1 == 0.0
     # No drops in the clean run, on either variant.
-    assert comparison.parametric_drops.duplicate_summaries == []
-    assert comparison.parametric_drops.unparseable_labels == []
-    assert comparison.full_corpus_drops.duplicate_summaries == []
-    assert comparison.full_corpus_drops.unparseable_labels == []
+    assert comparison.outcomes[PARAMETRIC_VARIANT].drops.duplicate_summaries == []
+    assert comparison.outcomes[PARAMETRIC_VARIANT].drops.unparseable_labels == []
+    assert comparison.outcomes[FULL_CORPUS_VARIANT].drops.duplicate_summaries == []
+    assert comparison.outcomes[FULL_CORPUS_VARIANT].drops.unparseable_labels == []
     # No provider answered and no real log was touched.
     assert not Path(str(query_log_path)).exists()
 
 
 def test_full_corpus_variant_is_scored_independently_of_the_parametric(tmp_path, query_log_path):
-    parametric_dir, full_corpus_dir = _write_dirs(
+    dirs = _write_dirs(
         tmp_path,
         minimal=False,
-        overrides_by_variant={"full-corpus": {_case_file(_FIRST_CASE): _payload(_FIRST_CASE, citations=1)}},
+        overrides_by_variant={FULL_CORPUS_VARIANT: {_case_file(_FIRST_CASE): _payload(_FIRST_CASE, citations=1)}},
     )
     report = _write_report(tmp_path / _REPORT)
 
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=AgreeingJudge(),
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
 
     # The full-corpus file cites only one of the case's expected targets: its
     # recall falls while the parametric side stays at full marks.
     first = comparison.cases[0]
-    assert first.parametric.f1 == 1.0
-    assert first.full_corpus.precision == 1.0
-    assert first.full_corpus.recall < 1.0
-    assert comparison.parametric_report.mean_f1 == pytest.approx(1.0)
-    assert comparison.full_corpus_report.mean_f1 < 1.0
+    assert first.baselines[PARAMETRIC_VARIANT].f1 == 1.0
+    assert first.baselines[FULL_CORPUS_VARIANT].precision == 1.0
+    assert first.baselines[FULL_CORPUS_VARIANT].recall < 1.0
+    assert comparison.outcomes[PARAMETRIC_VARIANT].report.mean_f1 == pytest.approx(1.0)
+    assert comparison.outcomes[FULL_CORPUS_VARIANT].report.mean_f1 < 1.0
 
 
 def test_produced_dump_carries_the_baseline_shape(tmp_path, query_log_path):
     judge = AgreeingJudge()
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, minimal=True)
+    dirs = _write_dirs(tmp_path, minimal=True)
     report = _write_report(tmp_path / _REPORT)
 
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=judge,
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
 
-    first = comparison.cases[0].parametric
+    first = comparison.cases[0].baselines[PARAMETRIC_VARIANT]
     assert first.id == _FIRST_CASE.id
     produced = first.produced[0]
     assert produced["statement"] == f"Baseline finding for {_FIRST_CASE.scenario_id}."
@@ -383,7 +379,7 @@ def test_scripted_verdicts_ride_the_result_records(tmp_path, query_log_path):
 
     assert len(judge.calls) == 2 * len(LIVE_EVAL_SCENARIOS)
     assert all(len(call) == 1 for call in judge.calls)
-    first = comparison.cases[0].parametric
+    first = comparison.cases[0].baselines[PARAMETRIC_VARIANT]
     assert first.summary_fidelity == 0.5
     verdict = first.fidelity_verdicts[0]
     expected = _unique_expected_citations(_FIRST_CASE)[0]
@@ -406,8 +402,8 @@ def test_unsummarized_cited_provision_floors_without_a_judge_call(tmp_path, quer
         judge,
         tmp_path,
         overrides_by_variant={
-            "parametric": {_case_file(LIVE_EVAL_SCENARIOS[3]): bare},
-            "full-corpus": {_case_file(LIVE_EVAL_SCENARIOS[3]): bare},
+            PARAMETRIC_VARIANT: {_case_file(LIVE_EVAL_SCENARIOS[3]): bare},
+            FULL_CORPUS_VARIANT: {_case_file(LIVE_EVAL_SCENARIOS[3]): bare},
         },
         report=report,
     )
@@ -415,7 +411,7 @@ def test_unsummarized_cited_provision_floors_without_a_judge_call(tmp_path, quer
     # Nine cases judge one pair each per variant; the bare ones floor
     # deterministically, never waking the judge for nothing.
     assert len(judge.calls) == 2 * (len(LIVE_EVAL_SCENARIOS) - 1)
-    for side in (comparison.cases[3].parametric, comparison.cases[3].full_corpus):
+    for side in (comparison.cases[3].baselines[PARAMETRIC_VARIANT], comparison.cases[3].baselines[FULL_CORPUS_VARIANT]):
         assert side.summary_fidelity == 0.0
         assert side.fidelity_verdicts == []
         assert side.summarizer_limitation is None
@@ -427,7 +423,7 @@ def test_unsummarized_cited_provision_floors_without_a_judge_call(tmp_path, quer
 @pytest.mark.parametrize(
     ["marker"],
     [(PARAMETRIC_MARKER,), (FULL_CORPUS_MARKER,)],
-    ids=["parametric", "full-corpus"],
+    ids=list(VARIANTS),
 )
 def test_adapter_maps_the_stored_shape_through_the_answer_citations_builder(tmp_path, marker):
     path = tmp_path / "online-retailer-breach.json"
@@ -480,8 +476,8 @@ def test_duplicate_summaries_resolve_first_wins_and_are_counted(tmp_path, query_
         {"source_id": "gdpr", "provision": label, "relevance": "First summary stands.", "strength": "moderate"},
         {"source_id": "gdpr", "provision": f"{label}(12)", "relevance": "Later duplicate falls.", "strength": "weak"},
     ]
-    parametric_dir, full_corpus_dir = _write_dirs(
-        tmp_path, {"parametric": {_FIRST_FILE: override}}
+    dirs = _write_dirs(
+        tmp_path, {PARAMETRIC_VARIANT: {_FIRST_FILE: override}}
     )
     judge = AgreeingJudge()
     report = _write_report(tmp_path / _REPORT)
@@ -489,27 +485,26 @@ def test_duplicate_summaries_resolve_first_wins_and_are_counted(tmp_path, query_
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=judge,
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
 
-    produced = comparison.cases[0].parametric.produced[0]["citations"][0]
+    produced = comparison.cases[0].baselines[PARAMETRIC_VARIANT].produced[0]["citations"][0]
     assert produced["relevance"] == "First summary stands."
-    assert comparison.parametric_drops.duplicate_summaries == [
-        baseline_eval.DroppedDuplicateSummary(file=parametric_dir / _FIRST_FILE, label=f"{label}(12)")
+    assert comparison.outcomes[PARAMETRIC_VARIANT].drops.duplicate_summaries == [
+        baseline_eval.DroppedDuplicateSummary(file=dirs[PARAMETRIC_VARIANT] / _FIRST_FILE, label=f"{label}(12)")
     ]
-    assert comparison.parametric_drops.unparseable_labels == []
+    assert comparison.outcomes[PARAMETRIC_VARIANT].drops.unparseable_labels == []
     # The other variant's files are clean: no drops leak across variants.
-    assert comparison.full_corpus_drops.duplicate_summaries == []
-    assert comparison.full_corpus_drops.unparseable_labels == []
+    assert comparison.outcomes[FULL_CORPUS_VARIANT].drops.duplicate_summaries == []
+    assert comparison.outcomes[FULL_CORPUS_VARIANT].drops.unparseable_labels == []
 
 
 def test_unparseable_citation_label_is_dropped_recorded_and_counted(tmp_path, query_log_path):
     override = _payload(_FIRST_CASE, citations=1)
     override["findings"][0]["citations"].append({"source_id": "gdpr", "provision": "Section 12"})
-    parametric_dir, full_corpus_dir = _write_dirs(
-        tmp_path, {"parametric": {_FIRST_FILE: override}}
+    dirs = _write_dirs(
+        tmp_path, {PARAMETRIC_VARIANT: {_FIRST_FILE: override}}
     )
     judge = AgreeingJudge()
     report = _write_report(tmp_path / _REPORT)
@@ -517,22 +512,21 @@ def test_unparseable_citation_label_is_dropped_recorded_and_counted(tmp_path, qu
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=judge,
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
 
     # Only the parseable citation produces; the junk label never flatters
     # precision and never voids the run.
-    produced_citations = comparison.cases[0].parametric.produced[0]["citations"]
+    produced_citations = comparison.cases[0].baselines[PARAMETRIC_VARIANT].produced[0]["citations"]
     assert len(produced_citations) == 1
-    assert comparison.cases[0].parametric.precision == 1.0
-    drops = comparison.parametric_drops.unparseable_labels
+    assert comparison.cases[0].baselines[PARAMETRIC_VARIANT].precision == 1.0
+    drops = comparison.outcomes[PARAMETRIC_VARIANT].drops.unparseable_labels
     assert len(drops) == 1
-    assert drops[0].file == parametric_dir / _FIRST_FILE
+    assert drops[0].file == dirs[PARAMETRIC_VARIANT] / _FIRST_FILE
     assert drops[0].label == "Section 12"
     assert "parse" in drops[0].reason
-    assert comparison.parametric_drops.duplicate_summaries == []
+    assert comparison.outcomes[PARAMETRIC_VARIANT].drops.duplicate_summaries == []
 
 
 def test_unparseable_summary_label_is_dropped_and_counted(tmp_path, query_log_path):
@@ -540,8 +534,8 @@ def test_unparseable_summary_label_is_dropped_and_counted(tmp_path, query_log_pa
     override["summaries"] = [
         {"source_id": "gdpr", "provision": "Section 12", "relevance": "Junk label.", "strength": "moderate"},
     ]
-    parametric_dir, full_corpus_dir = _write_dirs(
-        tmp_path, {"parametric": {_FIRST_FILE: override}}
+    dirs = _write_dirs(
+        tmp_path, {PARAMETRIC_VARIANT: {_FIRST_FILE: override}}
     )
     judge = AgreeingJudge()
     report = _write_report(tmp_path / _REPORT)
@@ -549,16 +543,15 @@ def test_unparseable_summary_label_is_dropped_and_counted(tmp_path, query_log_pa
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=judge,
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
 
     # The dropped summary leaves the cited provision bare: deterministic
     # floor, no judge call for that case on the parametric side.
     assert len(judge.calls) == 2 * len(LIVE_EVAL_SCENARIOS) - 1
-    assert comparison.cases[0].parametric.summary_fidelity == 0.0
-    drops = comparison.parametric_drops.unparseable_labels
+    assert comparison.cases[0].baselines[PARAMETRIC_VARIANT].summary_fidelity == 0.0
+    drops = comparison.outcomes[PARAMETRIC_VARIANT].drops.unparseable_labels
     assert len(drops) == 1
     assert drops[0].label == "Section 12"
 
@@ -611,35 +604,33 @@ def test_malformed_case_file_refuses_naming_file_and_problem(
     judge = AgreeingJudge()
     report = _write_report(tmp_path / _REPORT)
     overrides = {_FIRST_FILE: payload}
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, {variant_dir: overrides})
+    dirs = _write_dirs(tmp_path, {variant_dir: overrides})
 
     with pytest.raises(BaselineEvalRefused, match=_FIRST_FILE) as excinfo:
         run_baseline_eval(
             _settings(query_log_path),
             judge=judge,
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
     # The refusal names the problem, not just the file, and no judge call
     # was ever spent on a run that could not start.
-    assert str(excinfo.value).strip() != str(parametric_dir / _FIRST_FILE)
+    assert str(excinfo.value).strip() != str(dirs[PARAMETRIC_VARIANT] / _FIRST_FILE)
     assert judge.calls == []
 
 
 @pytest.mark.parametrize("variant_dir", VARIANTS)
 def test_stray_filename_outside_the_live_scenarios_refuses(tmp_path, query_log_path, variant_dir: str):
     overrides = {"not-a-scenario.json": _payload(_FIRST_CASE)}
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, {variant_dir: overrides})
+    dirs = _write_dirs(tmp_path, {variant_dir: overrides})
     report = _write_report(tmp_path / _REPORT)
 
     with pytest.raises(BaselineEvalRefused, match="not-a-scenario"):
         run_baseline_eval(
             _settings(query_log_path),
             judge=AgreeingJudge(),
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
@@ -647,33 +638,29 @@ def test_stray_filename_outside_the_live_scenarios_refuses(tmp_path, query_log_p
 @pytest.mark.parametrize("variant_dir", VARIANTS)
 def test_stray_non_json_file_is_never_silently_skipped(tmp_path, query_log_path, variant_dir: str):
     overrides = {"stray-notes.txt": "leftover export"}
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, {variant_dir: overrides})
+    dirs = _write_dirs(tmp_path, {variant_dir: overrides})
     report = _write_report(tmp_path / _REPORT)
 
     with pytest.raises(BaselineEvalRefused, match="stray-notes"):
         run_baseline_eval(
             _settings(query_log_path),
             judge=AgreeingJudge(),
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
 
 @pytest.mark.parametrize("variant_dir", VARIANTS)
 def test_stray_subdirectory_is_never_silently_skipped(tmp_path, query_log_path, variant_dir: str):
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    (parametric_dir if variant_dir == "parametric" else full_corpus_dir).joinpath(
-        "nested-export"
-    ).mkdir()
+    dirs = _write_dirs(tmp_path)
+    dirs[variant_dir].joinpath("nested-export").mkdir()
     report = _write_report(tmp_path / _REPORT)
 
     with pytest.raises(BaselineEvalRefused, match="nested-export"):
         run_baseline_eval(
             _settings(query_log_path),
             judge=AgreeingJudge(),
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
@@ -681,15 +668,14 @@ def test_stray_subdirectory_is_never_silently_skipped(tmp_path, query_log_path, 
 @pytest.mark.parametrize("variant_dir", VARIANTS)
 def test_missing_case_file_refuses_naming_it(tmp_path, query_log_path, variant_dir: str):
     overrides = {_FIRST_FILE: None}
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, {variant_dir: overrides})
+    dirs = _write_dirs(tmp_path, {variant_dir: overrides})
     report = _write_report(tmp_path / _REPORT)
 
     with pytest.raises(BaselineEvalRefused, match=_FIRST_CASE.scenario_id):
         run_baseline_eval(
             _settings(query_log_path),
             judge=AgreeingJudge(),
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
@@ -697,41 +683,35 @@ def test_missing_case_file_refuses_naming_it(tmp_path, query_log_path, variant_d
 @pytest.mark.parametrize("variant_dir", VARIANTS)
 def test_unreadable_case_file_refuses(tmp_path, query_log_path, variant_dir: str):
     overrides = {_FIRST_FILE: "{not json"}
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, {variant_dir: overrides})
+    dirs = _write_dirs(tmp_path, {variant_dir: overrides})
     report = _write_report(tmp_path / _REPORT)
 
     with pytest.raises(BaselineEvalRefused, match=_FIRST_FILE):
         run_baseline_eval(
             _settings(query_log_path),
             judge=AgreeingJudge(),
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
 
 @pytest.mark.parametrize("variant_dir", VARIANTS)
 def test_missing_baseline_directory_refuses(tmp_path, query_log_path, variant_dir: str):
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    missing = tmp_path / "nope"
-    if variant_dir == "parametric":
-        parametric_dir = missing
-    else:
-        full_corpus_dir = missing
+    dirs = _write_dirs(tmp_path)
+    dirs[variant_dir] = tmp_path / "nope"
     report = _write_report(tmp_path / _REPORT)
 
     with pytest.raises(BaselineEvalRefused, match="does not exist"):
         run_baseline_eval(
             _settings(query_log_path),
             judge=AgreeingJudge(),
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
 
 def test_missing_api_key_refuses_when_the_default_judge_is_needed(tmp_path, query_log_path):
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
+    dirs = _write_dirs(tmp_path)
     report = _write_report(tmp_path / _REPORT)
     settings = Settings(
         regula_mode=Mode.demo, openrouter_api_key=None, query_log_path=str(query_log_path)
@@ -740,8 +720,7 @@ def test_missing_api_key_refuses_when_the_default_judge_is_needed(tmp_path, quer
     with pytest.raises(BaselineEvalRefused, match="OPENROUTER_API_KEY"):
         run_baseline_eval(
             settings,
-            parametric_dir=parametric_dir,
-            full_corpus_dir=full_corpus_dir,
+            variant_dirs=dirs,
             report_path=report,
         )
 
@@ -815,26 +794,26 @@ def test_malformed_pipeline_report_refuses_naming_file_and_problem(
 # --- File-location defaults -------------------------------------------------------
 
 
-def _point_defaults_at(monkeypatch, logs: Path, parametric_dir: Path, full_corpus_dir: Path) -> None:
+def _point_defaults_at(monkeypatch, logs: Path, dirs: Mapping[str, Path]) -> None:
     monkeypatch.setattr(baseline_eval, "LOGS_DIR", logs)
-    monkeypatch.setattr(baseline_eval, "BASELINE_DIR", parametric_dir)
-    monkeypatch.setattr(baseline_eval, "FULL_CORPUS_DIR", full_corpus_dir)
+    monkeypatch.setattr(baseline_eval, "BASELINE_DIR", dirs[PARAMETRIC_VARIANT])
+    monkeypatch.setattr(baseline_eval, "FULL_CORPUS_DIR", dirs[FULL_CORPUS_VARIANT])
 
 
 def test_default_locations_resolve_to_the_canonical_dirs(tmp_path, monkeypatch, query_log_path):
     logs = tmp_path / "logs"
     logs.mkdir()
     report = _write_report(logs / "live-eval-report-only.json")
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _point_defaults_at(monkeypatch, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _point_defaults_at(monkeypatch, logs, dirs)
 
     comparison = run_baseline_eval(_settings(query_log_path), judge=AgreeingJudge())
 
     assert comparison.report_path == report
-    assert [case.parametric.id for case in comparison.cases] == [
+    assert [case.baselines[PARAMETRIC_VARIANT].id for case in comparison.cases] == [
         case.id for case in LIVE_EVAL_SCENARIOS
     ]
-    assert [case.full_corpus.id for case in comparison.cases] == [
+    assert [case.baselines[FULL_CORPUS_VARIANT].id for case in comparison.cases] == [
         case.id for case in LIVE_EVAL_SCENARIOS
     ]
 
@@ -844,8 +823,8 @@ def test_newest_report_wins_by_default(tmp_path, monkeypatch, query_log_path):
     logs.mkdir()
     _write_report(logs / "live-eval-report-2026-09-01-a.json")
     newest = _write_report(logs / "live-eval-report-2026-09-08-b.json")
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _point_defaults_at(monkeypatch, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _point_defaults_at(monkeypatch, logs, dirs)
 
     comparison = run_baseline_eval(_settings(query_log_path), judge=AgreeingJudge())
 
@@ -855,8 +834,8 @@ def test_newest_report_wins_by_default(tmp_path, monkeypatch, query_log_path):
 def test_no_report_found_refuses_with_the_flag_hint(tmp_path, monkeypatch, query_log_path):
     logs = tmp_path / "logs"
     logs.mkdir()
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _point_defaults_at(monkeypatch, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _point_defaults_at(monkeypatch, logs, dirs)
 
     with pytest.raises(BaselineEvalRefused, match="--report"):
         run_baseline_eval(_settings(query_log_path), judge=AgreeingJudge())
@@ -884,19 +863,21 @@ def test_printer_prints_table_means_and_delta_footer(tmp_path, query_log_path, c
     # All three columns are captioned, and the full-corpus column is the
     # distinct answering path it claims to be.
     assert "pipeline (precision / recall / F1 / fidelity)" in out
-    assert "parametric (precision / recall / F1 / fidelity)" in out
-    assert "full-corpus (precision / recall / F1 / fidelity)" in out
+    assert f"{PARAMETRIC_VARIANT} (precision / recall / F1 / fidelity)" in out
+    assert f"{FULL_CORPUS_VARIANT} (precision / recall / F1 / fidelity)" in out
     # Means and the Δ(pipeline − baseline) footer: coverage means over all
     # ten cases (0.5/10 = 0.050 against 1.000); fidelity means over the
     # measured cases only (one measured pipeline case: 0.500 against 1.000).
     assert (
-        "Mean coverage F1: pipeline 0.050 | parametric 1.000 | full-corpus 1.000 "
-        "| Δ(pipeline − parametric) -0.950 | Δ(pipeline − full-corpus) -0.950"
+        f"Mean coverage F1: pipeline 0.050 | {PARAMETRIC_VARIANT} 1.000 | "
+        f"{FULL_CORPUS_VARIANT} 1.000 | Δ(pipeline − {PARAMETRIC_VARIANT}) -0.950 "
+        f"| Δ(pipeline − {FULL_CORPUS_VARIANT}) -0.950"
         in out
     )
     assert (
-        "Mean summary fidelity: pipeline 0.500 | parametric 1.000 | full-corpus 1.000 "
-        "| Δ(pipeline − parametric) -0.500 | Δ(pipeline − full-corpus) -0.500"
+        f"Mean summary fidelity: pipeline 0.500 | {PARAMETRIC_VARIANT} 1.000 | "
+        f"{FULL_CORPUS_VARIANT} 1.000 | Δ(pipeline − {PARAMETRIC_VARIANT}) -0.500 "
+        f"| Δ(pipeline − {FULL_CORPUS_VARIANT}) -0.500"
         in out
     )
 
@@ -905,15 +886,16 @@ def test_printer_keeps_the_variant_columns_apart(tmp_path, query_log_path, capsy
     # The full-corpus fixture cites one target per case; the parametric one
     # covers everything: the two baseline columns must read differently.
     judge = AgreeingJudge()
-    parametric_dir = _write_variant_dir(tmp_path, "parametric")
-    full_corpus_dir = _write_variant_dir(tmp_path, "full-corpus", minimal=True)
+    dirs = {
+        PARAMETRIC_VARIANT: _write_variant_dir(tmp_path, PARAMETRIC_VARIANT),
+        FULL_CORPUS_VARIANT: _write_variant_dir(tmp_path, FULL_CORPUS_VARIANT, minimal=True),
+    }
     report = _write_report(tmp_path / _REPORT)
 
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=judge,
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
     baseline_eval.print_comparison(comparison)
@@ -921,12 +903,14 @@ def test_printer_keeps_the_variant_columns_apart(tmp_path, query_log_path, capsy
 
     first = comparison.cases[0]
     parametric_cell = (
-        f"{first.parametric.precision:.3f} / {first.parametric.recall:.3f} / "
-        f"{first.parametric.f1:.3f} / 1.000"
+        f"{first.baselines[PARAMETRIC_VARIANT].precision:.3f} / "
+        f"{first.baselines[PARAMETRIC_VARIANT].recall:.3f} / "
+        f"{first.baselines[PARAMETRIC_VARIANT].f1:.3f} / 1.000"
     )
     full_corpus_cell = (
-        f"{first.full_corpus.precision:.3f} / {first.full_corpus.recall:.3f} / "
-        f"{first.full_corpus.f1:.3f} / 1.000"
+        f"{first.baselines[FULL_CORPUS_VARIANT].precision:.3f} / "
+        f"{first.baselines[FULL_CORPUS_VARIANT].recall:.3f} / "
+        f"{first.baselines[FULL_CORPUS_VARIANT].f1:.3f} / 1.000"
     )
     assert parametric_cell in out
     assert full_corpus_cell in out
@@ -935,8 +919,8 @@ def test_printer_keeps_the_variant_columns_apart(tmp_path, query_log_path, capsy
 
 def test_printer_handles_unmeasured_fidelity(tmp_path, query_log_path, capsys):
     judge = AgreeingJudge()
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    for directory in (parametric_dir, full_corpus_dir):
+    dirs = _write_dirs(tmp_path)
+    for directory in dirs.values():
         for case in LIVE_EVAL_SCENARIOS:
             (directory / _case_file(case)).write_text(
                 json.dumps(_payload(case, citations=1, summaries=False))
@@ -946,16 +930,15 @@ def test_printer_handles_unmeasured_fidelity(tmp_path, query_log_path, capsys):
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=judge,
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
     baseline_eval.print_comparison(comparison)
     out = capsys.readouterr().out
 
     assert "n/a" in out
-    assert "Δ(pipeline − parametric) n/a" in out
-    assert "Δ(pipeline − full-corpus) n/a" in out
+    assert f"Δ(pipeline − {PARAMETRIC_VARIANT}) n/a" in out
+    assert f"Δ(pipeline − {FULL_CORPUS_VARIANT}) n/a" in out
 
 
 # --- The combined artifact ----------------------------------------------------------
@@ -997,7 +980,7 @@ def test_artifact_metadata_carries_both_models_note_and_case_inventory(tmp_path,
 def test_artifact_variants_carry_the_pipeline_report_shape(tmp_path, query_log_path):
     _, artifact = _artifact(tmp_path, query_log_path)
 
-    for variant in ("parametric", "full-corpus"):
+    for variant in VARIANTS:
         variant_artifact = artifact["variants"][variant]
         assert variant_artifact["mode"] == "live"
         assert variant_artifact["mean_f1"] == pytest.approx(1.0)
@@ -1027,21 +1010,21 @@ def test_artifact_comparison_table_data_matches_the_run(tmp_path, query_log_path
     assert third["pipeline"] == {
         "precision": 0.5, "recall": 0.5, "f1": 0.5, "summary_fidelity": 0.5,
     }
-    assert third["parametric"] == {
+    assert third[PARAMETRIC_VARIANT] == {
         "precision": 1.0, "recall": 1.0, "f1": 1.0, "summary_fidelity": 1.0,
     }
-    assert third["full-corpus"] == {
+    assert third[FULL_CORPUS_VARIANT] == {
         "precision": 1.0, "recall": 1.0, "f1": 1.0, "summary_fidelity": 1.0,
     }
     # Means over all ten cases (coverage) and the measured ones (fidelity),
     # with the Δ(pipeline − baseline) footers as data.
     assert table["means"]["pipeline"] == {"f1": pytest.approx(0.05), "summary_fidelity": pytest.approx(0.5)}
-    assert table["means"]["parametric"] == {"f1": pytest.approx(1.0), "summary_fidelity": pytest.approx(1.0)}
-    assert table["means"]["full-corpus"] == {"f1": pytest.approx(1.0), "summary_fidelity": pytest.approx(1.0)}
-    assert table["delta_vs_pipeline"]["parametric"] == {
+    assert table["means"][PARAMETRIC_VARIANT] == {"f1": pytest.approx(1.0), "summary_fidelity": pytest.approx(1.0)}
+    assert table["means"][FULL_CORPUS_VARIANT] == {"f1": pytest.approx(1.0), "summary_fidelity": pytest.approx(1.0)}
+    assert table["delta_vs_pipeline"][PARAMETRIC_VARIANT] == {
         "f1": pytest.approx(-0.95), "summary_fidelity": pytest.approx(-0.5),
     }
-    assert table["delta_vs_pipeline"]["full-corpus"] == {
+    assert table["delta_vs_pipeline"][FULL_CORPUS_VARIANT] == {
         "f1": pytest.approx(-0.95), "summary_fidelity": pytest.approx(-0.5),
     }
 
@@ -1054,8 +1037,8 @@ def test_artifact_comparison_table_data_carries_unmeasured_fidelity_as_none(tmp_
 
     means = artifact["comparison"]["means"]
     assert means["pipeline"] == {"f1": pytest.approx(0.0), "summary_fidelity": None}
-    assert means["parametric"]["summary_fidelity"] == pytest.approx(1.0)
-    assert artifact["comparison"]["delta_vs_pipeline"]["full-corpus"]["summary_fidelity"] is None
+    assert means[PARAMETRIC_VARIANT]["summary_fidelity"] == pytest.approx(1.0)
+    assert artifact["comparison"]["delta_vs_pipeline"][FULL_CORPUS_VARIANT]["summary_fidelity"] is None
 
 
 def test_artifact_surfaces_drop_counts_and_records_per_variant(tmp_path, query_log_path):
@@ -1067,14 +1050,14 @@ def test_artifact_surfaces_drop_counts_and_records_per_variant(tmp_path, query_l
     ]
     junk = _payload(_FIRST_CASE, citations=1)
     junk["findings"][0]["citations"].append({"source_id": "gdpr", "provision": "Section 12"})
-    parametric_dir, full_corpus_dir = _write_dirs(
+    dirs = _write_dirs(
         tmp_path,
         {
-            "parametric": {
-            _FIRST_FILE: duplicate,
-            _case_file(LIVE_EVAL_SCENARIOS[1]): junk,
-        },
-            "full-corpus": {_FIRST_FILE: duplicate},
+            PARAMETRIC_VARIANT: {
+                _FIRST_FILE: duplicate,
+                _case_file(LIVE_EVAL_SCENARIOS[1]): junk,
+            },
+            FULL_CORPUS_VARIANT: {_FIRST_FILE: duplicate},
         },
     )
     report = _write_report(tmp_path / _REPORT)
@@ -1082,23 +1065,22 @@ def test_artifact_surfaces_drop_counts_and_records_per_variant(tmp_path, query_l
     comparison = run_baseline_eval(
         _settings(query_log_path),
         judge=AgreeingJudge(),
-        parametric_dir=parametric_dir,
-        full_corpus_dir=full_corpus_dir,
+        variant_dirs=dirs,
         report_path=report,
     )
     artifact = baseline_eval.combined_artifact(comparison, "z-ai/glm-5.3-flash")
 
-    assert artifact["drops"]["parametric"] == {"duplicate_summaries": 1, "unparseable_labels": 1}
-    assert artifact["drops"]["full-corpus"] == {"duplicate_summaries": 1, "unparseable_labels": 0}
-    parametric_records = artifact["drop_records"]["parametric"]
+    assert artifact["drops"][PARAMETRIC_VARIANT] == {"duplicate_summaries": 1, "unparseable_labels": 1}
+    assert artifact["drops"][FULL_CORPUS_VARIANT] == {"duplicate_summaries": 1, "unparseable_labels": 0}
+    parametric_records = artifact["drop_records"][PARAMETRIC_VARIANT]
     assert parametric_records["duplicate_summaries"][0] == {
-        "file": str(parametric_dir / _FIRST_FILE), "label": f"{label}(12)",
+        "file": str(dirs[PARAMETRIC_VARIANT] / _FIRST_FILE), "label": f"{label}(12)",
     }
     unparseable = parametric_records["unparseable_labels"][0]
     assert unparseable["label"] == "Section 12"
-    assert unparseable["file"] == str(parametric_dir / _case_file(LIVE_EVAL_SCENARIOS[1]))
+    assert unparseable["file"] == str(dirs[PARAMETRIC_VARIANT] / _case_file(LIVE_EVAL_SCENARIOS[1]))
     assert "parse" in unparseable["reason"]
-    assert artifact["drop_records"]["full-corpus"]["unparseable_labels"] == []
+    assert artifact["drop_records"][FULL_CORPUS_VARIANT]["unparseable_labels"] == []
 
 
 def _default_artifact_path(logs: Path) -> Path:
@@ -1110,13 +1092,13 @@ def test_cli_success_writes_the_artifact_to_the_utc_dated_default(tmp_path, monk
     logs = tmp_path / "logs"
     logs.mkdir()
     report = _write_report(logs / "live-eval-report-2026-09-08-b.json")
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _wire_cli(monkeypatch, logs, dirs)
     monkeypatch.setattr("src.config.OpenRouterClient", _AllAgreeJudgeClient)
 
     exit_code = main([
-        "--parametric-dir", str(parametric_dir),
-        "--full-corpus-dir", str(full_corpus_dir),
+        "--parametric-dir", str(dirs[PARAMETRIC_VARIANT]),
+        "--full-corpus-dir", str(dirs[FULL_CORPUS_VARIANT]),
         "--report", str(report),
     ])
 
@@ -1126,7 +1108,7 @@ def test_cli_success_writes_the_artifact_to_the_utc_dated_default(tmp_path, monk
     artifact = json.loads(expected.read_text())
     assert artifact["configured_model"]
     assert artifact["pipeline_model"] == "z-ai/test-model"
-    assert set(artifact["variants"]) == {"parametric", "full-corpus"}
+    assert set(artifact["variants"]) == {PARAMETRIC_VARIANT, FULL_CORPUS_VARIANT}
     assert "comparison" in artifact
     out = capsys.readouterr().out
     assert f"Combined artifact written to {expected}" in out
@@ -1136,14 +1118,14 @@ def test_cli_output_flag_moves_the_artifact(tmp_path, monkeypatch, capsys):
     logs = tmp_path / "logs"
     logs.mkdir()
     report = _write_report(logs / _REPORT)
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _wire_cli(monkeypatch, logs, dirs)
     monkeypatch.setattr("src.config.OpenRouterClient", _AllAgreeJudgeClient)
     output = tmp_path / "elsewhere" / "combined.json"
 
     exit_code = main([
-        "--parametric-dir", str(parametric_dir),
-        "--full-corpus-dir", str(full_corpus_dir),
+        "--parametric-dir", str(dirs[PARAMETRIC_VARIANT]),
+        "--full-corpus-dir", str(dirs[FULL_CORPUS_VARIANT]),
         "--report", str(report),
         "--output", str(output),
     ])
@@ -1159,8 +1141,8 @@ def test_cli_zero_arguments_uses_the_defaults(tmp_path, monkeypatch, capsys):
     logs.mkdir()
     _write_report(logs / "live-eval-report-2026-09-01-a.json")
     newest = _write_report(logs / "live-eval-report-2026-09-08-b.json")
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _wire_cli(monkeypatch, logs, dirs)
     monkeypatch.setattr("src.config.OpenRouterClient", _AllAgreeJudgeClient)
 
     exit_code = main([])
@@ -1181,12 +1163,12 @@ def test_cli_refusal_writes_no_artifact(tmp_path, monkeypatch, capsys):
     logs = tmp_path / "logs"
     logs.mkdir()
     report = _write_report(logs / _REPORT)
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, {"parametric": {_FIRST_FILE: None}})
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path, {PARAMETRIC_VARIANT: {_FIRST_FILE: None}})
+    _wire_cli(monkeypatch, logs, dirs)
 
     exit_code = main([
-        "--parametric-dir", str(parametric_dir),
-        "--full-corpus-dir", str(full_corpus_dir),
+        "--parametric-dir", str(dirs[PARAMETRIC_VARIANT]),
+        "--full-corpus-dir", str(dirs[FULL_CORPUS_VARIANT]),
         "--report", str(report),
     ])
 
@@ -1199,13 +1181,13 @@ def test_cli_judge_failure_writes_no_artifact(tmp_path, monkeypatch, capsys):
     logs = tmp_path / "logs"
     logs.mkdir()
     report = _write_report(logs / _REPORT)
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _wire_cli(monkeypatch, logs, dirs)
     monkeypatch.setattr("src.config.OpenRouterClient", _DyingJudgeClient)
 
     exit_code = main([
-        "--parametric-dir", str(parametric_dir),
-        "--full-corpus-dir", str(full_corpus_dir),
+        "--parametric-dir", str(dirs[PARAMETRIC_VARIANT]),
+        "--full-corpus-dir", str(dirs[FULL_CORPUS_VARIANT]),
         "--report", str(report),
     ])
 
@@ -1216,10 +1198,10 @@ def test_cli_judge_failure_writes_no_artifact(tmp_path, monkeypatch, capsys):
 # --- The CLI ------------------------------------------------------------------------
 
 
-def _wire_cli(monkeypatch, tmp_path, logs_dir: Path, parametric_dir: Path, full_corpus_dir: Path) -> None:
+def _wire_cli(monkeypatch, logs_dir: Path, dirs: Mapping[str, Path]) -> None:
     monkeypatch.setenv("REGULA_MODE", "demo")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    _point_defaults_at(monkeypatch, logs_dir, parametric_dir, full_corpus_dir)
+    _point_defaults_at(monkeypatch, logs_dir, dirs)
 
 
 def test_cli_success_prints_the_table_and_exits_zero(tmp_path, monkeypatch, capsys):
@@ -1227,15 +1209,18 @@ def test_cli_success_prints_the_table_and_exits_zero(tmp_path, monkeypatch, caps
     logs.mkdir()
     _write_report(logs / "live-eval-report-2026-09-01-a.json")
     newest = _write_report(logs / "live-eval-report-2026-09-08-b.json")
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _wire_cli(monkeypatch, logs, dirs)
     monkeypatch.setattr("src.config.OpenRouterClient", _AllAgreeJudgeClient)
 
-    exit_code = main(["--parametric-dir", str(parametric_dir), "--full-corpus-dir", str(full_corpus_dir)])
+    exit_code = main(["--parametric-dir", str(dirs[PARAMETRIC_VARIANT]), "--full-corpus-dir", str(dirs[FULL_CORPUS_VARIANT])])
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "Baseline comparison: pipeline vs parametric vs full-corpus (10 case(s))" in out
+    assert (
+        f"Baseline comparison: pipeline vs {PARAMETRIC_VARIANT} vs {FULL_CORPUS_VARIANT} (10 case(s))"
+        in out
+    )
     assert str(newest) in out
     assert "z-ai/test-model" in out
     assert _FIRST_CASE.id in out
@@ -1245,12 +1230,12 @@ def test_cli_refusal_exits_1_naming_the_file(tmp_path, monkeypatch, capsys):
     logs = tmp_path / "logs"
     logs.mkdir()
     report = _write_report(logs / _REPORT)
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path, {"parametric": {_FIRST_FILE: None}})
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path, {PARAMETRIC_VARIANT: {_FIRST_FILE: None}})
+    _wire_cli(monkeypatch, logs, dirs)
 
     exit_code = main([
-        "--parametric-dir", str(parametric_dir),
-        "--full-corpus-dir", str(full_corpus_dir),
+        "--parametric-dir", str(dirs[PARAMETRIC_VARIANT]),
+        "--full-corpus-dir", str(dirs[FULL_CORPUS_VARIANT]),
         "--report", str(report),
     ])
 
@@ -1265,13 +1250,13 @@ def test_cli_judge_failure_aborts_with_exit_1(tmp_path, monkeypatch, capsys):
     logs = tmp_path / "logs"
     logs.mkdir()
     report = _write_report(logs / _REPORT)
-    parametric_dir, full_corpus_dir = _write_dirs(tmp_path)
-    _wire_cli(monkeypatch, tmp_path, logs, parametric_dir, full_corpus_dir)
+    dirs = _write_dirs(tmp_path)
+    _wire_cli(monkeypatch, logs, dirs)
     monkeypatch.setattr("src.config.OpenRouterClient", _DyingJudgeClient)
 
     exit_code = main([
-        "--parametric-dir", str(parametric_dir),
-        "--full-corpus-dir", str(full_corpus_dir),
+        "--parametric-dir", str(dirs[PARAMETRIC_VARIANT]),
+        "--full-corpus-dir", str(dirs[FULL_CORPUS_VARIANT]),
         "--report", str(report),
     ])
 
