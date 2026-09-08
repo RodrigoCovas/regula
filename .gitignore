@@ -39,6 +39,8 @@ wheels/
 # Logs
 logs/
 *.log
+!logs/baseline-runs/
+!logs/live-eval-report-2026-09-07-glm53_v8.json
 
 # Database
 *.db
