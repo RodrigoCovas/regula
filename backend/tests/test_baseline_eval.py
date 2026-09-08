@@ -532,6 +532,20 @@ def test_stray_non_json_file_is_never_silently_skipped(tmp_path, query_log_path)
         )
 
 
+def test_stray_subdirectory_is_never_silently_skipped(tmp_path, query_log_path):
+    directory = _write_dir(tmp_path)
+    (directory / "nested-export").mkdir()
+    report = _write_report(tmp_path / _REPORT)
+
+    with pytest.raises(BaselineEvalRefused, match="nested-export"):
+        run_baseline_eval(
+            _settings(query_log_path),
+            judge=AgreeingJudge(),
+            parametric_dir=directory,
+            report_path=report,
+        )
+
+
 def test_missing_case_file_refuses_naming_it(tmp_path, query_log_path):
     directory = _write_dir(tmp_path, overrides={_FIRST_FILE: None})
     report = _write_report(tmp_path / _REPORT)

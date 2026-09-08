@@ -326,9 +326,17 @@ def _citation_for(target: ProvisionTarget, label: str) -> Citation:
     })
 
 
-def load_parametric_case(path: Path, drops: DropRecords) -> AnalyzeResponse:
+def load_parametric_case(
+    path: Path,
+    drops: DropRecords,
+    known_sources: Optional[set[str]] = None,
+) -> AnalyzeResponse:
     """Load, validate, and adapt one stored parametric case file into the
     response shape the shared harness consumes (ADR-0017).
+
+    ``known_sources`` is the set of Corpus source ids a citation may name;
+    it loads from the Corpus when omitted — a run hoists the set and pays
+    for it once.
 
     Citations derive from the parsed provision labels — the same
     Article/Recital/Annex grammar the ground truth uses, with
@@ -342,8 +350,8 @@ def load_parametric_case(path: Path, drops: DropRecords) -> AnalyzeResponse:
     Nothing else is normalized: no quote, limitation, or trace detail is
     ever fabricated.
     """
-    known_sources = set(load_documents())
-    case = _validate_case_file(path, _read_json(path), known_sources)
+    sources = known_sources if known_sources is not None else set(load_documents())
+    case = _validate_case_file(path, _read_json(path), sources)
 
     findings: List[Finding] = []
     for stored in case.findings:
@@ -391,17 +399,16 @@ def load_parametric_case(path: Path, drops: DropRecords) -> AnalyzeResponse:
 
 
 def _discover_case_files(directory: Path) -> Dict[str, Path]:
-    """The ten case files keyed by Scenario id: every file in the directory
-    must be named for a live Scenario id — a typo'd or stray file refuses the
-    run and can never be silently skipped — and all ten must be present."""
+    """The ten case files keyed by Scenario id: every entry in the directory
+    must be a case file named for a live Scenario id — a typo'd or stray
+    file or directory refuses the run and can never be silently skipped —
+    and all ten must be present."""
     if not directory.is_dir():
         raise BaselineEvalRefused(f"Baseline directory {directory} does not exist")
     scenario_ids = {case.scenario_id for case in LIVE_EVAL_SCENARIOS}
     files: Dict[str, Path] = {}
     for path in sorted(directory.iterdir()):
-        if not path.is_file():
-            continue
-        if path.suffix != ".json" or path.stem not in scenario_ids:
+        if not path.is_file() or path.suffix != ".json" or path.stem not in scenario_ids:
             raise BaselineEvalRefused(
                 f"{path} is not one of the ten live Scenario case files — rename or remove it "
                 f"(expected exactly ten files named <scenario-id>.json: "
@@ -510,8 +517,10 @@ def run_baseline_eval(
         )
 
     drops = DropRecords()
+    known_sources = set(load_documents())
     responses: Dict[str, AnalyzeResponse] = {
-        scenario_id: load_parametric_case(path, drops) for scenario_id, path in files.items()
+        scenario_id: load_parametric_case(path, drops, known_sources)
+        for scenario_id, path in files.items()
     }
 
     def respond(request: AnalyzeRequest) -> AnalyzeResponse:
