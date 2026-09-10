@@ -1812,6 +1812,33 @@ def test_verifier_supported_bar_demands_scenario_relevance(live_client):
     assert "framing only (definitions, vocabulary)" in verifier_system
 
 
+def test_researcher_and_verifier_user_blocks_carry_the_scenario_description(live_client):
+    """Both user blocks carry the Scenario description (spec #94, T6):
+    the Researcher's contingency calls and the Verifier's support and
+    materiality judgments rest on the scenario's facts, not the Regulatory
+    question alone — exactly the grounding material the Planner already
+    reads, ahead of the question."""
+    llm = make_offline_llm()
+    install_fake_pipeline(llm, FakeRetriever())
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+
+    scenario_line = (
+        "Company/product scenario: "
+        "A Spanish fintech evaluating loan applications automatically"
+    )
+    # The Researcher's user block: the scenario description ahead of the
+    # question, then the whole Evidence pool.
+    researcher_user = llm.calls[1][1]
+    assert researcher_user.startswith(scenario_line)
+    assert "Regulatory question: Does automated loan scoring" in researcher_user
+    assert "Retrieved evidence:" in researcher_user
+    # The Verifier's user block: the same description ahead of the question.
+    verifier_user = llm.calls[2][1]
+    assert verifier_user.startswith(scenario_line)
+    assert "Regulatory question: Does automated loan scoring" in verifier_user
+
+
 # --- The rubrics resolve Scenario facts (ticket #70) -------------------------
 
 
@@ -2079,6 +2106,22 @@ def researcher_rubric() -> dict[str, str]:
         "framing rides on framing claims": "rides only when the claim is about that framing itself",
         "no embellishments": "Never pad a claim with cross-reference embellishments",
         "no plumbing": "generic plumbing citations that decide nothing",
+        "materiality discipline": (
+            "keep a claim only when its provisions decide what the Answer must say for this scenario"
+        ),
+        "immaterial dies at verifier": (
+            "a supported claim whose provisions decide nothing for the Answer is immaterial "
+            "and never survives the Verifier"
+        ),
+        "family core provision": "A duty family is decided by its core provision",
+        "family remedies ride": (
+            "its remedies and enforcement machinery ride only when the claim is about exercising them"
+        ),
+        "perimeter outside one citation": (
+            "earns at most its Perimeter Citation, never duty machinery"
+        ),
+        "decisive-first ordering": "ordered decisive-first",
+        "decisive-first meaning": "the provisions its truth turns on first, the auxiliary support after",
         "grounded only": "grounded ONLY in the listed evidence",
         "given labels only": "never reference a label that was not given to you",
     }
@@ -2176,6 +2219,30 @@ def test_researcher_rubric_cites_only_the_provisions_that_decide_the_claim(live_
     assert researcher_rubric["grounded only"] in researcher_system
 
 
+def test_researcher_rubric_drafts_for_materiality_with_decisive_first_citations(live_client, researcher_rubric):
+    """The materiality discipline (spec #94, T6): the Researcher drafts under
+    the same bar the Verifier judges — keep a claim only when its provisions
+    decide what the Answer must say for this scenario, so a duty-family
+    enumeration or a closed-perimeter regime's duty machinery never enters
+    the draft. Each claim's evidence labels are ordered decisive-first, so the
+    provisions that decide the claim lead."""
+    researcher_system = recorded_system_prompts(live_client)["researcher"]
+    # The discipline rides beside support, with its own consequence.
+    assert researcher_rubric["materiality discipline"] in researcher_system
+    assert researcher_rubric["immaterial dies at verifier"] in researcher_system
+    assert researcher_rubric["family core provision"] in researcher_system
+    assert researcher_rubric["family remedies ride"] in researcher_system
+    assert researcher_rubric["perimeter outside one citation"] in researcher_system
+    # The ordering: the decisive provisions lead each claim's label list.
+    assert researcher_rubric["decisive-first ordering"] in researcher_system
+    assert researcher_rubric["decisive-first meaning"] in researcher_system
+    # The citation discipline and the grounding rules survive beside it.
+    assert researcher_rubric["decisive citations"] in researcher_system
+    assert researcher_rubric["no plumbing"] in researcher_system
+    assert researcher_rubric["grounded only"] in researcher_system
+    assert researcher_rubric["given labels only"] in researcher_system
+
+
 @pytest.fixture
 def verifier_rubric() -> dict[str, str]:
     """The Verifier rubric's load-bearing phrases (ticket #70)."""
@@ -2204,6 +2271,35 @@ def verifier_rubric() -> dict[str, str]:
             "cross-reference embellishments, auxiliary elaborations, and generic plumbing citations"
         ),
         "refs decisive survive": "while the decisive citations",
+        "refs decisive field": "decisive_refs — the labels of the supporting provisions",
+        "refs auxiliary field": (
+            "auxiliary_refs — the labels of the supporting provisions the claim's truth does not turn on"
+        ),
+        "refs one list": "every supporting label goes in exactly one of the two lists — never both",
+        "materiality judgment": "material — true only when the claim's provisions decide what the Answer must say for this scenario",
+        "immaterial consequence": "is immaterial and never becomes a Finding",
+        "materiality bar": "keep a claim only when its provisions decide what the Answer must say for this scenario",
+        "duty family core": "A duty family is decided by its core provision",
+        "remedies ride the exercise": (
+            "its remedies and enforcement machinery ride only when the claim is about exercising them"
+        ),
+        "perimeter outside at most": (
+            "earns at most its Perimeter Citation, never duty machinery"
+        ),
+        "rights bundle example": (
+            "a claim that a telecom company must operate procedures to honour its chatbot customers' rights"
+        ),
+        "rights example tail": (
+            "rectification, erasure, objection, and the cooperation machinery ride only when "
+            "the claim is about exercising them"
+        ),
+        "retailer example setup": (
+            "a breach question about a retail company leaves DORA's engagement settled out"
+        ),
+        "retailer example consequence": (
+            "developing DORA's incident-management and reporting limbs under a "
+            "'leaves open whether' contingency is immaterial"
+        ),
     }
 
 
@@ -2269,21 +2365,58 @@ def test_verifier_rubric_gains_the_worked_within_regime_annex_iii_example(live_c
     assert verifier_rubric["exclusion supported"] in verifier_system
 
 
-def test_verifier_rubric_keeps_only_the_decisive_provisions_in_evidence_refs(live_client, verifier_rubric):
-    """The citation-discipline rule on the refs the Verifier keeps (issue #88):
-    evidence_refs names only the provisions that decide the claim — the ones
-    its truth turns on; a framing-only reference rides only when the claim is
-    about the framing itself, and cross-reference embellishments, auxiliary
-    elaborations, and generic plumbing citations are dropped while the
-    decisive citations — and every moderate or strong anchor — stay."""
+def test_verifier_rubric_keeps_only_the_decisive_provisions_in_the_refs_lists(live_client, verifier_rubric):
+    """The Verifier's refs contract (spec #94, T6 teaches the split T5
+    enforces): decisive_refs names the provisions that decide the claim — the
+    ones its truth turns on; auxiliary_refs names the supporting provisions
+    the claim's truth does not turn on — the cross-reference embellishments,
+    auxiliary elaborations, and generic plumbing citations the claim-decision
+    step drops; a framing-only reference rides only when the claim is about
+    the framing itself, and every supporting label goes in exactly one of the
+    two lists — while the decisive citations, and every moderate or strong
+    anchor, stay."""
     verifier_system = recorded_system_prompts(live_client)["verifier"]
     assert verifier_rubric["refs decisive"] in verifier_system
     assert verifier_rubric["refs framing rides"] in verifier_system
     assert verifier_rubric["refs drop embellishments"] in verifier_system
     assert verifier_rubric["refs decisive survive"] in verifier_system
+    # The split contract: the two ref lists the Verdict schema carries.
+    assert verifier_rubric["refs decisive field"] in verifier_system
+    assert verifier_rubric["refs auxiliary field"] in verifier_system
+    assert verifier_rubric["refs one list"] in verifier_system
+    assert "evidence_refs" not in verifier_system
     # The supported bar and the strength contract survive the addition.
     assert verifier_rubric["supported bar"] in verifier_system
     assert verifier_rubric["bare string"] in verifier_system
+
+
+def test_verifier_rubric_carries_the_materiality_bar_and_the_worked_examples(live_client, verifier_rubric):
+    """The materiality bar (spec #94, T6): keep a claim only when its
+    provisions decide what the Answer must say for this scenario — a duty
+    family is decided by its core provision, its remedies and enforcement
+    machinery ride only when the claim is about exercising them, and a
+    Regulation whose perimeter the scenario's actor plainly sits outside
+    earns at most its Perimeter Citation, never duty machinery. The worked
+    examples come from the 2026-09-10 reference ledger: the telecom rights
+    bundle (the whole rights family enumerated behind a rights-procedures
+    claim) and the retailer DORA limbs (duty machinery developed under a
+    contingency the facts settle out)."""
+    verifier_system = recorded_system_prompts(live_client)["verifier"]
+    # The judgment rides beside support, with its own consequence.
+    assert verifier_rubric["materiality judgment"] in verifier_system
+    assert verifier_rubric["immaterial consequence"] in verifier_system
+    # The bar, stated as the rubric's rule.
+    assert verifier_rubric["materiality bar"] in verifier_system
+    assert verifier_rubric["duty family core"] in verifier_system
+    assert verifier_rubric["remedies ride the exercise"] in verifier_system
+    assert verifier_rubric["perimeter outside at most"] in verifier_system
+    # The worked examples: the rights bundle and the retailer's DORA limbs.
+    assert verifier_rubric["rights bundle example"] in verifier_system
+    assert verifier_rubric["rights example tail"] in verifier_system
+    assert verifier_rubric["retailer example setup"] in verifier_system
+    assert verifier_rubric["retailer example consequence"] in verifier_system
+    # The exclusion form survives beside the new bar.
+    assert verifier_rubric["exclusion supported"] in verifier_system
 
 
 # --- Reserved-anchor backstop: trace + one corrective re-prompt (issue #84) ----

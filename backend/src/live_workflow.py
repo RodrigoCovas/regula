@@ -525,13 +525,21 @@ _RESEARCHER_SYSTEM = (
     "whose contingency the scenario's facts exclude — "
     "draft the claim the stated facts support instead. A contingency the scenario text "
     "genuinely leaves open is still drafted as today, so the open question stays visible "
-    "downstream as a moderate Finding with its referral Actions. Cite with discipline: the "
-    "evidence labels a claim lists name only the provisions that decide it — the ones its "
-    "truth turns on. A framing-only reference — a definition, a perimeter, the principles — "
-    "rides only when the claim is about that framing itself (deciding engagement, exclusion, "
-    "or classification), the way a claim turning on a defined term cites the provision that "
-    "defines it. Never pad a claim with cross-reference embellishments, auxiliary "
-    "elaborations, or generic plumbing citations that decide nothing for it. Each claim is "
+    "downstream as a moderate Finding with its referral Actions. Draft under the same "
+    "materiality bar the Verifier judges: keep a claim only when its provisions decide what "
+    "the Answer must say for this scenario — a supported claim whose provisions decide "
+    "nothing for the Answer is immaterial and never survives the Verifier. A duty family is "
+    "decided by its core provision; its remedies and enforcement machinery ride only when "
+    "the claim is about exercising them; a Regulation whose perimeter the scenario's actor "
+    "plainly sits outside earns at most its Perimeter Citation, never duty machinery. Cite "
+    "with discipline: the evidence labels a claim lists name only the provisions that decide "
+    "it, ordered decisive-first — the provisions its truth turns on first, the auxiliary "
+    "support after. A framing-only reference — a definition, a "
+    "perimeter, the principles — rides only when the claim is about that framing itself "
+    "(deciding engagement, exclusion, or classification), the way a claim turning on a defined "
+    "term cites the provision that defines it. Never pad a claim with cross-reference "
+    "embellishments, auxiliary elaborations, or generic plumbing citations that decide nothing "
+    "for it. Each claim is "
     "grounded ONLY in the listed evidence. For every claim list the evidence labels it "
     "relies on; never reference a label that was not given to you. If the evidence supports "
     "nothing relevant, return an empty claims list."
@@ -555,19 +563,37 @@ _VERIFIER_SYSTEM = (
     "use the scenario never describes is unsupported, while a contingency the scenario's text "
     "genuinely leaves open — whether the described use falls within an Annex III category at "
     "all — stays moderate. "
+    "material — true only when the claim's provisions decide what the Answer must say for this "
+    "scenario; a supported claim whose provisions decide nothing for this Answer is immaterial "
+    "and never becomes a Finding. The materiality bar: keep a claim only when its provisions "
+    "decide what the Answer must say for this scenario. A duty family is decided by its core "
+    "provision; its remedies and enforcement machinery ride only when the claim is about "
+    "exercising them; a Regulation whose perimeter the scenario's actor plainly sits outside "
+    "earns at most its Perimeter Citation, never duty machinery. Worked example, the rights "
+    "family: a claim that a telecom company must operate procedures to honour its chatbot "
+    "customers' rights is decided by the access and information provisions it actually names "
+    "— rectification, erasure, objection, and the cooperation machinery ride only when the "
+    "claim is about exercising them, so enumerating the whole family decides nothing extra "
+    "for the Answer. Worked example, the perimeter: a breach question about a retail company "
+    "leaves DORA's engagement settled out — the company plainly is not a financial entity — "
+    "so developing DORA's incident-management and reporting limbs under a 'leaves open "
+    "whether' contingency is immaterial: the regime earns at most its Perimeter "
+    "Citation, never duty machinery. "
     "When the evidence holds a regime's perimeter provision — the provision that decides "
     "who the regime covers — a claim that the regime does not reach the scenario is the supported "
     "form. strength — a bare string, exactly one of 'strong', 'moderate', or 'weak', never an "
     "object or rationale; use 'strong' when the provisions directly and explicitly establish the "
     "claim, 'moderate' when derived from provisions read together or contingent on facts the "
     "scenario text leaves open, 'weak' when the provisions supply framing only (definitions, "
-    "vocabulary); evidence_refs — the labels of the supporting provisions, empty for unsupported "
+    "vocabulary); decisive_refs — the labels of the supporting provisions, empty for unsupported "
     "claims, kept with the same citation discipline: list only the provisions that decide the "
     "claim — the ones its truth turns on; a framing-only reference — a definition, a perimeter, "
     "the principles — rides only when the claim is about that framing itself (deciding "
-    "engagement, exclusion, or classification); cross-reference embellishments, auxiliary "
-    "elaborations, and generic plumbing citations that decide nothing are dropped, while the "
-    "decisive citations — and every moderate or strong anchor — stay."
+    "engagement, exclusion, or classification); auxiliary_refs — the labels of the supporting "
+    "provisions the claim's truth does not turn on: the cross-reference embellishments, auxiliary "
+    "elaborations, and generic plumbing citations that decide nothing are auxiliary; every "
+    "supporting label goes in exactly one of the two lists — never both — while the decisive "
+    "citations — and every moderate or strong anchor — stay."
 )
 
 _PROPOSER_SYSTEM = (
@@ -622,19 +648,40 @@ def _evidence_block(evidence: list[LabeledEvidence]) -> str:
     return "\n\n".join(parts)
 
 
-def _researcher_user(question: str, evidence: list[LabeledEvidence]) -> str:
-    """The Researcher's user block: the question plus the whole Evidence pool —
-    shared by the first pass and the anchor backstop's corrective re-prompt, so
-    both read exactly the same grounding material."""
-    return f"Regulatory question: {question}\n\nRetrieved evidence:\n\n{_evidence_block(evidence)}"
+def _scenario_line(scenario_description: str) -> str:
+    """The Scenario description's one-line block — the grounding material the
+    Planner, Researcher, and Verifier user blocks share (spec #94, T6):
+    contingency and materiality judgments read the described company, product,
+    and jurisdiction, never the Regulatory question alone."""
+    return f"Company/product scenario: {scenario_description or '(not described)'}"
+
+
+def _researcher_user(
+    scenario_description: str, question: str, evidence: list[LabeledEvidence]
+) -> str:
+    """The Researcher's user block: the scenario description, the question,
+    and the whole Evidence pool — shared by the first pass and the anchor
+    backstop's corrective re-prompt, so both read exactly the same grounding
+    material (spec #94, T6 adds the description the contingency calls read)."""
+    return (
+        f"{_scenario_line(scenario_description)}\n"
+        f"Regulatory question: {question}\n\n"
+        f"Retrieved evidence:\n\n{_evidence_block(evidence)}"
+    )
 
 
 def _verifier_user(
-    question: str, evidence: list[LabeledEvidence], claims: list[DraftClaim]
+    scenario_description: str,
+    question: str,
+    evidence: list[LabeledEvidence],
+    claims: list[DraftClaim],
 ) -> str:
     """The Verifier's user block — shared by the workflow node and the anchor
-    backstop's verification of the corrective Claims."""
+    backstop's verification of the corrective Claims. The scenario description
+    rides ahead of the question (spec #94, T6): support and materiality are
+    judged on the scenario's facts."""
     return (
+        f"{_scenario_line(scenario_description)}\n"
         f"Regulatory question: {question}\n\nRetrieved evidence:\n\n"
         f"{_evidence_block(evidence)}\n\n"
         f"Drafted claims:\n{json.dumps([claim.model_dump() for claim in claims])}"
@@ -1390,19 +1437,23 @@ def _uncited_reserved_anchors(
 
 
 def _corrective_claims_prompt(
-    question: str, evidence: list[LabeledEvidence], anchors: list[ReservedAnchor]
+    scenario_description: str,
+    question: str,
+    evidence: list[LabeledEvidence],
+    anchors: list[ReservedAnchor],
 ) -> str:
     """The corrective re-prompt's user block (issue #84): the same grounding
-    material the first pass read — the question and the whole Evidence pool —
-    plus the reserved anchors no kept Finding cites, named by the labels the
-    LLM already saw."""
+    material the first pass read — the scenario description, the question, and
+    the whole Evidence pool (spec #94, T6 adds the description) — plus the
+    reserved anchors no kept Finding cites, named by the labels the LLM
+    already saw."""
     listing = "\n".join(
         f'- reserved target "{anchor.query}": evidence {", ".join(anchor.labels)} '
         f"({', '.join(anchor.provisions)})"
         for anchor in anchors
     )
     return (
-        f"{_researcher_user(question, evidence)}\n\n"
+        f"{_researcher_user(scenario_description, question, evidence)}\n\n"
         "Your previous response left the reserved engagement-threshold evidence "
         "uncited — no Finding cites the provision that decides whether the regime "
         "engages. For each reserved target below, draft the applicability or "
@@ -1450,13 +1501,17 @@ def _corrective_claims_pass(
     try:
         drafts = llm.complete(
             system=_RESEARCHER_SYSTEM,
-            user=_corrective_claims_prompt(state.question, state.evidence, anchors),
+            user=_corrective_claims_prompt(
+                state.scenario_description, state.question, state.evidence, anchors
+            ),
             schema=DraftClaims,
         )
         if drafts.claims:
             corrective_verdicts = llm.complete(
                 system=_VERIFIER_SYSTEM,
-                user=_verifier_user(state.question, state.evidence, drafts.claims),
+                user=_verifier_user(
+                    state.scenario_description, state.question, state.evidence, drafts.claims
+                ),
                 schema=Verdicts,
             )
     except Exception as error:
@@ -1567,7 +1622,7 @@ def _build_graph(
         user = (
             f"Corpus inventory (the Corpus's titled provisions, grouped by source):\n\n"
             f"{inventory or '(the Corpus inventory is empty)'}\n\n"
-            f"Company/product scenario: {state.scenario_description or '(not described)'}\n"
+            f"{_scenario_line(state.scenario_description)}\n"
             f"Regulatory question: {state.question}"
         )
         plan = llm.complete(system=_PLANNER_SYSTEM, user=user, schema=Plan)
@@ -1643,7 +1698,7 @@ def _build_graph(
             # retrieved — and spent tokens retrieving.
             observation.retrieved_chunks = len(evidence)
         if evidence:
-            user = _researcher_user(state.question, evidence)
+            user = _researcher_user(state.scenario_description, state.question, evidence)
             started = time.perf_counter()
             drafted = llm.complete(system=_RESEARCHER_SYSTEM, user=user, schema=DraftClaims)
             logger.info("researcher: %d draft(s) over %d chunk(s) in %.2fs", len(drafted.claims), len(evidence), time.perf_counter() - started)
@@ -1678,7 +1733,7 @@ def _build_graph(
             # Both retrieval legs came back empty: drafting and verifying
             # claims against no Evidence would be theatre.
             return {}
-        user = _verifier_user(state.question, state.evidence, state.drafted.claims)
+        user = _verifier_user(state.scenario_description, state.question, state.evidence, state.drafted.claims)
         started = time.perf_counter()
         verdicts = llm.complete(system=_VERIFIER_SYSTEM, user=user, schema=Verdicts)
         logger.info("verifier: %d decision(s) in %.2fs", len(verdicts.verdicts), time.perf_counter() - started)
