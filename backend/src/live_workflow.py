@@ -196,30 +196,35 @@ class DraftClaims(BaseModel):
     claims: list[DraftClaim] = Field(default_factory=list)
 
 
-def _unwrap_strength_level(value: Any) -> Any:
-    """Keep the bare level when the live model wraps its strength with a
-    rationale — the one repair both the Verdict's and the Summarizer's
-    strength fields apply before the application code judges the value."""
-    if isinstance(value, dict) and "level" in value:
-        return value["level"]
+def _unwrap_wrapped_value(value: Any, *keys: str) -> Any:
+    """Keep the bare value when the live model wraps it with a rationale —
+    the one repair the Verdict's strength and materiality fields and the
+    Summarizer's strength field share before the application code judges
+    the value."""
+    if isinstance(value, dict):
+        for key in keys:
+            if key in value:
+                return value[key]
     return value
 
 
+def _unwrap_strength_level(value: Any) -> Any:
+    """The strength fields' repair: the bare level under the wrapper's 'level'."""
+    return _unwrap_wrapped_value(value, "level")
+
+
 # The bare words a live model may use for the materiality judgment instead of
-# the boolean the schema asks for, and the boolean each repairs to.
-_MATERIALITY_TRUE_WORDS = {"true", "material", "yes"}
-_MATERIALITY_FALSE_WORDS = {"false", "immaterial", "not material", "no"}
+# the boolean the schema asks for — plain 'true'/'false' (and 'yes'/'no') ride
+# the schema's own boolean coercion; the domain nouns need this explicit map.
+_MATERIALITY_TRUE_WORDS = {"true", "material"}
+_MATERIALITY_FALSE_WORDS = {"false", "immaterial"}
 
 
 def _unwrap_materiality(value: Any) -> Any:
-    """Keep the bare boolean when the live model wraps its materiality
-    judgment with a rationale or names it with a bare word — the repairs the
-    Verdict's materiality field applies before the application code judges
-    the value, mirroring the strength wrapper's repair."""
-    if isinstance(value, dict):
-        for key in ("value", "is_material", "level"):
-            if key in value:
-                return value[key]
+    """The materiality field's repairs: the bare boolean under a rationale
+    wrapper, or the Immaterial-claim noun forms a live model may answer
+    with instead of the boolean."""
+    value = _unwrap_wrapped_value(value, "value", "is_material")
     if isinstance(value, str):
         word = value.strip().casefold()
         if word in _MATERIALITY_TRUE_WORDS:
@@ -672,14 +677,15 @@ def _decide_claims(
     supported but immaterial Claim (spec #94, T4) is rejected with its own
     reason — its provisions do not decide what the Answer turns on — distinct
     from the Unsupported-claim reasons. Exact-normalized duplicate statements
-    (casefold + whitespace collapse) are decided once: first drafted wins,
-    and every later copy of an earlier KEPT statement is rejected with the
-    duplicate reason — a later copy whose earlier twin was rejected is
-    decided on its own verdict. Every drafted claim must end up decided: a
-    claim the Verifier never returned a verdict for is recorded as rejected
-    too — nothing drafted may vanish silently. Verdicts are matched to
-    drafts one-for-one per statement, so duplicate statements each consume
-    their own verdict.
+    (casefold + whitespace collapse) are decided once: the walk processes the
+    Verdicts in draft order, so first drafted wins — every later copy of an
+    earlier KEPT statement is rejected with the duplicate reason, while a
+    later copy whose earlier twin was rejected is decided on its own verdict.
+
+    Every drafted claim must end up decided: a claim the Verifier never
+    returned a verdict for is recorded as rejected too — nothing drafted may
+    vanish silently. Verdicts are matched to drafts one-for-one per
+    statement, so duplicate statements each consume their own verdict.
     """
     findings: list[Finding] = []
     discarded: list[str] = []
@@ -692,7 +698,17 @@ def _decide_claims(
         decisions.append(ClaimDecision(claim=statement, status="rejected", reason=reason))
 
     outstanding = Counter(verdict.statement for verdict in verdicts.verdicts)
-    for verdict in verdicts.verdicts:
+    # The walk follows the draft order ("first drafted wins", spec #94): a
+    # provider that returns verdicts out of draft order must not decide which
+    # copy of a duplicated statement survives. The sort is stable, so verdicts
+    # sharing a draft position keep the Verifier's order.
+    draft_position: dict[str, int] = {}
+    for index, claim in enumerate(drafted.claims):
+        draft_position.setdefault(claim.statement, index)
+    ordered_verdicts = sorted(
+        verdicts.verdicts, key=lambda v: draft_position.get(v.statement, len(draft_position))
+    )
+    for verdict in ordered_verdicts:
         normalized = _normalized_statement(verdict.statement)
         if normalized in kept_statements:
             reject(verdict.statement, _DUPLICATE_STATEMENT_REASON)
@@ -1843,7 +1859,7 @@ def run_live_analysis(
 
     verifier_step: dict[str, Any] = {
         "step": "verifier",
-        "action": "check each Claim against the retrieved Evidence, tag its Strength, discard Unsupported claims",
+        "action": "check each Claim against the retrieved Evidence, judge its support and materiality, tag its Strength, and discard Unsupported and Immaterial claims",
         "claim_decisions": [decision.model_dump() for decision in decisions],
     }
     if state.engagement_states:

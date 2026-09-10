@@ -237,8 +237,8 @@ def test_verdict_materiality_defaults_to_material_when_absent():
 
 def test_verdict_materiality_string_forms_are_normalized():
     """A live model may return the materiality judgment as a bare word —
-    the boolean strings and the Immaterial-claim noun forms all repair to
-    the boolean the application code judges."""
+    the domain nouns repair through the field's explicit word map, the plain
+    boolean words ride the schema's own boolean coercion."""
     from src.live_workflow import Verdicts
 
     content = (
@@ -246,7 +246,9 @@ def test_verdict_materiality_string_forms_are_normalized():
         '{"statement": "A", "supported": true, "material": "true"}, '
         '{"statement": "B", "supported": true, "material": "false"}, '
         '{"statement": "C", "supported": true, "material": "immaterial"}, '
-        '{"statement": "D", "supported": true, "material": "material"}'
+        '{"statement": "D", "supported": true, "material": "material"}, '
+        '{"statement": "E", "supported": true, "material": "yes"}, '
+        '{"statement": "F", "supported": true, "material": "no"}'
         "]}"
     )
     transport = FakeTransport(responses=[chat_response(content)])
@@ -254,7 +256,7 @@ def test_verdict_materiality_string_forms_are_normalized():
 
     verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
 
-    assert [v.material for v in verdicts.verdicts] == [True, False, False, True]
+    assert [v.material for v in verdicts.verdicts] == [True, False, False, True, True, False]
 
 
 def test_verdict_materiality_wrapper_from_live_model_is_normalized():

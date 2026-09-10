@@ -155,7 +155,7 @@ A compact, user-visible summary of the workflow steps, retrieved passages, and t
 _Avoid_: Chain-of-thought
 
 **Claim**:
-A statement the answer makes about what a regulation says or implies. A Claim becomes a Finding when supported by Evidence that bears on the question asked for the Scenario; a Claim with no Evidence, one that merely restates provisions without bearing on that question, or one whose contingency the Scenario text settles out of scope is an Unsupported claim and is discarded.
+A statement the answer makes about what a regulation says or implies. A Claim becomes a Finding when the Verifier judges it supported by Evidence that bears on the question asked for the Scenario and material — its provisions decide what the Answer turns on. A Claim with no Evidence, one that merely restates provisions without bearing on that question, or one whose contingency the Scenario text settles out of scope is an Unsupported claim; a supported Claim whose provisions decide nothing for the Answer is an Immaterial claim — both are always discarded and never appear in the Answer.
 
 **Demo mode**:
 The keyless path that serves the canonical Spanish fintech Scenario from fixed content — no LLM calls, no vector retrieval. Mode is an explicit per-run choice, never inferred from the Scenario's text or id.

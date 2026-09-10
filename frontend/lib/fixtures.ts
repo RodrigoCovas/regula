@@ -613,7 +613,7 @@ export const insufficientEvidenceResponse: AnalyzeResponse = {
     },
     {
       "step": "verifier",
-      "action": "check each Claim against the retrieved Evidence, tag its Strength, discard Unsupported claims",
+      "action": "check each Claim against the retrieved Evidence, judge its support and materiality, tag its Strength, and discard Unsupported and Immaterial claims",
       "claim_decisions": []
     },
     {

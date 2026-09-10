@@ -602,6 +602,42 @@ def test_exact_normalized_duplicate_statements_are_rejected_as_duplicates(live_c
     assert discarded.count(twin) == 1
 
 
+def test_duplicate_statements_are_decided_in_draft_order_first_drafted_wins(live_client):
+    """'First drafted wins' is literal (spec review finding): the kept copy
+    of a duplicated statement is the first-drafted one's, even when the
+    Verifier returns its verdicts in the opposite order."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
+
+    first = "The System  qualifies as an AI system under the definitions."
+    twin = "the system qualifies as an AI system under the definitions."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="definitions")])
+    llm.claims = DraftClaims(
+        claims=[
+            DraftClaim(statement=first, evidence_refs=["E1"]),
+            DraftClaim(statement=twin, evidence_refs=["E1"]),
+        ]
+    )
+    llm.verdicts = Verdicts(verdicts=[
+        grounded_verdict(twin, Strength.weak, ["E1"]),
+        grounded_verdict(first, Strength.weak, ["E1"]),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    install_fake_pipeline(llm, FakeRetriever(per_query={"definitions": [DEFINITIONS_CHUNK]}))
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f["statement"] for f in data["answer"]["findings"]]
+    assert findings == [first], "the first-drafted copy's verdict is the one kept"
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decisions = {d["claim"]: d for d in verifier_steps[0]["claim_decisions"]}
+    assert decisions[first]["status"] == "kept"
+    assert decisions[twin]["status"] == "rejected"
+    assert decisions[twin]["reason"] == "an earlier kept claim states the same"
+
+
 def test_a_duplicate_of_a_rejected_statement_is_decided_on_its_own_verdict(live_client):
     """Dedup keys on kept statements: a later copy whose earlier twin was
     rejected is judged on its own verdict — an Unsupported first copy never
