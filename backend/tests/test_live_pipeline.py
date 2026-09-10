@@ -2276,9 +2276,14 @@ def verifier_rubric() -> dict[str, str]:
             "auxiliary_refs — the labels of the supporting provisions the claim's truth does not turn on"
         ),
         "refs one list": "every supporting label goes in exactly one of the two lists — never both",
-        "materiality judgment": "material — true only when the claim's provisions decide what the Answer must say for this scenario",
+        "refs decisive-first order": "in the draft's decisive-first order",
+        "materiality judgment": "material — keep a claim only when its provisions decide what the Answer must say for this scenario",
         "immaterial consequence": "is immaterial and never becomes a Finding",
-        "materiality bar": "keep a claim only when its provisions decide what the Answer must say for this scenario",
+        "verdict division": "The two verdicts divide by what fails",
+        "unsupported division leg": "a claim resting on a contingency the stated facts exclude is unsupported",
+        "immaterial division leg": (
+            "a claim the Evidence supports but whose provisions decide nothing for this Answer is immaterial"
+        ),
         "duty family core": "A duty family is decided by its core provision",
         "remedies ride the exercise": (
             "its remedies and enforcement machinery ride only when the claim is about exercising them"
@@ -2289,16 +2294,24 @@ def verifier_rubric() -> dict[str, str]:
         "rights bundle example": (
             "a claim that a telecom company must operate procedures to honour its chatbot customers' rights"
         ),
+        "rights example deciders": (
+            "decided by the access and restriction provisions it actually names"
+        ),
         "rights example tail": (
-            "rectification, erasure, objection, and the cooperation machinery ride only when "
+            "rectification, erasure, objection, portability, and the cooperation machinery ride only when "
             "the claim is about exercising them"
         ),
         "retailer example setup": (
             "a breach question about a retail company leaves DORA's engagement settled out"
         ),
         "retailer example consequence": (
-            "developing DORA's incident-management and reporting limbs under a "
-            "'leaves open whether' contingency is immaterial"
+            "a claim that develops DORA's incident-management and reporting limbs for that retailer is immaterial"
+        ),
+        "retailer example grounding": (
+            "the Evidence genuinely says what DORA requires of financial entities"
+        ),
+        "retailer example already carried": (
+            "the Perimeter Citation already carries who the regime covers"
         ),
     }
 
@@ -2384,6 +2397,10 @@ def test_verifier_rubric_keeps_only_the_decisive_provisions_in_the_refs_lists(li
     assert verifier_rubric["refs decisive field"] in verifier_system
     assert verifier_rubric["refs auxiliary field"] in verifier_system
     assert verifier_rubric["refs one list"] in verifier_system
+    # The Researcher's decisive-first order survives the verdict step: the
+    # decisive list is ordered as the draft ordered it, so the shipped
+    # Citations lead with the provisions that decide the claim.
+    assert verifier_rubric["refs decisive-first order"] in verifier_system
     assert "evidence_refs" not in verifier_system
     # The supported bar and the strength contract survive the addition.
     assert verifier_rubric["supported bar"] in verifier_system
@@ -2399,22 +2416,33 @@ def test_verifier_rubric_carries_the_materiality_bar_and_the_worked_examples(liv
     earns at most its Perimeter Citation, never duty machinery. The worked
     examples come from the 2026-09-10 reference ledger: the telecom rights
     bundle (the whole rights family enumerated behind a rights-procedures
-    claim) and the retailer DORA limbs (duty machinery developed under a
-    contingency the facts settle out)."""
+    claim; the ledger's keep set is the access and restriction provisions)
+    and the retailer DORA limbs (duty machinery for an actor the perimeter
+    plainly settles out). The two verdicts carry a stated division so the
+    ledger-aligned examples cannot read as ruling the same shape two ways."""
     verifier_system = recorded_system_prompts(live_client)["verifier"]
-    # The judgment rides beside support, with its own consequence.
+    # The judgment carries the bar, stated once as the field's definition.
     assert verifier_rubric["materiality judgment"] in verifier_system
     assert verifier_rubric["immaterial consequence"] in verifier_system
-    # The bar, stated as the rubric's rule.
-    assert verifier_rubric["materiality bar"] in verifier_system
+    # The routing between the two verdicts, so the examples cannot conflict.
+    assert verifier_rubric["verdict division"] in verifier_system
+    assert verifier_rubric["unsupported division leg"] in verifier_system
+    assert verifier_rubric["immaterial division leg"] in verifier_system
     assert verifier_rubric["duty family core"] in verifier_system
     assert verifier_rubric["remedies ride the exercise"] in verifier_system
     assert verifier_rubric["perimeter outside at most"] in verifier_system
-    # The worked examples: the rights bundle and the retailer's DORA limbs.
+    # The worked examples: the rights bundle and the retailer's DORA limbs,
+    # each aligned with the ledger's keep set and its trimmed riders.
     assert verifier_rubric["rights bundle example"] in verifier_system
+    assert verifier_rubric["rights example deciders"] in verifier_system
     assert verifier_rubric["rights example tail"] in verifier_system
     assert verifier_rubric["retailer example setup"] in verifier_system
     assert verifier_rubric["retailer example consequence"] in verifier_system
+    # The immaterial ruling's grounding: the Evidence says what the regime
+    # requires, the provisions decide nothing here, the Perimeter Citation
+    # already carries the allocation.
+    assert verifier_rubric["retailer example grounding"] in verifier_system
+    assert verifier_rubric["retailer example already carried"] in verifier_system
     # The exclusion form survives beside the new bar.
     assert verifier_rubric["exclusion supported"] in verifier_system
 
