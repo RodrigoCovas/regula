@@ -743,12 +743,14 @@ def test_resume_refuses_when_a_completed_case_changed_under_the_run_id(ingested_
         )
 
 
-def test_a_ground_truth_edit_changes_the_definition_hash(ingested_store, query_log_path):
+def test_a_ground_truth_edit_changes_the_definition_hash():
     """The property the curation passes lean on (ADR-0013, #96): the
     definition hash covers a case's expected findings exactly as the audit
     dump renders them, so a ground-truth edit — a citation added or a
-    statement reworded — changes the hash, and any run checkpointed before
-    the edit refuses on resume instead of silently mixing measurement eras."""
+    statement reworded — changes the hash. A checkpointed result recorded
+    under the old definition then carries a stale hash and the resume
+    refuses (the neighbouring test pins that refusal), never silently
+    mixing measurement eras."""
     from src.eval_harness import scenario_definition_hash
 
     case = _bare_case("first-case")
