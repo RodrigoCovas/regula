@@ -1001,8 +1001,8 @@ def test_artifact_metadata_carries_both_models_note_and_case_inventory(tmp_path,
     assert artifact["pipeline_report"] == str(report)
     # Generation time is a real UTC stamp.
     assert datetime.fromisoformat(artifact["generated_at"]).tzinfo is not None
-    # The ADR-0017 threat note rides verbatim: tool-confounded agent runs,
-    # toolless re-runs are the follow-up before any external claim.
+    # The methodology note rides with the artifact: toolless production for
+    # the scored runs, the tool-confounded predecessor pointed at ADR-0017.
     assert artifact["threat_note"] == baseline_eval.THREAT_NOTE
     assert "WebFetch" in artifact["threat_note"]
     assert "toolless" in artifact["threat_note"]

@@ -40,6 +40,7 @@ wheels/
 logs/*
 *.log
 !logs/baseline-runs/
+logs/baseline-runs-toolless/
 !logs/live-eval-report-2026-09-07-glm53_v8.json
 !logs/baseline-eval-report-2026-09-08.json
 

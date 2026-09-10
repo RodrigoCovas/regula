@@ -118,15 +118,18 @@ _REPORT_GLOB = "live-eval-report-*.json"
 # logs tree beside the pipeline reports it compares against.
 _ARTIFACT_STEM = "baseline-eval-report"
 
-# The ADR-0017 threat note, verbatim: it must ride the artifact so the
-# numbers are never quoted without their caveat.
+# The methodology note that must ride the artifact so the numbers are never
+# quoted without their caveat: how the scored runs were produced, and where
+# the tool-confounded predecessor runs are recorded (ADR-0017).
 THREAT_NOTE = (
-    "The current runs were produced by agents with tools such as WebFetch "
-    "available, which is a threat to validity: a Parametric baseline with "
-    "web access is not strictly parametric. The runs are kept and scored "
-    "anyway, the threat is recorded with the artifact, and toolless runs "
-    "(an agent with every tool denied, or raw API calls) remain the planned "
-    "follow-up before any external claim."
+    "The scored runs are toolless: each answer was produced by an agent with "
+    "every tool denied except reading files in its own run directory (the "
+    "OpenCode harness, one structured completion per case from the locked "
+    "prompt templates), so the Parametric baseline is strictly parametric. "
+    "The earlier recorded runs (logs/baseline-runs/, artifact "
+    "baseline-eval-report-2026-09-08.json) were produced with tools such as "
+    "WebFetch available; that threat to validity is recorded in ADR-0017 and "
+    "scored in that artifact."
 )
 
 # Each variant's Execution-trace marker (spec #90): provenance travels with

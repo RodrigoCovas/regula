@@ -77,6 +77,24 @@
       "provision": "Article 77",
       "relevance": "Article 77 gives affected customers the right to lodge a complaint with a supervisory authority over the breach, so the retailer should anticipate and respond to breach-related complaints and keep the complainant informed of progress and outcome.",
       "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 12",
+      "relevance": "Article 12 sets the concise, clear-and-plain form in which the retailer communicates the breach to affected customers and handles their subsequent requests, the modality complement to the Article 34 communication duty.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 38",
+      "relevance": "Article 38 secures the designated data protection officer's proper and timely involvement in the breach response, with the resources and access the officer needs to advise on it.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 39",
+      "relevance": "Article 39's advisory and monitoring tasks define the designated data protection officer's role in overseeing the breach response and the security hardening that follows.",
+      "strength": "weak"
     }
   ],
   "scenario_2": [
@@ -247,6 +265,30 @@
       "provision": "Article 113",
       "relevance": "Article 113(2) fixes 2 August 2026 as the application date, confirming the high-risk deployer duties for the recruitment system are in force at the time of use.",
       "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 9",
+      "relevance": "Article 9 restricts processing of special categories of personal data to defined gateways such as explicit consent, so the screening design must keep CV and interview data that may reveal health, religious, or union-affiliation information within such a gateway.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 25",
+      "relevance": "Article 25 requires the screening to embed data protection by design and by default, minimising the CV and interview data drawn into candidate scoring and pseudonymising where possible.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32",
+      "relevance": "Article 32 obliges the company to secure the CVs, video recordings, and scores with technical and organisational measures proportionate to the risk, a direct duty over the screening pipeline.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 30",
+      "relevance": "Article 30 requires the screening processing to appear in the company's records of activities, covering purposes, categories of data subjects and personal data, recipients, and a description of the security measures.",
+      "strength": "weak"
     }
   ],
   "scenario_3": [
@@ -380,6 +422,24 @@
       "source_id": "dora",
       "provision": "Article 16",
       "relevance": "Article 16's simplified ICT risk-management framework is not open to a credit institution, so the bank must comply with the general framework of Articles 5 to 15, calibrating which obligations bite.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28",
+      "relevance": "Article 28 obliges the bank to engage the cloud host only as a processor under a contract carrying Article 28(3)'s guarantees, with Article 28(3)(f) requiring the provider's assistance with the breach and security duties, the GDPR counterpart to the DORA contract levers.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 8",
+      "relevance": "Article 8 requires the bank to identify and document all processes dependent on the cloud provider and their interconnections, the classification grounding the criticality and recovery analysis for the disrupted functions.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 5",
+      "relevance": "Article 5 places the management body over the outage response: it must approve, oversee, and periodically review the ICT business continuity policy and the response and recovery plans the incident engages.",
       "strength": "weak"
     }
   ],
@@ -569,6 +629,30 @@
       "provision": "Article 32",
       "relevance": "Article 32 obliges the employer to secure the recorded activity and productivity scores with technical and organisational measures proportionate to the risk, a direct duty over the monitoring pipeline's logs and outputs.",
       "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 43",
+      "relevance": "Article 43(2) sets the internal-control conformity assessment for Annex III employment systems, the procedure behind the conformity marker the employer verifies.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 47",
+      "relevance": "Article 47 obliges the provider to draw up the EU declaration of conformity stating the system meets the Section 2 requirements, part of the documentation the employer examines.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Annex 8",
+      "relevance": "Annex VIII's content requirements define what the EU declaration of conformity must carry, part of the documentation behind the markers the employer verifies.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 14",
+      "relevance": "Article 14 completes the transparency coverage where the activity data are not obtained directly from the employees, obliging the equivalent information within a reasonable period of obtaining them.",
+      "strength": "weak"
     }
   ],
   "scenario_5": [
@@ -702,6 +786,42 @@
       "source_id": "gdpr",
       "provision": "Article 44",
       "relevance": "Article 44 conditions any transfer of chatbot-derived personal data to a third country - for instance where the underlying model or its hosting sits outside the EEA - on compliance with the GDPR's transfer chapter, a location question to settle before operating the service.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 46",
+      "relevance": "Article 46 supplies the appropriate-safeguards route - standard contractual clauses or binding corporate rules - for chatbot data flowing to the model provider's hosting outside the EEA, the concrete route behind the Article 44 condition.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 9",
+      "relevance": "Article 9 restricts processing of special categories of personal data to defined gateways such as explicit consent, so the telecom must treat free-text chatbot input that may reveal health, religious, or similar data as a gateway question in the chatbot's design.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 37",
+      "relevance": "Article 37 makes DPO designation turn on its thresholds - regular and systematic large-scale monitoring or large-scale special-category processing as core activities - a status question the telecom must assess for the chatbot.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 38",
+      "relevance": "Article 38 secures the designated DPO's timely involvement and support in the chatbot deployment where designation applies.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 39",
+      "relevance": "Article 39's advisory and monitoring tasks define the designated DPO's role over the chatbot's processing.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 24",
+      "relevance": "Article 24 obliges the telecom to implement and demonstrate the measures that keep the chatbot processing compliant - the accountability frame the by-design and records duties hang from.",
       "strength": "weak"
     }
   ],
@@ -1199,6 +1319,66 @@
       "provision": "Article 25",
       "relevance": "Article 25 requires the underwriting to embed data protection by design and by default, minimising the medical and personal data drawn into eligibility and premium determination and pseudonymising where possible.",
       "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 47",
+      "relevance": "Article 47 obliges the provider to draw up the EU declaration of conformity stating the system meets the Section 2 requirements, part of the documentation behind the markers the insurer verifies.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 48",
+      "relevance": "Article 48 obliges the provider to affix the CE marking - visibly, legibly, and indelibly - to the high-risk system, the market marker the insurer examines on the delivered system.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 71",
+      "relevance": "Article 71 obliges the provider, or its authorised representative, to register the Annex III pricing system in the EU database with the Annex VIII data before placing it on the market, completing the registration checkpoint the insurer verifies.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Annex 5",
+      "relevance": "Annex V's content requirements define what the EU declaration of conformity must carry, part of what the insurer examines when verifying the provider's declaration.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 25",
+      "relevance": "Article 25 stops the insurer from putting its name on the system, substantially modifying it, or changing its intended purpose into a high-risk use without becoming the provider - the role-flip boundary for an insurer adapting the vendor system.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 7",
+      "relevance": "Article 7 conditions any consent the insurer relies on - demonstrability, a clearly distinguishable request, and easy withdrawal under Article 7(3) - shaping whether explicit consent can carry the underwriting's lawfulness.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 12",
+      "relevance": "Article 12 sets the deadline, free-of-charge handling, and concise form governing the insurer's responses to applicants' rights requests over the underwriting.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 14",
+      "relevance": "Article 14 extends the information duties to applicants' health data the insurer obtains from other sources, such as medical records, covering the source and the automated decision-making's logic.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 8",
+      "relevance": "Article 8 obliges the insurer, as a financial entity, to manage ICT third-party risk as an integral component of its ICT risk-management framework, covering the AI provider's arrangement.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28",
+      "relevance": "Article 28 governs the insurer's reliance on the AI provider: pre-contract assessment, the register of information, information-security standards, and full institutional responsibility despite the provider's involvement, biting where the arrangement supports critical or important functions.",
+      "strength": "weak"
     }
   ],
   "scenario_8": [
@@ -1314,6 +1494,12 @@
       "source_id": "dora",
       "provision": "Article 5",
       "relevance": "Article 5 places the management body over the follow-up: it must approve, oversee, and periodically review the revised ICT business continuity policy and response and recovery plans the post-incident review produces.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 8",
+      "relevance": "Article 8 obliges the firm to run ICT risk assessments upon significant changes to network and information system infrastructure, the duty a major post-ransomware rebuild triggers.",
       "strength": "weak"
     }
   ],
@@ -1454,6 +1640,54 @@
       "source_id": "dora",
       "provision": "Article 8",
       "relevance": "Article 8 requires the institution to identify and document all processes dependent on ICT third-party providers and to run ICT risk assessments before and after connecting technologies such as the AI assistant, the identification step grounding the third-party analysis.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 14",
+      "relevance": "Article 14 extends the information duties to customer data the institution obtains from other sources, such as account records combined with conversations, within a reasonable period of obtaining them.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 6",
+      "relevance": "Article 6 obliges the institution to maintain a sound, comprehensive, and well-documented ICT risk-management framework covering all information and ICT assets, including the AI assistant, the frame the identification step feeds.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 15",
+      "relevance": "Article 15 gives customers access to the personal data the assistant processing holds - copies of their data, including the safeguards information for any third-country transfers - a rights channel the institution must facilitate.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 9",
+      "relevance": "Article 9 restricts the AI-based handling of customer conversations to defined gateways for any special categories the conversations may reveal, a design constraint the institution carries over the free-text channel.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 37",
+      "relevance": "Article 37 makes DPO designation turn on its thresholds - regular and systematic large-scale monitoring or large-scale special-category processing as core activities - a status question the institution must assess for the assistant.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 38",
+      "relevance": "Article 38 secures the designated DPO's timely involvement, resources, and support in the assistant's deployment where designation applies.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 39",
+      "relevance": "Article 39's advisory and monitoring tasks define the designated DPO's role over the assistant's processing and impact assessment.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35",
+      "relevance": "Article 35's DPIA duty attaches where processing using new technologies is likely to result in high risk, notably systematic evaluation producing significant effects - a threshold the assistant's processing meets only conditionally, keeping the assessment a check rather than a settled duty.",
       "strength": "weak"
     }
   ],
@@ -1618,6 +1852,30 @@
       "source_id": "dora",
       "provision": "Article 16",
       "relevance": "Article 16 requires a size and status check: small and non-interconnected investment firms follow the simplified framework while the incident-reporting duties of Articles 17-19 continue to apply in full.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 6",
+      "relevance": "Article 6(1) requires a lawful basis for the firm's processing of client personal data through the trading-recommendation system, with legitimate interests carrying the balancing test against clients' rights.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28",
+      "relevance": "Article 28 obliges the firm to engage the cloud host only as a processor under a contract carrying Article 28(3)'s guarantees, with Article 28(3)(f) requiring the provider's assistance with the breach and security duties.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 8",
+      "relevance": "Article 8 requires the firm to identify and document all ICT-supported business functions and the assets supporting them, the classification grounding the criticality and dependency analysis the attack exposed.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 10",
+      "relevance": "Article 10 obliges the firm to operate detection mechanisms that promptly identify anomalous activities and cyber-attacks and single points of failure, the capability whose limits the attack exposed.",
       "strength": "weak"
     }
   ]

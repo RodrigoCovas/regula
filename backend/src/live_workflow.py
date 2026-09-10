@@ -131,14 +131,14 @@ SEEK_COUNSEL_ACTION = (
 # (ADR-0004): the sheet is capped, never empty.
 MAX_ACTIONS = 5
 
-# The Planner's declared budget: 1-8 Research targets — raised from
-# ADR-0012's 1-6 on the scored evidence ADR-0015 records (three-Regulation
-# Scenarios strained six); the pool deriving from the accepted plan is
+# The Planner's declared budget: 1-50 Research targets — raised from
+# ADR-0012's 1-6 (ADR-0015's scored evidence took it to 8, ADR-0018's
+# performance evidence to 50); the pool deriving from the accepted plan is
 # ADR-0003's rationale. A provider response over this limit is corrected once
 # by truncation — the Evidence pool derives from the accepted plan, never from
-# an over-limit provider response. ADR-0015: lowering the budget back to six
-# takes a new ADR, not a code change.
-MAX_RESEARCH_TARGETS = 8
+# an over-limit provider response. Lowering the budget takes a new ADR, not a
+# code change.
+MAX_RESEARCH_TARGETS = 50
 
 
 # --- Workflow boundaries: every agent input/output crosses as a validated schema ---
