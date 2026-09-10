@@ -50,26 +50,34 @@ since #58 the operator's per-provision Strength ratings are the single source
 of expected Citation strength, riding the Citations alone. Authoring
 conventions:
 
-- The relevance standard is one written rule, the **two-job rule** (the
-  #85 curation standard, distilled by the run analysis, holdout-checked on
-  #81 and approved by the operator on #79): a provision is expected only if
-  it *decides a duty* for the Scenario's stated facts — the duty itself,
-  the duty-bearer, the duty-scope, or the duty set conditionally for
-  genuinely open conditions — or *carries the live engagement-threshold
-  question* of whether the Regulation reaches the Scenario at all (open entity-status
-  questions, exclusions, regime allocation across the named Regulations);
-  decoration is spurious. The delete-it test decides the borderline: if the
-  provision were deleted from the expected set, would an otherwise-complete
-  answer be missing a duty it must state or an engagement-threshold question
-  it must carry? No → decoration → spurious. "Live" is load-bearing: where the
-  facts settle a Regulation's reach outright and the citation does no
-  allocation work, the scope recital is decoration — that is why
-  recruitment/employee gdpr Art 2/3 delete symmetrically while the
-  insurer's and investment firm's dora Art 2 stays (their financial-entity
-  status does allocation work the scenario asks about). The rule was
-  applied exhaustively to all ten keys in the #85 curation pass; every
-  future key edit is proposed against it as a per-item diff the operator
-  can veto.
+- The relevance standard is one written rule, the **permissive materiality
+  rubric** (the #94 curation standard, resolved on the T1 ledger (#95) and
+  approved by the operator without corrections on 2026-09-10): a
+  Finding/Citation stays expected wherever a fair argument exists for it —
+  a provision earns expectation where it decides a duty the Scenario's
+  facts put in play (the duty itself, the duty-bearer, the duty-scope, or
+  the duty set conditionally for genuinely open conditions) or carries a
+  live engagement-threshold question of whether the Regulation reaches the
+  Scenario at all (open entity-status questions, exclusions, regime
+  allocation across the named Regulations); decoration is spurious. The
+  delete-it test decides the border: if the provision were deleted from the
+  expected set, would an otherwise-complete answer be missing a duty it
+  must state or an engagement-threshold question it must carry? No →
+  decoration → spurious. "Live" is load-bearing: where the facts settle a
+  Regulation's reach outright and the citation does no allocation work, the
+  scope recital is decoration — recruitment/employee gdpr Art 2/3 stayed
+  deleted from the #85 pass, while the insurer's and investment firm's
+  dora Art 2 stays (their financial-entity status does allocation work the
+  scenario asks about). The lineage: the stricter **two-job rule** (the #85
+  curation standard, distilled by the run analysis, holdout-checked on #81,
+  approved by the operator on #79) curated the ten keys first, and the
+  permissive rubric only loosens — the #94 curation pass (#96) applied it
+  across all ten keys, adding the operator's 36 approved entries and
+  removing nothing, so the same provision is no longer expected in one
+  Scenario and penalized in another. Every future key edit is proposed
+  against this rubric as a per-item diff the operator can veto, and the
+  edited cases' definition hashes change, so old run checkpoints refuse and
+  the next run starts under a fresh run id (ADR-0013).
 - Related articles cluster into one expectation (one Finding statement);
   ranges expand into their separate Article targets; sub-references
   like "point 5(b)" collapse to the Annex they refine — the structural targets

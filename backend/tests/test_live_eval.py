@@ -743,6 +743,27 @@ def test_resume_refuses_when_a_completed_case_changed_under_the_run_id(ingested_
         )
 
 
+def test_a_ground_truth_edit_changes_the_definition_hash(ingested_store, query_log_path):
+    """The property the curation passes lean on (ADR-0013, #96): the
+    definition hash covers a case's expected findings exactly as the audit
+    dump renders them, so a ground-truth edit — a citation added or a
+    statement reworded — changes the hash, and any run checkpointed before
+    the edit refuses on resume instead of silently mixing measurement eras."""
+    from src.eval_harness import scenario_definition_hash
+
+    case = _bare_case("first-case")
+    with_citation = _bare_case("first-case")
+    with_citation.expected[0].citations.append(
+        {"source_id": "gdpr", "provision": "Article 34", "relevance": "another expected citation",
+         "strength": Strength.weak}
+    )
+    with_statement = _bare_case("first-case")
+    with_statement.expected[0].statement = "expected statement, reworded"
+
+    assert scenario_definition_hash(case) != scenario_definition_hash(with_citation)
+    assert scenario_definition_hash(case) != scenario_definition_hash(with_statement)
+
+
 def test_resume_refuses_when_the_configured_model_differs(ingested_store, query_log_path, tmp_path):
     """Results are model-sensitive (ADR-0009): a checkpoint produced by one
     model must never be stitched into a run configured for another."""

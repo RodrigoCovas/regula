@@ -289,6 +289,30 @@
       "provision": "Article 30",
       "relevance": "Article 30 requires the screening processing to appear in the company's records of activities, covering purposes, categories of data subjects and personal data, recipients, and a description of the security measures.",
       "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 47",
+      "relevance": "Article 47 obliges the provider to draw up the EU declaration of conformity stating the system meets the Section 2 requirements, part of the documentation the company verifies before adoption.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 48",
+      "relevance": "Article 48 obliges the provider to affix the CE marking - visibly, legibly, and indelibly - to the high-risk system, the market marker the company examines before adoption.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 71",
+      "relevance": "Article 71 obliges the provider to register the Annex III recruitment system in the EU database with the Annex VIII information, the publicly accessible entry the company can check before adoption.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 88",
+      "relevance": "Article 88 authorises national rules on candidate-data processing with specific safeguards for the recruitment context, so the company must layer Member State employment-data rules over the GDPR baseline.",
+      "strength": "moderate"
     }
   ],
   "scenario_3": [
@@ -440,6 +464,30 @@
       "source_id": "dora",
       "provision": "Article 5",
       "relevance": "Article 5 places the management body over the outage response: it must approve, oversee, and periodically review the ICT business continuity policy and the response and recovery plans the incident engages.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 10",
+      "relevance": "Article 10 obliges the bank to operate detection mechanisms that promptly surface anomalous activities and ICT-related incidents, the capability the outage's arrival tested.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 6",
+      "relevance": "Article 6 requires the recovery and notification processing of customer data to rest on a lawful basis, the lawfulness frame alongside the Article 5 principles for the breach response.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 24",
+      "relevance": "Article 24 obliges the bank to implement and demonstrate measures that keep processing compliant, framing the recovery and accountability follow-up the outage response must include.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 30",
+      "relevance": "Article 30 requires the recovery processing to appear in the bank's records of activities, covering purposes, categories of data subjects and personal data, recipients including the cloud provider, and the security measures.",
       "strength": "weak"
     }
   ],
@@ -653,6 +701,48 @@
       "provision": "Article 14",
       "relevance": "Article 14 completes the transparency coverage where the activity data are not obtained directly from the employees, obliging the equivalent information within a reasonable period of obtaining them.",
       "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 25",
+      "relevance": "Article 25 makes the employer the provider, subject to the Article 16 obligations, where it puts its name on the system, substantially modifies it, or repurposes a non-high-risk system into a high-risk use - the flip guardrails for the adopted monitoring system.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Annex 5",
+      "relevance": "Annex V's content requirements define what the EU declaration of conformity the employer verifies before adoption must carry, part of the provider-side documentation the compliance-marker check examines.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 18",
+      "relevance": "Article 18 lets employees obtain restriction of the monitored-data processing where accuracy is contested, processing is unlawful, or objection is pending.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 24",
+      "relevance": "Article 24 obliges the employer to implement and demonstrate measures that keep the monitoring processing compliant, framing the accountability follow-up the deployment owes.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28",
+      "relevance": "Article 28 obliges the employer to engage any provider processing the monitored data on the company's behalf only as a processor under a contract carrying Article 28(3)'s guarantees.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 30",
+      "relevance": "Article 30 requires the monitoring processing to appear in the employer's records of activities, covering purposes, categories of data subjects and personal data, recipients, and the security measures.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 77",
+      "relevance": "Article 77 gives affected employees the right to lodge a complaint with a supervisory authority over the monitoring, so the employer should anticipate and respond to monitoring-related complaints.",
+      "strength": "weak"
     }
   ],
   "scenario_5": [
@@ -822,6 +912,30 @@
       "source_id": "gdpr",
       "provision": "Article 24",
       "relevance": "Article 24 obliges the telecom to implement and demonstrate the measures that keep the chatbot processing compliant - the accountability frame the by-design and records duties hang from.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 20",
+      "relevance": "Article 20 lets customers receive the data they provided through the chatbot in a structured, commonly used, machine-readable format where the processing rests on consent or contract and is carried out by automated means.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 21",
+      "relevance": "Article 21 gives customers the right to object to processing based on legitimate interests, including any profiling behind the chatbot's service.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28",
+      "relevance": "Article 28 obliges the telecom to engage the model provider processing chatbot conversations on the company's behalf only as a processor under a written contract carrying Article 28(3)'s guarantees.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35",
+      "relevance": "Article 35's DPIA duty attaches where processing using new technologies is likely to result in high risk, a check the chatbot's customer-data processing must pass before deployment.",
       "strength": "weak"
     }
   ],
@@ -1143,6 +1257,18 @@
       "provision": "Article 30",
       "relevance": "Article 30 requires the loan-assessment processing to appear in the fintech's records of activities, covering purposes, categories of data subjects and personal data, recipients, and a description of the security measures.",
       "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 24",
+      "relevance": "Article 24 frames the demonstrable compliance measures the fintech's loan-decisioning processing must produce.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28",
+      "relevance": "Article 28 obliges the fintech to engage any provider processing applicants' data on the company's behalf only as a processor under a contract carrying Article 28(3)'s guarantees.",
+      "strength": "weak"
     }
   ],
   "scenario_7": [
@@ -1379,6 +1505,54 @@
       "provision": "Article 28",
       "relevance": "Article 28 governs the insurer's reliance on the AI provider: pre-contract assessment, the register of information, information-security standards, and full institutional responsibility despite the provider's involvement, biting where the arrangement supports critical or important functions.",
       "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 113",
+      "relevance": "Article 113(2) fixes 2 August 2026 as the application date, confirming the high-risk deployer duties for the pricing system are in force at the time of use.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 4",
+      "relevance": "Article 4 scales the insurer's incident-response and third-party obligations to its size and risk profile, the proportionality lens applied across the analysis of the AI-vendor arrangement.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 29",
+      "relevance": "Article 29's concentration-risk duties apply to the insurer's reliance on the AI provider for underwriting, requiring substitutability analysis and consideration of alternative solutions.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30",
+      "relevance": "Article 30 prescribes the contractual provisions for the ICT services supporting the underwriting function, including locations, data protection, and incident assistance.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 18",
+      "relevance": "Article 18 lets applicants obtain restriction of the underwriting processing where accuracy is contested, processing is unlawful, or objection is pending.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28",
+      "relevance": "Article 28 obliges the insurer to engage the AI provider only as a processor under a written contract carrying Article 28(3)'s guarantees for the health data it processes on the insurer's behalf.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 30",
+      "relevance": "Article 30 requires the underwriting processing to appear in the insurer's records of activities, covering purposes, categories of data subjects and personal data, recipients, and the security measures.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32",
+      "relevance": "Article 32 obliges the insurer to secure the applicants' health data across the underwriting pipeline with technical and organisational measures proportionate to the risk.",
+      "strength": "moderate"
     }
   ],
   "scenario_8": [
@@ -1500,6 +1674,12 @@
       "source_id": "dora",
       "provision": "Article 8",
       "relevance": "Article 8 obliges the firm to run ICT risk assessments upon significant changes to network and information system infrastructure, the duty a major post-ransomware rebuild triggers.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 4",
+      "relevance": "Article 4 scales the firm's incident-response obligations to its size and risk profile, the proportionality lens applied across the post-ransomware response.",
       "strength": "weak"
     }
   ],
@@ -1689,6 +1869,24 @@
       "provision": "Article 35",
       "relevance": "Article 35's DPIA duty attaches where processing using new technologies is likely to result in high risk, notably systematic evaluation producing significant effects - a threshold the assistant's processing meets only conditionally, keeping the assessment a check rather than a settled duty.",
       "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 2",
+      "relevance": "Article 2(1)(b) establishes the institution's status as a Union deployer owing AI Act duties, and Article 2(7) confirms the GDPR runs alongside them for the customer data the assistant processes.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4",
+      "relevance": "Article 4(1) confirms that the customer conversations, account information, and identifiers flowing through the assistant are personal data, bringing the processing within the GDPR.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22",
+      "relevance": "Article 22 sets the decision-making boundary for the assistant: it supports customer-service employees rather than deciding for them, keeping any solely-automated decision and its safeguards off the deployment.",
+      "strength": "weak"
     }
   ],
   "scenario_10": [
@@ -1876,6 +2074,24 @@
       "source_id": "dora",
       "provision": "Article 10",
       "relevance": "Article 10 obliges the firm to operate detection mechanisms that promptly identify anomalous activities and cyber-attacks and single points of failure, the capability whose limits the attack exposed.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 25",
+      "relevance": "Article 25 makes the firm the provider, subject to the Article 16 obligations, where it puts its own name on the system, substantially modifies it, or repurposes it into a high-risk use - the flip guardrails for the adopted recommendation system.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 13",
+      "relevance": "Article 13(2)(f) obliges the firm to tell clients at collection about the processing and, where it involves automated decision-making including profiling, to give meaningful information about the logic and envisaged consequences of the trading-recommendation processing.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35",
+      "relevance": "Article 35's DPIA duty attaches where processing using new technologies is likely to result in high risk, notably systematic evaluation of clients through the recommendation system.",
       "strength": "weak"
     }
   ]
