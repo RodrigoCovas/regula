@@ -50,6 +50,14 @@ since #58 the operator's per-provision Strength ratings are the single source
 of expected Citation strength, riding the Citations alone. Authoring
 conventions:
 
+- The record's edits are milestone-stamped: the #85 two-job pass curated the
+  ten keys exhaustively; the recall-side completeness additions of 2026-09-09
+  (43 entries — the AI-Act adoption markers, GDPR completeness articles, and
+  DORA machinery blocks the operator added ahead of the 2026-09-10 run, all
+  additions, no removals); and the #94 curation pass (#96, 2026-09-10), which
+  applied the rubric below across all ten keys (36 operator-approved adds,
+  0 removals). Together they take the expected sets to 16–55 provisions per
+  scenario.
 - The relevance standard is one written rule, the **permissive materiality
   rubric** (the #94 curation standard, resolved on the T1 ledger (#95) and
   approved by the operator without corrections on 2026-09-10): a

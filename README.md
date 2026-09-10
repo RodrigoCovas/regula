@@ -140,7 +140,7 @@ A run's numbers are produced by the command under [Reproduce](#reproduce) and re
 Reading any run's numbers:
 
 - **Precision is pessimistic by construction.** A produced Citation outside the hand-authored expected set is not necessarily wrong — acceptable supplements the ground truth simply does not list count against precision — so precision reads as a floor on real precision. The produced-versus-expected dump in the report artifact exists for exactly this audit.
-- **Recall is budget-bound by design.** The Planner researches 1–50 Research targets per answer into one shared Evidence pool (ADR-0003, ADR-0012, ADR-0015, ADR-0018) against expected sets spanning 11–45 provisions, so recall reads low by construction; precision is the quality signal inside that ceiling.
+- **Recall is budget-bound by design.** The Planner researches 1–50 Research targets per answer into one shared Evidence pool (ADR-0003, ADR-0012, ADR-0015, ADR-0018) against expected sets spanning 16–55 provisions, so recall reads low by construction; precision is the quality signal inside that ceiling.
 - **Numbers are model-sensitive** (ADR-0009): they are comparable only within the model that produced them. Switching models re-measures; it does not inherit any prior claim.
 
 ### Reproduce
