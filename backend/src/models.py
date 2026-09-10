@@ -268,11 +268,18 @@ class Trace(BaseModel):
 
 
 class ClaimDecision(BaseModel):
-    """One Verifier decision in the detailed trace: kept, or rejected with why."""
+    """One Verifier decision in the detailed trace: kept, or rejected with why.
+
+    ``dropped_refs`` carries the auxiliary Evidence labels the deterministic
+    citation trim (spec #94, T5) dropped from a kept Finding's Citations —
+    every trim recorded, never silent. Kept decisions record them; an
+    engagement-gate flip preserves them, so the trim record outlives the
+    Finding it trimmed."""
 
     claim: str
     status: Literal["kept", "rejected"]
     reason: Optional[str] = None
+    dropped_refs: List[str] = Field(default_factory=list)
 
 
 class AnalyzeResponse(BaseModel):

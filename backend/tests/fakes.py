@@ -252,7 +252,7 @@ class ScriptedJudgeLlm:
 
 
 def grounded_verdict(statement: str, strength: Strength, refs: list[str]) -> Verdict:
-    return Verdict(statement=statement, supported=True, strength=strength, evidence_refs=refs)
+    return Verdict(statement=statement, supported=True, strength=strength, decisive_refs=refs)
 
 
 class ScriptedJudge:
@@ -313,9 +313,9 @@ def make_offline_llm(usage: dict | None = None) -> ScriptedLlm:
         ),
         verdicts=Verdicts(
             verdicts=[
-                Verdict(statement="Creditworthiness evaluation is a high-risk use case.", supported=True, strength=Strength.strong, evidence_refs=["E1"]),
+                Verdict(statement="Creditworthiness evaluation is a high-risk use case.", supported=True, strength=Strength.strong, decisive_refs=["E1"]),
                 Verdict(statement="Loan scoring data counts as special-category data.", supported=False),
-                Verdict(statement="The system qualifies as an AI system under the definitions.", supported=True, strength=Strength.weak, evidence_refs=["E3"]),
+                Verdict(statement="The system qualifies as an AI system under the definitions.", supported=True, strength=Strength.weak, decisive_refs=["E3"]),
             ]
         ),
         proposals=ActionProposals(

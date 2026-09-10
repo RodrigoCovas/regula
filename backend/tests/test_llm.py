@@ -288,6 +288,61 @@ def test_verdicts_schema_example_names_the_materiality_field():
     assert '"material": <boolean>' in shape
 
 
+def test_verdict_citation_roles_are_validated_alongside_support():
+    """The Verdict's cited Evidence splits into decisive and auxiliary roles
+    (spec #94, T5): the schema validates both reference lists beside support,
+    so the claim-decision step can trim the auxiliary ones deterministically."""
+    from src.live_workflow import Verdicts
+
+    content = (
+        '{"verdicts": [{"statement": "Claim", "supported": true, '
+        '"material": true, "strength": "strong", '
+        '"decisive_refs": ["E1"], "auxiliary_refs": ["E2"]}]}'
+    )
+    transport = FakeTransport(responses=[chat_response(content)])
+    client = make_client(transport)
+
+    verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
+
+    verdict = verdicts.verdicts[0]
+    assert verdict.decisive_refs == ["E1"]
+    assert verdict.auxiliary_refs == ["E2"]
+
+
+def test_verdict_flat_refs_are_read_as_decisive_when_the_roles_are_absent():
+    """The flat-refs repair (spec #94, T5): a provider that has not learned the
+    decisive/auxiliary split cites one ``evidence_refs`` list — read as
+    all-decisive, so nothing is trimmed that the Verifier never judged
+    auxiliary."""
+    from src.live_workflow import Verdicts
+
+    content = (
+        '{"verdicts": [{"statement": "Claim", "supported": true, '
+        '"strength": "strong", "evidence_refs": ["E1", "E2"]}]}'
+    )
+    transport = FakeTransport(responses=[chat_response(content)])
+    client = make_client(transport)
+
+    verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
+
+    verdict = verdicts.verdicts[0]
+    assert verdict.decisive_refs == ["E1", "E2"]
+    assert verdict.auxiliary_refs == []
+
+
+def test_verdicts_schema_example_names_the_citation_roles():
+    """The shape template names the two role lists, so the live model learns
+    to split its cited Evidence — and no longer shows the flat field."""
+    from src.llm import _schema_example
+    from src.live_workflow import Verdicts
+
+    shape = _schema_example(Verdicts)
+
+    assert '"decisive_refs": [<string>]' in shape
+    assert '"auxiliary_refs": [<string>]' in shape
+    assert "evidence_refs" not in shape
+
+
 def test_enum_refs_render_as_scalar_choices_in_the_instruction():
     from src.llm import _schema_example
     from src.live_workflow import Verdicts

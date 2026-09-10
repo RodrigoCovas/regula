@@ -32,6 +32,7 @@ from src.live_workflow import (
     ProvisionSummary,
     ResearchTarget,
     Summaries,
+    Verdict,
     Verdicts,
 )
 from src.main import app
@@ -170,7 +171,7 @@ def test_scenario_settled_contingency_is_discarded_as_unsupported_and_recorded(l
     ])
     llm.verdicts = Verdicts(verdicts=[
         Verdict(statement=conditional, supported=False),
-        Verdict(statement=stated, supported=True, strength=Strength.strong, evidence_refs=["E1"]),
+        Verdict(statement=stated, supported=True, strength=Strength.strong, decisive_refs=["E1"]),
     ])
     llm.proposals = ActionProposals(proposals=[])
     install_fake_pipeline(llm, FakeRetriever(per_query={"ICT incident reporting": [incident_chunk]}))
@@ -223,8 +224,8 @@ def test_supported_but_immaterial_claim_is_rejected_with_the_materiality_reason(
         DraftClaim(statement=immaterial, evidence_refs=["E1"]),
     ])
     llm.verdicts = Verdicts(verdicts=[
-        Verdict(statement=kept, supported=True, material=True, strength=Strength.strong, evidence_refs=["E1"]),
-        Verdict(statement=immaterial, supported=True, material=False, strength=Strength.moderate, evidence_refs=["E1"]),
+        Verdict(statement=kept, supported=True, material=True, strength=Strength.strong, decisive_refs=["E1"]),
+        Verdict(statement=immaterial, supported=True, material=False, strength=Strength.moderate, decisive_refs=["E1"]),
     ])
     llm.proposals = ActionProposals(proposals=[])
     llm.summaries = Summaries(summaries=[
@@ -277,7 +278,7 @@ def test_exclusion_finding_appears_when_the_pool_holds_a_perimeter_provision(liv
     llm.plan = Plan(targets=[ResearchTarget(query="DORA applicability financial entities")])
     llm.claims = DraftClaims(claims=[DraftClaim(statement=exclusion, evidence_refs=["E1"])])
     llm.verdicts = Verdicts(verdicts=[
-        Verdict(statement=exclusion, supported=True, strength=Strength.moderate, evidence_refs=["E1"]),
+        Verdict(statement=exclusion, supported=True, strength=Strength.moderate, decisive_refs=["E1"]),
     ])
     llm.proposals = ActionProposals(proposals=[])
     llm.summaries = Summaries(summaries=[
@@ -655,7 +656,7 @@ def test_a_duplicate_of_a_rejected_statement_is_decided_on_its_own_verdict(live_
     )
     llm.verdicts = Verdicts(verdicts=[
         Verdict(statement=duplicated, supported=False, material=True),
-        Verdict(statement=duplicated, supported=True, material=True, strength=Strength.strong, evidence_refs=["E1"]),
+        Verdict(statement=duplicated, supported=True, material=True, strength=Strength.strong, decisive_refs=["E1"]),
     ])
     llm.proposals = ActionProposals(proposals=[])
     llm.summaries = Summaries(summaries=[
@@ -2907,7 +2908,7 @@ def duty_llm(*claim_triples: tuple[str, "str | list[str]", Strength]) -> "Script
             statement=statement,
             supported=True,
             strength=strength,
-            evidence_refs=refs if isinstance(refs, list) else [refs],
+            decisive_refs=refs if isinstance(refs, list) else [refs],
         )
         for statement, refs, strength in claim_triples
     ]
@@ -3614,3 +3615,456 @@ def test_citation_discipline_drops_framing_only_citations_and_keeps_decisive_one
 
     assert data["trace"]["unsupported_claims_discarded"] == []
     assert len(llm.calls) == 5, "the anchor landed in the first pass: no corrective re-prompt owed"
+
+
+# --- Deterministic citation trims with protected refs (spec #94, T5) ------------
+
+
+TRIM_RETRIEVALS = {
+    "security of processing": [GDPR_SECURITY_CHUNK, NOTIFICATION_CHUNK],
+}
+
+
+TRIM_DUTY_STATEMENT = (
+    "The company must implement appropriate technical and organisational security "
+    "measures for the applicant data."
+)
+
+
+def trim_llm(*verdicts: "Verdict") -> "ScriptedLlm":
+    """A scripted run over the security-duty claim with one split Verdict —
+    the raw material the deterministic citation trim reads."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget
+
+    duty = TRIM_DUTY_STATEMENT
+    return ScriptedLlm(
+        plan=Plan(targets=[ResearchTarget(query="security of processing")]),
+        claims=DraftClaims(claims=[
+            DraftClaim(statement=duty, evidence_refs=["E1", "E2"]),
+        ]),
+        verdicts=Verdicts(verdicts=list(verdicts)),
+        proposals=ActionProposals(proposals=[]),
+        summaries=Summaries(summaries=[
+            ProvisionSummary(
+                ref="P1",
+                relevance="Article 32 imposes the security measures the duty finding turns on.",
+                strength=Strength.strong,
+            ),
+        ]),
+    )
+
+
+def assert_trim_step(data, statement: str) -> dict:
+    """The kept decision for one statement, from the Verifier's detailed-trace step."""
+    decisions = {d["claim"]: d for d in verifier_step(data)["claim_decisions"]}
+    return decisions[statement]
+
+
+def test_auxiliary_refs_are_trimmed_from_kept_findings_and_every_drop_is_recorded(live_client):
+    """The deterministic citation trim (spec #94, T5): the Verdict's auxiliary
+    references are dropped from the kept Finding's Citations by application
+    code — the rule survives prompt drift — and every drop is recorded on the
+    kept decision in the detailed trace and counted in the Execution trace."""
+
+    duty = TRIM_DUTY_STATEMENT
+    llm = trim_llm(
+        Verdict(
+            statement=duty,
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E1"],
+            auxiliary_refs=["E2"],
+        ),
+    )
+    install_fake_pipeline(llm, FakeRetriever(per_query=TRIM_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f for f in data["answer"]["findings"] if f["statement"] == duty]
+    assert len(findings) == 1, "the claim stays kept — only its auxiliary Citation goes"
+    # The auxiliary reference is dropped: the Finding cites only the provision
+    # that decides it, though the notification chunk sat in the Evidence pool.
+    assert [(c["source_id"], c["article_number"]) for c in findings[0]["citations"]] == [("gdpr", 32)]
+    assert all(c["article_number"] != 33 for c in data["answer"]["citations"])
+
+    decision = assert_trim_step(data, duty)
+    assert decision["status"] == "kept"
+    assert decision["dropped_refs"] == ["E2"], "every drop is recorded, never silent"
+
+    assert "trimmed 1 auxiliary citation" in data["trace"]["summary"].lower(), (
+        "the Execution trace accounts for the trim"
+    )
+
+
+def test_a_finding_never_falls_below_one_resolvable_ref(live_client):
+    """The trim's floor (spec #94, T5): when every decisive reference fails to
+    resolve and the auxiliary drop would leave no Citation at all, the first
+    resolvable reference survives — a Finding never falls below one resolvable
+    ref, and the still-dropped remainder stays recorded."""
+
+    duty = TRIM_DUTY_STATEMENT
+    llm = trim_llm(
+        Verdict(
+            statement=duty,
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E99"],
+            auxiliary_refs=["E1", "E2"],
+        ),
+    )
+    install_fake_pipeline(llm, FakeRetriever(per_query=TRIM_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f for f in data["answer"]["findings"] if f["statement"] == duty]
+    assert len(findings) == 1, "the floor keeps the Finding alive"
+    assert [(c["source_id"], c["article_number"]) for c in findings[0]["citations"]] == [("gdpr", 32)], (
+        "the first resolvable reference survives"
+    )
+
+    decision = assert_trim_step(data, duty)
+    assert decision["dropped_refs"] == ["E2"], "the remainder is dropped and recorded"
+
+
+def test_a_supported_claim_whose_refs_resolve_to_nothing_is_still_rejected(live_client):
+    """The trim never fabricates a Citation: when no listed reference resolves
+    — decisive or auxiliary — the claim is rejected with the no-citable-
+    evidence reason, exactly as before the trim existed."""
+
+    duty = TRIM_DUTY_STATEMENT
+    llm = trim_llm(
+        Verdict(
+            statement=duty,
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E98"],
+            auxiliary_refs=["E99"],
+        ),
+    )
+    install_fake_pipeline(llm, FakeRetriever(per_query=TRIM_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert all(f["statement"] != duty for f in data["answer"]["findings"])
+    assert duty in data["trace"]["unsupported_claims_discarded"]
+    decision = assert_trim_step(data, duty)
+    assert decision["status"] == "rejected"
+    assert decision["reason"] == "the selected evidence resolves to no citable provision"
+
+
+def test_an_unresolvable_auxiliary_ref_rides_the_unknown_label_warning(live_client):
+    """An auxiliary reference matching no Chunk never becomes a Citation, so
+    it is not a recorded trim drop: it rides the same unknown-label treatment
+    the decisive references always got, and ``dropped_refs`` carries only
+    references the trim actually removed."""
+    duty = TRIM_DUTY_STATEMENT
+    llm = trim_llm(
+        Verdict(
+            statement=duty,
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E1"],
+            auxiliary_refs=["E2", "E99"],
+        ),
+    )
+    install_fake_pipeline(llm, FakeRetriever(per_query=TRIM_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f for f in data["answer"]["findings"] if f["statement"] == duty]
+    assert [(c["source_id"], c["article_number"]) for c in findings[0]["citations"]] == [("gdpr", 32)]
+    decision = assert_trim_step(data, duty)
+    assert decision["status"] == "kept"
+    assert decision["dropped_refs"] == ["E2"], "only the resolved auxiliary ref is a trim drop"
+
+
+def test_a_label_listed_in_both_roles_rides_one_citation_and_records_no_phantom_drop(live_client):
+    """A label the Verdict lists as both decisive and auxiliary keeps its one
+    decisive Citation — the auxiliary copy drops nothing, so no drop is
+    recorded for it."""
+    duty = TRIM_DUTY_STATEMENT
+    llm = trim_llm(
+        Verdict(
+            statement=duty,
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E1"],
+            auxiliary_refs=["E1", "E2"],
+        ),
+    )
+    install_fake_pipeline(llm, FakeRetriever(per_query=TRIM_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f for f in data["answer"]["findings"] if f["statement"] == duty]
+    assert [(c["source_id"], c["article_number"]) for c in findings[0]["citations"]] == [("gdpr", 32)], (
+        "the label rides its decisive Citation exactly once"
+    )
+    decision = assert_trim_step(data, duty)
+    assert decision["dropped_refs"] == ["E2"], "no phantom drop for the dual-listed label"
+
+
+def test_a_perimeter_provision_ref_survives_the_auxiliary_drop_and_keeps_the_gate_honest(live_client):
+    """Drop immunity (spec #94, T5): a ref matching a Perimeter provision
+    survives the auxiliary drop regardless of the Verifier's role judgment —
+    the Engagement state machine depends on it — so the Exclusion Finding
+    keeps its Perimeter Citation and the engagement gate still closes the
+    regime over the trimmed set."""
+
+    exclusion = (
+        "DORA's incident regime covers financial entities only, and the company is an "
+        "online shop rather than a financial entity, so the regime does not reach it."
+    )
+    duty = "The company must report major ICT-related incidents under DORA's reporting regime."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="DORA applicability financial entities"),
+        ResearchTarget(query="ICT incident reporting"),
+        ResearchTarget(query="security of processing"),
+    ])
+    llm.claims = DraftClaims(claims=[
+        DraftClaim(statement=exclusion, evidence_refs=["E1", "E2", "E3"]),
+        DraftClaim(statement=duty, evidence_refs=["E2"]),
+    ])
+    llm.verdicts = Verdicts(verdicts=[
+        Verdict(
+            statement=exclusion,
+            supported=True,
+            material=True,
+            strength=Strength.moderate,
+            decisive_refs=["E2"],
+            auxiliary_refs=["E1", "E3"],
+        ),
+        Verdict(
+            statement=duty,
+            supported=True,
+            material=True,
+            strength=Strength.moderate,
+            decisive_refs=["E2"],
+        ),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    llm.summaries = Summaries(summaries=[
+        ProvisionSummary(
+            ref="P1",
+            relevance="Article 19 imposes the incident-reporting duties the exclusion carves the company out of.",
+            strength=Strength.moderate,
+        ),
+        ProvisionSummary(
+            ref="P2",
+            relevance="Article 2 decides who DORA covers, which is what the exclusion turns on.",
+            strength=Strength.moderate,
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=RETAILER_RETRIEVALS))
+
+    data = post_gate_scenario(live_client)
+
+    by_statement = {f["statement"]: f for f in data["answer"]["findings"]}
+    exclusion_finding = by_statement[exclusion]
+    # Decisive first, then the protected perimeter ref — kept despite its
+    # auxiliary role, so the Exclusion Finding stays evidence-backed.
+    assert [(c["source_id"], c["article_number"]) for c in exclusion_finding["citations"]] == [
+        ("dora", 19),
+        ("dora", 2),
+    ]
+    decision = assert_trim_step(data, exclusion)
+    assert decision["status"] == "kept"
+    assert decision["dropped_refs"] == ["E3"], "the unguarded auxiliary ref is still trimmed"
+
+    # The Engagement gate reads the trimmed set: the surviving perimeter
+    # Citation closes DORA, so the duty limb scoped only to it drops.
+    assert duty not in by_statement
+    assert duty in data["trace"]["unsupported_claims_discarded"]
+    duty_decision = assert_trim_step(data, duty)
+    assert "DORA Article 2" in duty_decision["reason"]
+    assert "not reaching the scenario" in duty_decision["reason"]
+    gate_records = verifier_step(data)["engagement_states"]
+    assert gate_records == [{
+        "source_id": "dora",
+        "state": "closed",
+        "conflict": False,
+        "open": [],
+        "closed": [exclusion],
+    }]
+
+
+def test_a_reserved_anchor_cited_as_auxiliary_survives_the_trim(live_client):
+    """Drop immunity for Reserved anchors (spec #94, T5): a kept Finding
+    citing the reserved engagement-threshold provision keeps it even when the
+    Verdict rated the reference auxiliary — the anchor backstop depends on
+    it, so no corrective re-prompt is owed."""
+
+    engagement = (
+        "The breach must be notified to the authority without undue delay, and the "
+        "processing of the employee data must respect the data-protection principles."
+    )
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[
+        ResearchTarget(query="principles relating to processing", reserved=True),
+        ResearchTarget(query="breach notification duties"),
+    ])
+    llm.claims = DraftClaims(claims=[DraftClaim(statement=engagement, evidence_refs=["E1", "E2"])])
+    llm.verdicts = Verdicts(verdicts=[
+        Verdict(
+            statement=engagement,
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E2"],
+            auxiliary_refs=["E1"],
+        ),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    llm.summaries = Summaries(summaries=[
+        ProvisionSummary(
+            ref="P1",
+            relevance="The notification duty is what the question turns on.",
+            strength=Strength.moderate,
+        ),
+        ProvisionSummary(
+            ref="P2",
+            relevance="The principles provision decides whether the processing is lawful at all.",
+            strength=Strength.strong,
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=ANCHOR_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # The auxiliary-rated anchor survived: the strong engagement Finding cites
+    # the threshold provision alongside its decisive citation.
+    strong = next(f for f in data["answer"]["findings"] if f["statement"] == engagement)
+    assert [(c["source_id"], c["article_number"]) for c in strong["citations"]] == [
+        ("gdpr", 33),
+        ("gdpr", 5),
+    ]
+    decision = assert_trim_step(data, engagement)
+    assert decision["status"] == "kept"
+    assert decision["dropped_refs"] == [], "the anchor ref is immune, never dropped"
+    # The anchor backstop depends on the surviving ref: no re-prompt owed.
+    assert len(claims_calls(llm)) == 1
+    assert researcher_step(data).get("correction") is None
+
+
+def test_the_corrective_pass_anchor_survives_an_auxiliary_role(live_client):
+    """Drop immunity holds in the backstop's merged decision too (spec #94,
+    T5): the corrective re-prompt's engagement Claim lands with its anchor
+    ref even when the retry Verdict rated it auxiliary — the second
+    claim-decision pass protects the same refs."""
+
+    llm = anchor_llm()
+    llm.verdicts_retry = Verdicts(verdicts=[
+        Verdict(
+            statement="The processing of the employee data must respect the data-protection principles.",
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E2"],
+            auxiliary_refs=["E1"],
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=ANCHOR_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert len(claims_calls(llm)) == 2, "the backstop still owes its one corrective re-prompt"
+    strong = next(f for f in data["answer"]["findings"] if f["strength"] == "strong")
+    assert [(c["source_id"], c["article_number"]) for c in strong["citations"]] == [
+        ("gdpr", 33),
+        ("gdpr", 5),
+    ], "the anchor survives its auxiliary role in the corrective pass"
+
+
+def test_the_proposer_and_summarizer_see_the_trimmed_set(live_client):
+    """Trims run before the downstream consumers (spec #94, T5): a proposal
+    grounded on a trimmed Citation's label resolves to nothing and is
+    rejected with a recorded reason, and a relevance statement referencing a
+    trimmed provision's label names no cited provision — both read exactly
+    the labels the trimmed set left behind."""
+
+    duty = TRIM_DUTY_STATEMENT
+    llm = trim_llm(
+        Verdict(
+            statement=duty,
+            supported=True,
+            material=True,
+            strength=Strength.strong,
+            decisive_refs=["E1"],
+            auxiliary_refs=["E2"],
+        ),
+    )
+    llm.proposals = ActionProposals(proposals=[
+        ActionProposal(
+            action="Have a qualified professional verify the security measures against the company's actual setup.",
+            kind="verify_against_facts",
+            citation_refs=["C1"],
+        ),
+        ActionProposal(
+            action="Have a qualified professional check the breach-notification duty against the company's processes.",
+            kind="verify_against_facts",
+            citation_refs=["C2"],
+        ),
+    ])
+    llm.summaries = Summaries(summaries=[
+        ProvisionSummary(
+            ref="P1",
+            relevance="Article 32 imposes the security measures the duty finding turns on.",
+            strength=Strength.strong,
+        ),
+        ProvisionSummary(
+            ref="P2",
+            relevance="Article 33 imposes the notification duty the trimmed reference pointed at.",
+            strength=Strength.moderate,
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query=TRIM_RETRIEVALS))
+
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # The Proposer saw the trimmed set: C2 — the trimmed reference's label —
+    # resolves to nothing, so that proposal is rejected and recorded.
+    proposer_steps = [s for s in data["detailed_trace"] if s["step"] == "proposer"]
+    by_action = {d["action"]: d for d in proposer_steps[0]["action_decisions"]}
+    kept = by_action[
+        "Have a qualified professional verify the security measures against the company's actual setup."
+    ]
+    assert kept["status"] == "kept"
+    rejected = by_action[
+        "Have a qualified professional check the breach-notification duty against the company's processes."
+    ]
+    assert rejected["status"] == "rejected"
+    assert rejected["reason"] == "its citations resolve to no kept Finding"
+    assert rejected["dropped_refs"] == ["C2"]
+
+    # The Summarizer saw the trimmed set too: P2 — the trimmed provision —
+    # names no cited provision, and its statement is rejected and recorded.
+    summarizer_steps = [s for s in data["detailed_trace"] if s["step"] == "summarizer"]
+    summary_decisions = {d["ref"]: d for d in summarizer_steps[0]["summary_decisions"]}
+    assert summary_decisions["P1"]["status"] == "kept"
+    assert summary_decisions["P2"]["status"] == "rejected"
+    assert summary_decisions["P2"]["reason"] == "the label names no cited provision"
+
+    assert all(c["article_number"] != 33 for c in data["answer"]["citations"])
+    assert len(llm.calls) == 5, "no corrective re-prompt fired: P1 was covered in the first pass"

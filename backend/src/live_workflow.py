@@ -242,13 +242,39 @@ class Verdict(BaseModel):
     Answer turns on is immaterial and never becomes a Finding. It defaults
     to True — a verdict that omits the field is read as material, so a
     provider that has not learned the field never rejects a supported claim
-    by accident."""
+    by accident.
+
+    The cited Evidence splits into decisive and auxiliary roles (spec #94,
+    T5): ``decisive_refs`` name the provisions the claim's truth turns on,
+    ``auxiliary_refs`` the ones the claim-decision step trims
+    deterministically — never below one resolvable reference, with
+    Reserved-anchor and Perimeter-provision refs immune. A provider that has
+    not learned the split cites one flat ``evidence_refs`` list, read as
+    all-decisive."""
 
     statement: str
     supported: bool
     material: bool = True
     strength: Strength = Strength.moderate
-    evidence_refs: list[str] = Field(default_factory=list)
+    decisive_refs: list[str] = Field(default_factory=list)
+    auxiliary_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_flat_refs(cls, data: Any) -> Any:
+        """The flat-refs repair: a provider that has not learned the split
+        cites one ``evidence_refs`` list — read as all-decisive, so nothing
+        is trimmed that the Verifier never judged auxiliary. When the split
+        is present the flat field is ignored."""
+        if (
+            isinstance(data, dict)
+            and "evidence_refs" in data
+            and "decisive_refs" not in data
+            and "auxiliary_refs" not in data
+        ):
+            data = dict(data)
+            data["decisive_refs"] = data.pop("evidence_refs")
+        return data
 
     @field_validator("strength", mode="before")
     @classmethod
@@ -641,16 +667,69 @@ def derive_citation(chunk: Chunk) -> Citation:
     })
 
 
-def _resolve_refs(refs: list[str], evidence_by_label: dict[str, Chunk]) -> tuple[list[Citation], list[str]]:
-    """Map evidence labels back to Citations, reporting labels that match no Chunk."""
-    resolved, unknown = [], []
-    for ref in refs:
+def _trim_citations(
+    decisive_refs: list[str],
+    auxiliary_refs: list[str],
+    evidence_by_label: dict[str, Chunk],
+    protected_refs: frozenset[ProvisionTarget],
+) -> tuple[list[Citation], list[str], list[str]]:
+    """The deterministic citation trim (spec #94, T5): the Verdict's cited
+    Evidence becomes the Finding's Citations under application code's rule,
+    never the LLM's say-so.
+
+    The decisive references resolve to Citations in listed order; each
+    auxiliary reference survives only when it matches a protected ref — a
+    Perimeter provision or a Reserved anchor, whose Citations the Engagement
+    state machine and the anchor backstop depend on — regardless of the
+    Verifier's role judgment. Every other auxiliary reference is dropped,
+    and every drop is returned to be recorded on the kept decision, never
+    silent. A Finding never falls below one resolvable reference: when the
+    trim would leave none, the first resolvable auxiliary reference survives.
+
+    A reference matching no Chunk resolves to nothing and rides the existing
+    unknown-label warning, decisive or auxiliary alike — it never becomes a
+    Citation, so it is never a recorded trim drop. A label listed as both
+    decisive and auxiliary rides its one decisive Citation; the auxiliary
+    copy drops nothing and records nothing.
+
+    Returns the kept Citations (decisive first, then surviving auxiliary
+    ones), the dropped labels, and the unresolvable labels.
+    """
+    kept: list[Citation] = []
+    unknown: list[str] = []
+    dropped: list[str] = []
+
+    def citation_for(ref: str) -> Optional[Citation]:
+        """The Citation one label resolves to, or None when it names no Chunk."""
         chunk = evidence_by_label.get(ref)
-        if chunk is None:
+        return derive_citation(chunk) if chunk is not None else None
+
+    kept_refs: set[str] = set()
+    for ref in decisive_refs:
+        citation = citation_for(ref)
+        if citation is None:
             unknown.append(ref)
         else:
-            resolved.append(derive_citation(chunk))
-    return resolved, unknown
+            kept.append(citation)
+            kept_refs.add(ref)
+    for ref in auxiliary_refs:
+        if ref in kept_refs:
+            continue
+        citation = citation_for(ref)
+        if citation is None:
+            unknown.append(ref)
+        elif citation.provision_target in protected_refs:
+            kept.append(citation)
+        else:
+            dropped.append(ref)
+    if not kept:
+        for ref in auxiliary_refs:
+            citation = citation_for(ref)
+            if citation is not None:
+                kept.append(citation)
+                dropped.remove(ref)
+                break
+    return kept, dropped, unknown
 
 
 _NO_CITABLE_EVIDENCE_REASON = "the selected evidence resolves to no citable provision"
@@ -667,7 +746,10 @@ def _normalized_statement(statement: str) -> str:
 
 
 def _decide_claims(
-    drafted: DraftClaims, verdicts: Verdicts, evidence_by_label: dict[str, Chunk]
+    drafted: DraftClaims,
+    verdicts: Verdicts,
+    evidence_by_label: dict[str, Chunk],
+    protected_refs: frozenset[ProvisionTarget],
 ) -> tuple[list[Finding], list[str], list[ClaimDecision]]:
     """Turn verdicts into kept Findings, discarded claims, and per-claim decisions.
 
@@ -681,6 +763,15 @@ def _decide_claims(
     Verdicts in draft order, so first drafted wins — every later copy of an
     earlier KEPT statement is rejected with the duplicate reason, while a
     later copy whose earlier twin was rejected is decided on its own verdict.
+
+    The deterministic citation trim (spec #94, T5) runs here, before the
+    engagement gate — so the gate, the Proposer's grounding anchors, and the
+    Summarizer all see the trimmed set: the verdict's auxiliary references
+    are dropped from the kept Finding's Citations, every drop recorded on the
+    kept decision, with the refs in ``protected_refs`` — the Perimeter
+    provisions and the Reserved anchors — immune regardless of the Verifier's
+    role judgment, and the Finding never falling below one resolvable
+    reference.
 
     Every drafted claim must end up decided: a claim the Verifier never
     returned a verdict for is recorded as rejected too — nothing drafted may
@@ -717,17 +808,21 @@ def _decide_claims(
             reject(verdict.statement, _IMMATERIAL_REASON)
             continue
         if verdict.supported:
-            citations, unknown_refs = _resolve_refs(verdict.evidence_refs, evidence_by_label)
+            citations, dropped_refs, unknown_refs = _trim_citations(
+                verdict.decisive_refs, verdict.auxiliary_refs, evidence_by_label, protected_refs
+            )
             if unknown_refs:
                 logger.warning(
                     "verifier cited evidence labels matching no Chunk (%s); dropped from the claim's Citations",
                     ", ".join(unknown_refs),
                 )
         else:
-            citations = []
+            citations, dropped_refs = [], []
         if citations:
             findings.append(Finding(statement=verdict.statement, strength=verdict.strength, citations=citations))
-            decisions.append(ClaimDecision(claim=verdict.statement, status="kept"))
+            decisions.append(
+                ClaimDecision(claim=verdict.statement, status="kept", dropped_refs=dropped_refs)
+            )
             kept_statements.add(normalized)
         else:
             reason = "no Evidence in the Corpus supports this claim"
@@ -891,7 +986,14 @@ def _engagement_gate(
         if decision.status == "kept":
             if position in drops:
                 new_decisions.append(
-                    ClaimDecision(claim=decision.claim, status="rejected", reason=drops[position])
+                    ClaimDecision(
+                        claim=decision.claim,
+                        status="rejected",
+                        reason=drops[position],
+                        # The trim record survives the flip: the claim leaves
+                        # the Answer whole, its citation drops stay auditable.
+                        dropped_refs=decision.dropped_refs,
+                    )
                 )
             else:
                 new_decisions.append(decision)
@@ -1196,6 +1298,55 @@ class ReservedAnchor(NamedTuple):
     provisions: list[str]
 
 
+def _reserved_anchor(
+    state: LiveState, target: ResearchTarget, evidence_by_label: dict[str, Chunk]
+) -> Optional[tuple[ProvisionTarget, list[str]]]:
+    """One reserved target's anchor (issue #84): the provision of the target's
+    top-ranked pool hit, plus every pool label of the target's retrieval that
+    carries it — the single derivation the anchor backstop's flag check and
+    the citation trim's protection share. None when the target's Evidence
+    never reached the pool: nothing could cite it, so nothing flags or
+    protects it."""
+    labels = [
+        label
+        for label in state.reserved_anchor_labels.get(target.query, [])
+        if label in evidence_by_label
+    ]
+    if not labels:
+        return None
+    # The anchor: the provision of the target's top-ranked pool hit, with
+    # every pool label of the target's retrieval that cites it.
+    anchor_chunk = evidence_by_label[labels[0]]
+    anchor_target = anchor_chunk.provision_target
+    anchor_labels = [
+        label
+        for label in labels
+        if evidence_by_label[label].provision_target == anchor_target
+    ]
+    return anchor_target, anchor_labels
+
+
+def _protected_refs(
+    state: LiveState, evidence_by_label: dict[str, Chunk]
+) -> frozenset[ProvisionTarget]:
+    """The refs the citation trim may never drop (spec #94, T5): the corpus's
+    Perimeter provisions — the Engagement state machine's inputs — and the
+    reserved targets' anchors — what the anchor backstop checks kept Findings
+    cite. Both derive deterministically in application code, from the same
+    structures the gate and the backstop read; the Verifier's role judgment
+    never removes them."""
+    protected: set[ProvisionTarget] = set()
+    for targets in perimeter_provisions().values():
+        protected.update(targets)
+    for target in state.plan:
+        if not target.reserved:
+            continue
+        anchor = _reserved_anchor(state, target, evidence_by_label)
+        if anchor is not None:
+            protected.add(anchor[0])
+    return frozenset(protected)
+
+
 def _uncited_reserved_anchors(
     state: LiveState, findings: list[Finding]
 ) -> list[ReservedAnchor]:
@@ -1220,29 +1371,19 @@ def _uncited_reserved_anchors(
     for target in state.plan:
         if not target.reserved:
             continue
-        labels = [
-            label
-            for label in state.reserved_anchor_labels.get(target.query, [])
-            if label in evidence_by_label
-        ]
-        if not labels:
+        anchor = _reserved_anchor(state, target, evidence_by_label)
+        if anchor is None:
             continue
-        # The anchor: the provision of the target's top-ranked pool hit, with
-        # every pool label of the target's retrieval that cites it.
-        anchor_chunk = evidence_by_label[labels[0]]
-        anchor_target = anchor_chunk.provision_target
+        anchor_target, anchor_labels = anchor
         if anchor_target in cited:
             continue
-        anchor_labels = [
-            label
-            for label in labels
-            if evidence_by_label[label].provision_target == anchor_target
-        ]
         anchors.append(
             ReservedAnchor(
                 query=target.query,
                 labels=anchor_labels,
-                provisions=[f"{anchor_chunk.source_id} {_provision_label(anchor_chunk)}"],
+                provisions=[
+                    f"{anchor_target.source_id} {_provision_target_label(anchor_target)}"
+                ],
             )
         )
     return anchors
@@ -1550,6 +1691,11 @@ def _build_graph(
         here: kept Findings, per-claim decisions, and the prompt's citation
         labels all come from this single computation, carried through the
         state so the grounding gate validates exactly the labels the LLM saw.
+        The derivation applies the deterministic citation trims (spec #94,
+        T5): auxiliary references are dropped, every drop recorded, with the
+        Perimeter-provision and Reserved-anchor refs immune — so the gate,
+        the Proposer's grounding anchors, and the Summarizer all see the
+        trimmed set.
 
         Before that derivation runs, the reserved-anchor backstop (issue #84)
         checks the reserved engagement-threshold targets: a reserved target
@@ -1559,15 +1705,18 @@ def _build_graph(
         correction is recorded in the trace, never silent.
 
         After the derivation (and the merge) the engagement gate (issue #86)
-        runs over the final kept set: duty-area Findings scoped only to
-        closed Regulations are rejected with recorded reasons, and the
+        runs over the final trimmed kept set: duty-area Findings scoped only
+        to closed Regulations are rejected with recorded reasons, and the
         per-Regulation engagement record travels through the state into the
         detailed trace.
         """
         evidence_by_label = {item.label: item.chunk for item in state.evidence}
+        # The refs the citation trim may never drop (spec #94, T5): computed
+        # once, from the same pool labels every claim decision reads.
+        protected_refs = _protected_refs(state, evidence_by_label)
         if progress:
             progress(PhaseReport(phase="proposer", message="distilling the kept Findings into referral Actions grounded in their Citations"))
-        findings, _, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label)
+        findings, _, decisions = _decide_claims(state.drafted, state.verdicts, evidence_by_label, protected_refs)
         drafted, verdicts = state.drafted, state.verdicts
         anchor_correction: Optional[str] = None
         corrective = _corrective_claims_pass(state, llm, findings)
@@ -1575,7 +1724,7 @@ def _build_graph(
             anchor_correction = corrective.correction
             drafted = DraftClaims(claims=[*state.drafted.claims, *corrective.drafts.claims])
             verdicts = Verdicts(verdicts=[*state.verdicts.verdicts, *corrective.verdicts.verdicts])
-            findings, _, decisions = _decide_claims(drafted, verdicts, evidence_by_label)
+            findings, _, decisions = _decide_claims(drafted, verdicts, evidence_by_label, protected_refs)
         findings, decisions, engagement_states = _engagement_gate(findings, decisions)
         if not findings:
             # No kept Finding anchors anything: the node itself emits the
@@ -1800,11 +1949,21 @@ def run_live_analysis(
     else:
         kept_proposals = sum(1 for d in proposal_decisions if d.status == "kept")
         rejected_proposals = sum(1 for d in proposal_decisions if d.status == "rejected")
+        # The deterministic citation trims (spec #94, T5) are accounted here:
+        # every auxiliary Citation the claim decisions dropped, counted once
+        # in the user-visible summary — kept decisions and gate-flipped
+        # rejections alike, so no trim goes unaccounted.
+        trimmed_citations = sum(len(d.dropped_refs) for d in decisions)
+        verifier_clause = (
+            f"Verifier kept {len(findings)} Finding(s) and recorded {len(discarded)} "
+            f"Unsupported claim(s) as rejected"
+        )
+        if trimmed_citations:
+            verifier_clause += f" and trimmed {trimmed_citations} auxiliary Citation(s)"
         summary = (
             f"Planner identified research targets ({plan_summary}); Researcher retrieved "
             f"{len(retrieved_chunks)} Chunk(s) via the retrieval tool and drafted "
-            f"{len(state.drafted.claims)} claim(s); Verifier kept {len(findings)} Finding(s) "
-            f"and recorded {len(discarded)} Unsupported claim(s) as rejected; Proposer "
+            f"{len(state.drafted.claims)} claim(s); {verifier_clause}; Proposer "
             f"distilled {kept_proposals} referral Action(s) from the kept Findings "
             f"and recorded {rejected_proposals} ungrounded proposal(s) as rejected; "
             f"{_summarizer_sentence(summarizer_outcome)}."
@@ -1859,7 +2018,11 @@ def run_live_analysis(
 
     verifier_step: dict[str, Any] = {
         "step": "verifier",
-        "action": "check each Claim against the retrieved Evidence, judge its support and materiality, tag its Strength, and discard Unsupported and Immaterial claims",
+        "action": (
+            "check each Claim against the retrieved Evidence, judge its support and "
+            "materiality, tag its Strength, trim auxiliary Citations, and discard "
+            "Unsupported and Immaterial claims"
+        ),
         "claim_decisions": [decision.model_dump() for decision in decisions],
     }
     if state.engagement_states:

@@ -85,7 +85,7 @@ def _on_target_llm() -> ScriptedLlm:
         plan=Plan(targets=[ResearchTarget(query="breach notification duties")]),
         claims=DraftClaims(claims=[DraftClaim(statement=_ON_TARGET_STATEMENT, evidence_refs=["E1", "E2"])]),
         verdicts=Verdicts(verdicts=[
-            Verdict(statement=_ON_TARGET_STATEMENT, supported=True, strength=Strength.strong, evidence_refs=["E1", "E2"])
+            Verdict(statement=_ON_TARGET_STATEMENT, supported=True, strength=Strength.strong, decisive_refs=["E1", "E2"])
         ]),
     )
 
@@ -273,7 +273,7 @@ def _on_target_llm_with_summaries() -> ScriptedLlm:
                 statement=_ON_TARGET_STATEMENT,
                 supported=True,
                 strength=Strength.strong,
-                evidence_refs=["E1", "E2"],
+                decisive_refs=["E1", "E2"],
             )
         ]),
         summaries=Summaries(summaries=[
