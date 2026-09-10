@@ -5,21 +5,28 @@ Regulatory question into research targets; the Researcher gathers Evidence
 exclusively through the retrieval tool under an Evidence pool derived from
 its own decomposition (``SEATS_PER_TARGET`` seats per Research target); the
 Verifier checks every produced Claim against the retrieved Evidence, tags
-its Strength, and discards Unsupported claims into the Execution trace;
-the Proposer distills the kept Findings into referral Actions, each
+its Strength, and judges support and materiality — supported but immaterial
+Claims are rejected with their own reason (spec #94); the Proposer distills
+the kept Findings into referral Actions, each
 grounded in a kept Finding's Citations (ADR-0004); and the Summarizer
 turns the kept, cited Findings into Provision relevance — one grounded
 statement per cited provision, drawing only on the content of the Findings
 citing it (#47) — and rates each cited provision's Citation strength
 (ADR-0011).
 
-Five rules are enforced by application code, never trusted to the LLM:
+Rules are enforced by application code, never trusted to the LLM:
 
 - Citations are derived deterministically from Chunk provision metadata —
   the LLM only selects which Chunks support a Claim by their label, and a
   Claim whose references resolve to no Chunk cannot become a Finding.
 - A Claim no verdict supports is an Unsupported claim: absent from the
   Answer, recorded in the Execution trace.
+- A supported Claim whose provisions do not decide what the Answer turns on
+  is an Immaterial claim (spec #94, T4): rejected with its own reason,
+  recorded in the Execution trace, never in the Answer.
+- An exact-normalized duplicate of an earlier kept statement — casefold and
+  whitespace collapse — is rejected with the duplicate reason: first drafted
+  wins.
 - A proposed Action whose citation references do not resolve to a
   moderate- or strong-anchored kept Finding — or whose declared referral
   kind contradicts its strongest anchor — is dropped and recorded in
@@ -198,11 +205,43 @@ def _unwrap_strength_level(value: Any) -> Any:
     return value
 
 
+# The bare words a live model may use for the materiality judgment instead of
+# the boolean the schema asks for, and the boolean each repairs to.
+_MATERIALITY_TRUE_WORDS = {"true", "material", "yes"}
+_MATERIALITY_FALSE_WORDS = {"false", "immaterial", "not material", "no"}
+
+
+def _unwrap_materiality(value: Any) -> Any:
+    """Keep the bare boolean when the live model wraps its materiality
+    judgment with a rationale or names it with a bare word — the repairs the
+    Verdict's materiality field applies before the application code judges
+    the value, mirroring the strength wrapper's repair."""
+    if isinstance(value, dict):
+        for key in ("value", "is_material", "level"):
+            if key in value:
+                return value[key]
+    if isinstance(value, str):
+        word = value.strip().casefold()
+        if word in _MATERIALITY_TRUE_WORDS:
+            return True
+        if word in _MATERIALITY_FALSE_WORDS:
+            return False
+    return value
+
+
 class Verdict(BaseModel):
-    """The Verifier's decision about one drafted Claim."""
+    """The Verifier's decision about one drafted Claim.
+
+    ``material`` is the materiality judgment (spec #94, T4) riding beside
+    ``supported``: a supported Claim whose provisions do not decide what the
+    Answer turns on is immaterial and never becomes a Finding. It defaults
+    to True — a verdict that omits the field is read as material, so a
+    provider that has not learned the field never rejects a supported claim
+    by accident."""
 
     statement: str
     supported: bool
+    material: bool = True
     strength: Strength = Strength.moderate
     evidence_refs: list[str] = Field(default_factory=list)
 
@@ -210,6 +249,11 @@ class Verdict(BaseModel):
     @classmethod
     def accept_strength_object(cls, value: Any) -> Any:
         return _unwrap_strength_level(value)
+
+    @field_validator("material", mode="before")
+    @classmethod
+    def accept_materiality_object(cls, value: Any) -> Any:
+        return _unwrap_materiality(value)
 
 
 class Verdicts(BaseModel):
@@ -606,26 +650,56 @@ def _resolve_refs(refs: list[str], evidence_by_label: dict[str, Chunk]) -> tuple
 
 _NO_CITABLE_EVIDENCE_REASON = "the selected evidence resolves to no citable provision"
 _NO_VERDICT_REASON = "the Verifier returned no decision for this claim"
+_IMMATERIAL_REASON = "its provisions do not decide what the Answer turns on"
+_DUPLICATE_STATEMENT_REASON = "an earlier kept claim states the same"
+
+
+def _normalized_statement(statement: str) -> str:
+    """The exact-normalized form of a statement (spec #94, T4): casefolded,
+    whitespace runs collapsed — the key two statements share when they are
+    the same statement for dedup."""
+    return " ".join(statement.split()).casefold()
 
 
 def _decide_claims(
     drafted: DraftClaims, verdicts: Verdicts, evidence_by_label: dict[str, Chunk]
 ) -> tuple[list[Finding], list[str], list[ClaimDecision]]:
-    """Turn verdicts into kept Findings, discarded Unsupported claims, and per-claim decisions.
+    """Turn verdicts into kept Findings, discarded claims, and per-claim decisions.
 
-    A Claim becomes a Finding only when the verdict supports it AND its evidence
-    references resolve to real Chunks — otherwise it is an Unsupported claim:
-    never in the Answer, recorded in the Execution trace. Every drafted claim
-    must end up decided: a claim the Verifier never returned a verdict for is
-    recorded as rejected too — nothing drafted may vanish silently. Verdicts
-    are matched to drafts one-for-one per statement, so duplicate statements
-    each consume their own verdict.
+    A Claim becomes a Finding only when the verdict supports it AND judges it
+    material AND its evidence references resolve to real Chunks — otherwise
+    it is discarded: never in the Answer, recorded in the Execution trace. A
+    supported but immaterial Claim (spec #94, T4) is rejected with its own
+    reason — its provisions do not decide what the Answer turns on — distinct
+    from the Unsupported-claim reasons. Exact-normalized duplicate statements
+    (casefold + whitespace collapse) are decided once: first drafted wins,
+    and every later copy of an earlier KEPT statement is rejected with the
+    duplicate reason — a later copy whose earlier twin was rejected is
+    decided on its own verdict. Every drafted claim must end up decided: a
+    claim the Verifier never returned a verdict for is recorded as rejected
+    too — nothing drafted may vanish silently. Verdicts are matched to
+    drafts one-for-one per statement, so duplicate statements each consume
+    their own verdict.
     """
     findings: list[Finding] = []
     discarded: list[str] = []
     decisions: list[ClaimDecision] = []
+    kept_statements: set[str] = set()
+
+    def reject(statement: str, reason: str) -> None:
+        """One recorded rejection: the claim leaves the Answer with its reason."""
+        discarded.append(statement)
+        decisions.append(ClaimDecision(claim=statement, status="rejected", reason=reason))
+
     outstanding = Counter(verdict.statement for verdict in verdicts.verdicts)
     for verdict in verdicts.verdicts:
+        normalized = _normalized_statement(verdict.statement)
+        if normalized in kept_statements:
+            reject(verdict.statement, _DUPLICATE_STATEMENT_REASON)
+            continue
+        if verdict.supported and not verdict.material:
+            reject(verdict.statement, _IMMATERIAL_REASON)
+            continue
         if verdict.supported:
             citations, unknown_refs = _resolve_refs(verdict.evidence_refs, evidence_by_label)
             if unknown_refs:
@@ -635,21 +709,24 @@ def _decide_claims(
                 )
         else:
             citations = []
-        if verdict.supported and citations:
+        if citations:
             findings.append(Finding(statement=verdict.statement, strength=verdict.strength, citations=citations))
             decisions.append(ClaimDecision(claim=verdict.statement, status="kept"))
+            kept_statements.add(normalized)
         else:
             reason = "no Evidence in the Corpus supports this claim"
             if verdict.supported:
                 reason = _NO_CITABLE_EVIDENCE_REASON
-            discarded.append(verdict.statement)
-            decisions.append(ClaimDecision(claim=verdict.statement, status="rejected", reason=reason))
+            reject(verdict.statement, reason)
     for claim in drafted.claims:
         if outstanding[claim.statement] > 0:
+            # This draft's own verdict stands behind the decision the verdict
+            # walk already recorded for it — no leftover decision is owed.
             outstanding[claim.statement] -= 1
-        else:
-            discarded.append(claim.statement)
-            decisions.append(ClaimDecision(claim=claim.statement, status="rejected", reason=_NO_VERDICT_REASON))
+            continue
+        normalized = _normalized_statement(claim.statement)
+        reason = _DUPLICATE_STATEMENT_REASON if normalized in kept_statements else _NO_VERDICT_REASON
+        reject(claim.statement, reason)
     return findings, discarded, decisions
 
 

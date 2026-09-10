@@ -128,6 +128,10 @@ _Avoid_: Duty finding, substantive finding
 A statement with no Evidence in the Corpus either way — no provision can be cited for or against it; one that merely restates provisions without bearing on the question asked for the Scenario; or one whose contingency the Scenario text settles out of scope. Unsupported claims are always discarded and never appear in the Answer. Distinct from a weak Finding, which carries framing-only Evidence.
 _Avoid_: Unverified claim, speculation
 
+**Immaterial claim**:
+A claim the Evidence supports, but whose provisions do not decide what the Answer turns on for the Scenario — duty machinery cited when the question turns on the family's core provision, or material developed for a Regulation the Scenario's facts only leave open. The Verifier judges it material alongside support; application code rejects it with its own reason — its provisions do not decide what the Answer turns on — recorded in the traces, and it never reaches the Answer. Distinct from an Unsupported claim, which no Evidence supports either way.
+_Avoid_: Immaterial finding, irrelevant claim
+
 **Insufficient evidence**:
 The situation where retrieval returns nothing for any Research target — neither the vector nor the lexical search finds a single Chunk. Surfaced as a Known limitation together with suggested Actions; it never produces Findings. Lexical-only evidence fills the Evidence pool instead of triggering it.
 _Avoid_: No results, empty answer
@@ -178,7 +182,7 @@ Interprets the scenario and decides what should be researched.
 Collects evidence from the corpus and turns it into structured findings.
 
 **Verifier**:
-Checks findings against the evidence and rejects unsupported claims.
+Checks each drafted Claim against the Evidence, judging two things per Claim: support (does Evidence bear on the question asked for the Scenario) and materiality (do the Claim's provisions decide what the Answer turns on) — and tags the Strength of what survives. Unsupported claims and Immaterial claims are rejected, each with its own reason recorded in the traces; only supported, material Claims become Findings.
 
 **Proposer**:
 Turns kept Findings into referral Actions for legal professionals; every Action it emits must be anchored in a Finding's Evidence, and it never advises on its own authority.

@@ -201,6 +201,61 @@ def test_scenario_settled_contingency_is_discarded_as_unsupported_and_recorded(l
     assert decisions[stated]["status"] == "kept"
 
 
+def test_supported_but_immaterial_claim_is_rejected_with_the_materiality_reason(live_client):
+    """The Verifier's materiality judgment (spec #94, T4): a Claim the
+    Evidence supports but whose provisions do not decide what the Answer
+    turns on is rejected with its own reason — recorded in both traces,
+    never reaching the Answer."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
+
+    kept = (
+        "The company's automated loan decisions must not be based solely on "
+        "automated processing."
+    )
+    immaterial = (
+        "The GDPR's cooperation machinery requires supervisory authorities to "
+        "cooperate with each other on cross-border cases."
+    )
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="automated decisions")])
+    llm.claims = DraftClaims(claims=[
+        DraftClaim(statement=kept, evidence_refs=["E1"]),
+        DraftClaim(statement=immaterial, evidence_refs=["E1"]),
+    ])
+    llm.verdicts = Verdicts(verdicts=[
+        Verdict(statement=kept, supported=True, material=True, strength=Strength.strong, evidence_refs=["E1"]),
+        Verdict(statement=immaterial, supported=True, material=False, strength=Strength.moderate, evidence_refs=["E1"]),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    llm.summaries = Summaries(summaries=[
+        ProvisionSummary(
+            ref="P1",
+            relevance=(
+                "Article 22 constrains decisions based solely on automated processing, "
+                "which is what the Answer's conclusion about the loan decisions turns on."
+            ),
+            strength=Strength.strong,
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={"automated decisions": [AUTOMATED_DECISION_CHUNK]}))
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    statements = [f["statement"] for f in data["answer"]["findings"]]
+    assert kept in statements, "the material claim stays in the Answer"
+    assert immaterial not in statements, "an Immaterial claim never reaches the Answer"
+
+    discarded = data["trace"]["unsupported_claims_discarded"]
+    assert immaterial in discarded, "the Execution trace counts the immaterial rejection"
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decisions = {d["claim"]: d for d in verifier_steps[0]["claim_decisions"]}
+    assert decisions[immaterial]["status"] == "rejected"
+    assert decisions[immaterial]["reason"] == "its provisions do not decide what the Answer turns on"
+    assert decisions[kept]["status"] == "kept"
+
+
 def test_exclusion_finding_appears_when_the_pool_holds_a_perimeter_provision(live_client):
     """The applicability target seats the regime's perimeter provision in the
     Evidence pool, and the exclusion claim it supports becomes a Finding
@@ -470,10 +525,11 @@ def test_pool_derives_from_the_plan_not_from_retrieval_volume(live_client):
     assert len(retrieved) == SEATS_PER_TARGET == 12
 
 
-def test_duplicate_drafted_statements_each_get_their_own_decision(monkeypatch):
-    """Verdicts are matched to drafts one-for-one per statement: two drafts of
-    the same statement sharing one verdict means one kept Finding and one
-    recorded rejection — neither copy may vanish from the trace."""
+def test_duplicate_drafted_statements_first_kept_later_rejected_as_duplicate(monkeypatch):
+    """Exact-normalized duplicate statements (spec #94, T4): first drafted
+    wins — the first copy is decided on its own verdict and kept, every later
+    exact-normalized duplicate is rejected with the duplicate reason, never
+    vanishing from the trace."""
     from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
 
     duplicated = "The system qualifies as an AI system under the definitions."
@@ -493,14 +549,102 @@ def test_duplicate_drafted_statements_each_get_their_own_decision(monkeypatch):
     data = resp.json()
 
     findings = [f for f in data["answer"]["findings"] if f["statement"] == duplicated]
-    assert len(findings) == 1, "exactly one Finding survives — one verdict was returned"
+    assert len(findings) == 1, "exactly one Finding survives — first drafted wins"
 
     verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
     decisions = [d for d in verifier_steps[0]["claim_decisions"] if d["claim"] == duplicated]
     statuses = sorted(d["status"] for d in decisions)
     assert statuses == ["kept", "rejected"], statuses
     rejected = next(d for d in decisions if d["status"] == "rejected")
-    assert "no decision" in rejected["reason"]
+    assert rejected["reason"] == "an earlier kept claim states the same"
+
+    discarded = data["trace"]["unsupported_claims_discarded"]
+    assert discarded.count(duplicated) == 1
+
+
+def test_exact_normalized_duplicate_statements_are_rejected_as_duplicates(live_client):
+    """Dedup is exact-normalized (casefold + whitespace collapse): a re-draft
+    that differs only in case or spacing from a kept statement is the same
+    statement — first drafted wins, the normalized twin is rejected with the
+    duplicate reason (spec #94, T4)."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdicts
+
+    first = "The System  qualifies as an AI system under the definitions."
+    twin = "the system qualifies as an AI system under the definitions."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="definitions")])
+    llm.claims = DraftClaims(
+        claims=[
+            DraftClaim(statement=first, evidence_refs=["E1"]),
+            DraftClaim(statement=twin, evidence_refs=["E1"]),
+        ]
+    )
+    llm.verdicts = Verdicts(verdicts=[
+        grounded_verdict(first, Strength.weak, ["E1"]),
+        grounded_verdict(twin, Strength.weak, ["E1"]),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    install_fake_pipeline(llm, FakeRetriever(per_query={"definitions": [DEFINITIONS_CHUNK]}))
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f["statement"] for f in data["answer"]["findings"]]
+    assert findings == [first], "only the first drafted copy reaches the Answer"
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decisions = {d["claim"]: d for d in verifier_steps[0]["claim_decisions"]}
+    assert decisions[first]["status"] == "kept"
+    assert decisions[twin]["status"] == "rejected"
+    assert decisions[twin]["reason"] == "an earlier kept claim states the same"
+
+    discarded = data["trace"]["unsupported_claims_discarded"]
+    assert discarded.count(twin) == 1
+
+
+def test_a_duplicate_of_a_rejected_statement_is_decided_on_its_own_verdict(live_client):
+    """Dedup keys on kept statements: a later copy whose earlier twin was
+    rejected is judged on its own verdict — an Unsupported first copy never
+    poisons the supported later one (spec #94, T4)."""
+    from src.live_workflow import DraftClaim, DraftClaims, Plan, ResearchTarget, Verdict, Verdicts
+
+    duplicated = "The company's loan scoring data counts as special-category data."
+    llm = make_offline_llm()
+    llm.plan = Plan(targets=[ResearchTarget(query="special-category data")])
+    llm.claims = DraftClaims(
+        claims=[
+            DraftClaim(statement=duplicated, evidence_refs=["E1"]),
+            DraftClaim(statement=duplicated, evidence_refs=["E1"]),
+        ]
+    )
+    llm.verdicts = Verdicts(verdicts=[
+        Verdict(statement=duplicated, supported=False, material=True),
+        Verdict(statement=duplicated, supported=True, material=True, strength=Strength.strong, evidence_refs=["E1"]),
+    ])
+    llm.proposals = ActionProposals(proposals=[])
+    llm.summaries = Summaries(summaries=[
+        ProvisionSummary(
+            ref="P1",
+            relevance=(
+                "The special-category provision is what the Answer's conclusion about "
+                "the loan scoring data turns on."
+            ),
+            strength=Strength.strong,
+        ),
+    ])
+    install_fake_pipeline(llm, FakeRetriever(per_query={"special-category data": [HIGH_RISK_CHUNK]}))
+    resp = post_arbitrary_scenario(live_client)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    findings = [f["statement"] for f in data["answer"]["findings"]]
+    assert findings == [duplicated], "the supported later copy is kept"
+
+    verifier_steps = [s for s in data["detailed_trace"] if s["step"] == "verifier"]
+    decisions = [d for d in verifier_steps[0]["claim_decisions"] if d["claim"] == duplicated]
+    statuses = [d["status"] for d in decisions]
+    assert statuses == ["rejected", "kept"], statuses
+    assert "no Evidence" in decisions[0]["reason"]
 
     discarded = data["trace"]["unsupported_claims_discarded"]
     assert discarded.count(duplicated) == 1

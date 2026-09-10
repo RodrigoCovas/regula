@@ -199,6 +199,93 @@ def test_verdict_strength_wrapper_from_live_model_is_normalized():
     assert verdicts.verdicts[0].strength is Strength.strong
 
 
+def test_verdict_materiality_is_validated_alongside_support():
+    """The Verifier's output gains the materiality judgment (spec #94, T4):
+    the schema validates ``material`` beside ``supported`` — a supported but
+    immaterial verdict carries material=False for the claim-decision step."""
+    from src.live_workflow import Verdicts
+
+    content = (
+        '{"verdicts": [{"statement": "Claim", "supported": true, '
+        '"material": false, "strength": "strong", "evidence_refs": ["E1"]}]}'
+    )
+    transport = FakeTransport(responses=[chat_response(content)])
+    client = make_client(transport)
+
+    verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
+
+    assert verdicts.verdicts[0].supported is True
+    assert verdicts.verdicts[0].material is False
+
+
+def test_verdict_materiality_defaults_to_material_when_absent():
+    """A verdict that omits the materiality judgment is read as material:
+    a missing field never rejects a supported claim the Verifier ruled on."""
+    from src.live_workflow import Verdicts
+
+    content = (
+        '{"verdicts": [{"statement": "Claim", "supported": true, '
+        '"strength": "strong", "evidence_refs": ["E1"]}]}'
+    )
+    transport = FakeTransport(responses=[chat_response(content)])
+    client = make_client(transport)
+
+    verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
+
+    assert verdicts.verdicts[0].material is True
+
+
+def test_verdict_materiality_string_forms_are_normalized():
+    """A live model may return the materiality judgment as a bare word —
+    the boolean strings and the Immaterial-claim noun forms all repair to
+    the boolean the application code judges."""
+    from src.live_workflow import Verdicts
+
+    content = (
+        '{"verdicts": ['
+        '{"statement": "A", "supported": true, "material": "true"}, '
+        '{"statement": "B", "supported": true, "material": "false"}, '
+        '{"statement": "C", "supported": true, "material": "immaterial"}, '
+        '{"statement": "D", "supported": true, "material": "material"}'
+        "]}"
+    )
+    transport = FakeTransport(responses=[chat_response(content)])
+    client = make_client(transport)
+
+    verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
+
+    assert [v.material for v in verdicts.verdicts] == [True, False, False, True]
+
+
+def test_verdict_materiality_wrapper_from_live_model_is_normalized():
+    """The live model may wrap its materiality judgment with a rationale —
+    the wrapper the strength field already repairs (mirrored here)."""
+    from src.live_workflow import Verdicts
+
+    content = (
+        '{"verdicts": [{"statement": "Claim", "supported": true, '
+        '"material": {"value": false, "rationale": "Rides on remedies only."}, '
+        '"strength": "strong", "evidence_refs": ["E1"]}]}'
+    )
+    transport = FakeTransport(responses=[chat_response(content)])
+    client = make_client(transport)
+
+    verdicts = client.complete(system="verify", user="claims", schema=Verdicts)
+
+    assert verdicts.verdicts[0].material is False
+
+
+def test_verdicts_schema_example_names_the_materiality_field():
+    """The shape template names the materiality field, so the live model
+    learns to return it beside support."""
+    from src.llm import _schema_example
+    from src.live_workflow import Verdicts
+
+    shape = _schema_example(Verdicts)
+
+    assert '"material": <boolean>' in shape
+
+
 def test_enum_refs_render_as_scalar_choices_in_the_instruction():
     from src.llm import _schema_example
     from src.live_workflow import Verdicts
