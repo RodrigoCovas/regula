@@ -64,6 +64,8 @@ HEADER = """\
 // mirror of what the backend serves (issue #106). Do not edit by hand: the
 // demo content lives in backend/src/main.py, the Not-available replies in
 // backend/src/availability.py, and regenerating the file re-captures them.
+// The one exception is insufficientEvidenceResponse, a hand-authored stand-in
+// the script re-uses as-is — edit that fixture directly.
 """
 
 DEMO_NOT_AVAILABLE_COMMENT = """\

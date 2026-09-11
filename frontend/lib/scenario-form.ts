@@ -16,7 +16,7 @@ export interface ScenarioFormState {
   // Whether the form still carries the demo button's canonical fill (ADR-0005):
   // the canonical id is authored, never derived, so a filled form submits it
   // until a description edit re-derives the id. A question edit keeps the
-  // scenario (ADR-0006); a mode change is orthogonal to it (ADR-0008).
+  // scenario (ADR-0006); a mode change is orthogonal to the fill.
   demoScenarioFilled: boolean;
   // What the latest readiness check attempt left behind — reset on every
   // mode change, so a Live selection always re-checks.
@@ -92,8 +92,9 @@ export function canSubmit(state: ScenarioFormState): boolean {
 }
 
 export function submissionOf(state: ScenarioFormState): ScenarioInput {
-  // A live demo fill submits the pinned canonical Scenario (ADR-0005) with
-  // the current question and mode; every other form content derives its id.
+  // The current demo fill submits the pinned canonical Scenario (ADR-0005)
+  // with the current question and mode; every other form content derives
+  // its id.
   if (state.demoScenarioFilled) {
     return {
       scenario: demoScenarioInput.scenario,

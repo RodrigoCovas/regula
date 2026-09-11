@@ -6,6 +6,11 @@ import {
   demoNotAvailableResponse,
 } from "../lib/fixtures";
 import type { ProgressSnapshot } from "../lib/progress";
+import {
+  initialScenarioFormState,
+  scenarioFormReducer,
+  submissionOf,
+} from "../lib/scenario-form";
 import { buildScenarioInput, demoScenarioInput } from "../lib/scenario-id";
 import { jsonResponse, recordingFetch, type FetchCall } from "./fetch";
 
@@ -117,6 +122,38 @@ test("submits the Scenario to /api/analyze with the generated request id header"
     JSON.parse(String(analyzeCall.init?.body)),
     demoScenarioInput,
   );
+});
+
+test("the demo fill's submission runs the keyless demo end-to-end (issue #106)", async () => {
+  // The whole seam chain at once: the reducer's demo fill → submissionOf's
+  // canonical id → the transport → the fixture-mirrored demo answer.
+  let pollCount = 0;
+  const { calls, impl } = recordingFetch((call) => {
+    if (call.url === "/api/analyze") {
+      return jsonResponse({});
+    }
+    pollCount += 1;
+    if (pollCount < 2) {
+      return jsonResponse(snapshotOf("run-1", "planner", "serving the demo"));
+    }
+    return jsonResponse(demoAnalyzeResponse);
+  });
+
+  const filled = scenarioFormReducer(initialScenarioFormState, {
+    type: "demo-scenario-filled",
+  });
+  const response = await runAnalysis(submissionOf(filled), {
+    fetchImpl: impl,
+    generateRequestId: () => "run-1",
+    ...baseDeps(),
+  });
+
+  assert.deepEqual(response, demoAnalyzeResponse);
+  const analyzeCall = analyzeCallOf(calls);
+  const body = JSON.parse(String(analyzeCall.init?.body));
+  assert.equal(body.scenario.id, "bank-cloud-outage");
+  assert.equal(body.mode, "demo");
+  assert.equal(body.question, demoScenarioInput.question);
 });
 
 test("polls /api/progress/{id} until it returns an AnalyzeResponse", async () => {
