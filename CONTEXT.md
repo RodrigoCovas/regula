@@ -173,6 +173,30 @@ _Avoid_: Health, setup status
 A user-facing reply explaining why a requested capability cannot be served — an unknown Scenario in Demo mode, or missing Readiness in Live mode (missing provider key, un-ingested Corpus, unavailable embedding model, unreachable store or LLM provider) — and how to proceed.
 _Avoid_: Error message, fallback, dead end
 
+**Gold answer**:
+The hand-authored expected Answer an eval case is scored against: gold Finding statements, each with its expected Citations carrying the operator's relevance summaries and per-provision Strength ratings, transcribed verbatim into the eval harness from the operator's citations record under a pinning test. The one ground truth the pipeline and both Baselines are scored against.
+_Avoid_: Expected output, model answer, right answer
+
+**Live eval**:
+The operator-run evaluation in Live mode: the ten hand-authored cases driven through the analyze endpoint with the configured provider, scored per case and in aggregate by the two components, checkpointed per scenario so an interrupted run resumes, and recorded in a report artifact. Operator-only and key-gated — never a CI gate.
+_Avoid_: Quality gate, CI eval, benchmark run
+
+**Baseline**:
+An answer produced without the workflow's retrieval-and-verification machinery — one structured completion per eval case from a locked prompt template, generated outside the system — scored by exactly the harness a pipeline run goes through, over the same Gold answers. The comparison isolates the answering path as the only differing variable.
+_Avoid_: Benchmark, control
+
+**Parametric baseline**:
+The Baseline variant that answers from the model's own knowledge alone — no Corpus, no retrieval.
+_Avoid_: Memory-only baseline, no-retrieval baseline
+
+**Full-corpus baseline**:
+The Baseline variant that answers with the entire Corpus in context — everything retrieved at once, no workflow.
+_Avoid_: Oracle baseline, full-context baseline
+
+**Demo tripwire**:
+The offline harness cases that drive the app's analyze entry point in Demo mode — the canonical case plus the non-canonical probes (a near-miss id look-alike, an unrelated id, an empty id) — scored by the same harness as the Live eval. Demo production derives its Citations from the same locked targets its ground truth transcribes, so mean F1 is 1.0 by construction: any drop signals a regression, not poor quality.
+_Avoid_: Smoke test, mock eval
+
 ## Workflow
 
 **Planner**:

@@ -1,4 +1,4 @@
-# Regula — Regulatory Research & Compliance Assistant
+# Regula — Agentic RAG Pipeline for EU Regulatory Compliance Research
 
 Regula answers "what regulations apply to us, and what must we do about it?" for a described business situation. You describe your company, product, and jurisdiction as a **Scenario**, ask a regulatory question, and get an evidence-backed **Answer**: Findings with Strength badges, per-provision Citations with their answer-wide relevance and Citation strength, and Actions naming what only a qualified legal professional can settle. Regula never dispenses legal advice and never substitutes for professional judgment.
 
@@ -6,24 +6,15 @@ Under the hood it is an agentic retrieval pipeline (LangGraph) over a small, cur
 
 ## Architecture
 
-```
-Browser (http://localhost:3000)
-    │  /api/* and /readiness are proxied to the backend
-    ▼
-Frontend — Next.js + TypeScript + Tailwind            :3000
-    ▼
-Backend — FastAPI                                     :8000
-    │  POST /api/analyze   GET /api/progress/{request_id}
-    │  GET  /readiness     GET /health
-    ▼
-LangGraph workflow (Live mode):
-    Planner → Researcher (with Retrieval) → Verifier → Proposer → Summarizer
-    │  Demo mode instead serves the canonical Scenario from fixed content —
-    │  no LLM calls, no retrieval
-    ▼
-Retrieval service layer
-    ▼
-PostgreSQL + pgvector (ingested Chunks)     Ollama (nomic-embed-text embeddings)
+```mermaid
+flowchart TD
+    B["Browser<br/>http://localhost:3000"] -->|"/api/* and /readiness proxied to the backend"| FE["Frontend<br/>Next.js + TypeScript + Tailwind<br/>:3000"]
+    FE -->|"POST /api/analyze<br/>GET /api/progress/{request_id}<br/>GET /readiness · GET /health"| BE["Backend<br/>FastAPI<br/>:8000"]
+    BE -->|"mode: demo"| DEMO["Demo mode<br/>the canonical bank-cloud-outage Scenario<br/>served from fixed content — no LLM calls, no retrieval"]
+    BE -->|"mode: live"| WF["Live workflow — LangGraph<br/>Planner → Researcher → Verifier<br/>→ Proposer → Summarizer"]
+    WF --> RET["Retrieval service layer<br/>hybrid vector + lexical search, RRF-fused"]
+    RET --> PG[("PostgreSQL + pgvector<br/>ingested Chunks")]
+    RET --> OL["Ollama<br/>nomic-embed-text embeddings"]
 ```
 
 The four containers — frontend, backend, PostgreSQL with pgvector, and Ollama — come up together with `docker compose up -d --build`.
@@ -32,7 +23,7 @@ A Live run is grounded and budgeted at every step. The **Planner** decomposes th
 
 ## Quickstart
 
-Everything below runs from a fresh clone; Docker with Compose is the only tooling you need. Demo mode works immediately — no API key, no model pull, no ingest. Live mode adds three one-time prerequisites, marked below.
+Everything below runs from a fresh clone; Docker with Compose is the only tooling you need for the containerized path. Demo mode works immediately — no API key, no model pull, no ingest. Live mode adds three one-time prerequisites, marked below. The subsection at the end runs the backend and frontend on the host instead — the development path.
 
 1. **Clone and configure:**
 ```bash
@@ -89,6 +80,26 @@ docker compose down        # stop; volumes (ingested Corpus, pulled model) survi
 docker compose down -v     # full reset to fresh-clone state, including the Corpus and model
 ```
 
+### Run the backend and frontend on the host
+
+The development path, without Docker for the two apps: stop the stack's containers so the ports are free, then run each app.
+
+```bash
+# backend (Python 3.13+), from the repository root
+docker compose stop backend frontend
+pip install -r backend/requirements.txt
+python -m uvicorn backend.src.main:app --reload --reload-dir backend/src
+```
+
+```bash
+# frontend (Node.js 20+)
+cd frontend
+npm install
+npm run dev
+```
+
+The notes that matter for development — the shared root `.env`, the endpoint overrides, the reload scoping — are under [Development](#development).
+
 ## Configuration
 
 All configuration lives in the root `.env` (copied from `.env.example` in the Quickstart) — the one configuration file a Docker deployment and a host-run backend share. Every variable is optional: deleting one or leaving it empty falls back to the backend's built-in default, except the key, whose emptiness means "not configured".
@@ -135,9 +146,27 @@ The Summarizer still rates each cited provision's centrality (ADR-0011) — stro
 
 ### Results
 
-A run's numbers are produced by the command under [Reproduce](#reproduce) and recorded in its report artifact: per-case coverage and summary fidelity plus each component's aggregate mean, the produced-versus-expected dump for the human audit, and the `llm_model` that produced them. This page deliberately freezes no snapshot — the eval baseline moves as the system improves, and the artifact, not the README, is the record of what a run measured. A run meets the project's "works" bar when coverage mean precision ≥ 0.50, coverage mean F1 ≥ 0.20, and summary fidelity mean ≥ 0.75; check the artifact's aggregate means against it.
+The table below freezes the repository's committed 2026-09-10 artifacts: the ten hand-authored Live cases, model `z-ai/glm-5.3-flash`, the pipeline scored against the same gold answers as two agent-produced baselines (ADR-0017). A baseline answers without the workflow's retrieval-and-verification machinery — one structured completion per case from a locked prompt template, produced outside the system — either from model memory alone (**parametric**) or with the entire Corpus in context (**full-corpus**), then scored by exactly the harness a pipeline run goes through.
 
-Reading any run's numbers:
+| Case | Pipeline F1 | Parametric F1 | Full-corpus F1 | Pipeline fidelity | Parametric fidelity | Full-corpus fidelity |
+| --- | --- | --- | --- | --- | --- | --- |
+| Online retailer breach | 0.854 | 0.938 | 0.951 | 1.000 | 1.000 | 1.000 |
+| AI recruitment screening | 0.844 | 0.871 | 0.912 | 0.982 | 1.000 | 0.912 |
+| Bank cloud outage | 0.927 | 0.775 | 0.939 | 0.976 | 0.700 | 0.844 |
+| Employee productivity monitoring | 0.823 | 0.850 | 0.819 | 0.960 | 1.000 | 0.500 |
+| Telecom chatbot | 0.657 | 0.898 | 0.827 | 1.000 | 0.583 | 0.923 |
+| Fintech loan recommendations | 0.817 | 0.622 | 0.892 | 1.000 | 1.000 | 0.812 |
+| Insurance health pricing | 0.835 | 0.860 | 0.827 | 0.983 | 0.526 | 0.636 |
+| Ransomware investment firm | 0.839 | 0.711 | 0.982 | 1.000 | 0.750 | 1.000 |
+| GenAI customer service | 0.747 | 0.918 | 0.893 | 0.955 | 0.562 | 0.625 |
+| AI trading cloud attack | 0.851 | 0.939 | 0.891 | 0.979 | 0.842 | 0.844 |
+| **Mean** | **0.819** | **0.838** | **0.893** | **0.984** | **0.796** | **0.810** |
+
+Read honestly: the pipeline's coverage F1 trails both baselines today — by 0.019 against the parametric baseline and 0.074 against the full-corpus baseline. What the pipeline clearly leads is summary fidelity: mean 0.984 against 0.796 and 0.810 — the provision-level relevance statements survive the strict judge nearly unscathed where both baselines shed fidelity. And the machinery earns its keep on the hardest engagement case: the bank cloud outage scores 0.927 against the parametric baseline's 0.775. The explicit goal is for the pipeline to improve past the baselines — closing the coverage-F1 gap while holding the fidelity lead — and the [Future work](#future-work) section names the concrete moves.
+
+The numbers come from two committed artifacts: the v13 live report `logs/live-eval-report-2026-09-10-glm53_v13.json` and the baseline comparison `logs/baseline-eval-report-2026-09-10.json`, which joins it with the toolless baseline runs under `logs/baseline-runs-toolless/`. The pipeline's mean precision is 0.786 and mean recall 0.866; per-case precision, recall, and the full produced-versus-expected dump live in the artifacts. A fresh run's numbers are produced by the command under [Reproduce](#reproduce) and recorded in its own report artifact — per-case coverage and summary fidelity plus each component's aggregate mean, the produced-versus-expected dump for the human audit, and the `llm_model` that produced them. This table is the frozen showcase of the latest committed artifacts; a run's own artifact remains the record of what it measured. A run meets the project's "works" bar when coverage mean precision ≥ 0.50, coverage mean F1 ≥ 0.20, and summary fidelity mean ≥ 0.75.
+
+Reading the numbers:
 
 - **Precision is pessimistic by construction.** A produced Citation outside the hand-authored expected set is not necessarily wrong — acceptable supplements the ground truth simply does not list count against precision — so precision reads as a floor on real precision. The produced-versus-expected dump in the report artifact exists for exactly this audit.
 - **Recall is budget-bound by design.** The Planner researches 1–50 Research targets per answer into one shared Evidence pool (ADR-0003, ADR-0012, ADR-0015, ADR-0018) against expected sets spanning 16–55 provisions, so recall reads low by construction; precision is the quality signal inside that ceiling.
@@ -154,6 +183,24 @@ docker compose exec backend python -m backend.src.live_eval --output logs/live-e
 The CLI runs the ground-truth cases through `/api/analyze` in Live mode, prints per-case coverage and summary fidelity plus the aggregate mean of each, and writes a JSON report artifact to `./logs` on the host — per-case scores, the produced-versus-expected dump for the human audit, and the `llm_model` that produced the numbers. Every run also checkpoints per scenario (ADR-0013): an LLM failure or an interrupt keeps the completed cases, and the abort message prints the exact resume command, so re-invoking it runs only the pending cases; on success the `--output` artifact supersedes the checkpoint. Without a key or an ingested Corpus it refuses with the fix instead of measuring garbage.
 
 Demo-mode cases are functional tripwires (ADR-0001), scored by the same harness: Demo production derives its Citations from the same locked targets its ground truth transcribes, so mean F1 is 1.0 by construction — any drop signals a regression, not poor quality.
+
+## Limitations
+
+- **Over-citation.** Mean precision is 0.78: the pipeline regularly cites provisions beyond the hand-authored expected set. Precision is pessimistic by construction — acceptable supplements the gold answers do not list count against it — but the gap is wide enough to read as over-citation, and the calibration pass in [Future work](#future-work) targets it.
+- **Two weak cases.** Telecom chatbot (coverage F1 0.657) and GenAI customer service (F1 0.747) trail the other eight cases (F1 0.817–0.927) by a wide margin; the telecom case's recall in particular collapses to 0.634 as the shared Evidence pool spreads across a broad expected set.
+- **Aggregate F1 below the full-corpus baseline.** The pipeline's mean coverage F1 (0.819) sits below both the full-corpus baseline (0.893) and the parametric baseline (0.838) — the honest headline the goal statement answers.
+- **Single-operator gold.** Every gold answer is hand-authored by one operator; there is no inter-annotator agreement study, so the ground truth's own reliability is unmeasured.
+- **A three-regulation curated JSON corpus.** The Corpus is the AI Act, GDPR, and DORA as hand-curated JSON chunks — nothing ingested end-to-end from PDF or EUR-Lex, and no coverage beyond the three regimes.
+
+## Future work
+
+- **End-to-end PDF/EUR-Lex ingestion.** Replace the hand-curated JSON corpus with ingestion straight from EUR-Lex, so new regulations and amendments enter the Corpus without hand-chunking.
+- **Agent refinement against observed mistakes.** Turn the eval's per-case audit dumps into targeted fixes: the observed misses name which research targets, retrieval legs, or verification judgments to refine.
+- **Multilingual support via a translator agent.** The Corpus is English-only (a Known limitation surfaced on every response); a translator agent would serve non-English Scenarios without hand-translating the Corpus.
+- **Corpus expansion to more regimes.** Beyond the AI Act, GDPR, and DORA; the Planner's corpus-inventory grounding (ADR-0012) is corpus-agnostic by design.
+- **Expert review of the gold answers, with a larger eval set.** The gold is single-operator (see [Limitations](#limitations)); expert review and more cases would measure the ground truth itself, not just the pipeline against it.
+- **Retrieval upgrades — reranking and provision-aware chunking.** Recall is budget-bound by design; reranking the fused candidate lists and chunking along provision boundaries raise quality inside that ceiling.
+- **A calibration pass to cut over-citation.** Mean precision 0.78 is the pipeline's weakest number; calibrating the citation-selection margin — keeping the provisions the Answer turns on and dropping the periphery — is the targeted fix.
 
 ## Development
 
@@ -181,18 +228,7 @@ npm run typecheck
 
 All four checks run on every push and pull request via GitHub Actions (`.github/workflows/ci.yml`).
 
-**Dev servers** (host-run, for development — the Docker stack already serves everything else): the containerized frontend proxies to the containerized backend, so stop both and run the two apps on the host:
-```bash
-docker compose stop backend frontend
-pip install -r backend/requirements.txt
-python -m uvicorn backend.src.main:app --reload --reload-dir backend/src
-```
-```bash
-cd frontend
-npm install
-npm run dev
-```
-The host-run backend reads the same root `.env` the stack does. Its built-in endpoints (`localhost:5432` for PostgreSQL, `localhost:11434` for Ollama) reach the stack's published Postgres and a native Ollama on the host — the instance whose pulled embedding model serves host-run Live mode; override `DATABASE_URL` / `OLLAMA_API_URL` in `.env` to point elsewhere. The reload watch is scoped to `backend/src`, so frontend work never restarts the backend and a long Live run keeps its request id and progress history.
+**Dev servers** (host-run, for development — the run commands are in the Quickstart's [Run the backend and frontend on the host](#run-the-backend-and-frontend-on-the-host)): the containerized frontend proxies to the containerized backend, so both containers stop first. The host-run backend reads the same root `.env` the stack does. Its built-in endpoints (`localhost:5432` for PostgreSQL, `localhost:11434` for Ollama) reach the stack's published Postgres and a native Ollama on the host — the instance whose pulled embedding model serves host-run Live mode; override `DATABASE_URL` / `OLLAMA_API_URL` in `.env` to point elsewhere. The reload watch is scoped to `backend/src`, so frontend work never restarts the backend and a long Live run keeps its request id and progress history.
 
 **Observability:** every `/api/analyze` request appends exactly one JSON line to `logs/queries.jsonl` (the `./logs` bind mount on the host; override the location with `QUERY_LOG_PATH`) — including failures, which carry an explicit failure status and the tokens spent before dying. Fields:
 
@@ -251,7 +287,7 @@ regula/
 │   ├── adr/                        # Architecture Decision Records
 │   └── agents/                     # Agent workflow documentation
 ├── research/                       # Research notes and decision trees
-├── logs/                           # Query logs and eval report artifacts (gitignored)
+├── logs/                           # Query logs; eval artifacts are whitelisted — the committed 2026-09-10 reports and the toolless baseline runs are tracked, everything else is ignored
 ├── docker-compose.yml
 ├── CONTEXT.md                      # Domain model and glossary
 ├── AGENTS.md                       # Agent skills and checks
