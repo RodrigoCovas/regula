@@ -351,10 +351,11 @@ def coverage_scores(
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
-# Ground truth for the canonical Spanish fintech demo answer, hand-copied from
-# research/DEMO_SCENARIO_FINDINGS.md (Findings 1-5, 8, D1-D3 subset as shipped).
-# Deliberately NOT derived from DEMO_FINDING_DEFS: ground truth must stay an
-# independent source of truth, or the eval could never disagree with the code.
+# Ground truth for the canonical Spanish fintech demo answer, hand-authored
+# once from the operator's demo-scenario evidence research (see
+# data/PROVENANCE.md). Deliberately NOT derived from DEMO_FINDING_DEFS: ground
+# truth must stay an independent source of truth, or the eval could never
+# disagree with the code.
 _CANONICAL_EXPECTED = [
     ExpectedFinding(
         statement="An AI system that evaluates the creditworthiness of natural persons or establishes their credit score is a high-risk AI system under the AI Act, so the full high-risk obligations apply.",

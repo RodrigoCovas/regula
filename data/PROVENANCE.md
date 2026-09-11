@@ -19,7 +19,7 @@ workflow's engagement gate reads; the gate's ADR records the policy.
 ## Extraction
 
 - **Extraction tool:** lexplorer-generated JSON (locked decision Q8 keeps this format for the MVP).
-- **Extraction date:** 19/08/2026. The corpus was subsequently verified against EUR-Lex on 2026-08-20 during the demo-scenario research pass (`research/DEMO_SCENARIO_FINDINGS.md`); treat that as the last-verified date.
+- **Extraction date:** 19/08/2026. The corpus was subsequently verified against EUR-Lex on 2026-08-20 during the demo-scenario research pass; treat that as the last-verified date.
 - **Language:** English-only. Questions in other languages are answered in English from this corpus.
 
 ## Known gaps

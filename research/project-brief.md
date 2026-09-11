@@ -439,7 +439,3 @@ Target roles:
 
 - https://reversa.ai/careers/founding-engineer
 - https://jobs.ashbyhq.com/happyrobot.ai/43d9bd48-7701-4719-affd-ecf92adfc37a
-
-Engineering workflow reference:
-
-- https://github.com/mattpocock/skills

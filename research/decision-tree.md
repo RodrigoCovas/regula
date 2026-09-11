@@ -1,12 +1,12 @@
 # Regula — Complete Decision Tree
 
-All decisions have been locked via the grilling process. See full breakdown in the session workspace's `REGULA_ROADMAP.md`.
+All decisions have been locked via the grilling process. The durable ones live on as ADRs under `docs/adr/`.
 
 ## Summary of Key Decisions
 
 ### Tier 1: Foundation
-- **LLM:** nvidia/nemotron-3-ultra-550b-a55b:free (OpenRouter) — $0 for demo
-- **Embeddings:** Ollama + nomic-embed-text (local, free)
+- **LLM:** an OpenAI-compatible chat endpoint chosen by environment configuration (OpenRouter by default — see `docs/adr/0009-provider-configuration-is-environment-driven.md`)
+- **Embeddings:** Ollama + nomic-embed-text-v1.5 (local)
 - **Development:** Local docker-compose only (permanently local — see `docs/adr/0002-regula-is-permanently-local-only.md`)
 - **Focus:** 80-90% backend, 10-20% frontend
 
