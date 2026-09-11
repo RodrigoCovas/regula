@@ -7,7 +7,7 @@ Under the hood it is an agentic retrieval pipeline (LangGraph) over a small, cur
 ## What it looks like
 
 ![The Analyze form with the bank cloud outage Scenario description and Regulatory question filled in, Demo mode selected, and the derived scenario id shown](docs/images/analyze_scenario.png)
-*Describing the bank-cloud-outage Scenario and its Regulatory question in Demo mode — no API key needed.*
+*Describing the bank cloud outage Scenario and its Regulatory question in Demo mode — no API key needed.*
 
 ![The Answer surface showing 13 Findings, each with a STRONG badge and its supporting provisions' quoted text beneath it](docs/images/answer_findings.png)
 *The Answer: Findings with Strength badges, each backed by its supporting provisions' quoted text.*
@@ -18,8 +18,8 @@ Under the hood it is an agentic retrieval pipeline (LangGraph) over a small, cur
 ![The Actions list — six numbered items, each naming something a qualified professional must determine, assess, or verify](docs/images/answer_actions.png)
 *Actions: what only a qualified legal professional can settle before acting on the Answer.*
 
-![The Execution trace showing the planner to researcher to verifier to proposer to summarizer flow, eight unsupported claims discarded, and the detailed per-step trace with retrieved passages](docs/images/execution_trace.png)
-*The Execution trace: planner → researcher → verifier → proposer → summarizer, with unsupported claims discarded and every retrieved passage visible.*
+![The Execution trace showing the Planner to Researcher to Verifier to Proposer to Summarizer flow, eight Unsupported claims discarded, and the detailed per-step trace with retrieved passages](docs/images/execution_trace.png)
+*The Execution trace: Planner → Researcher → Verifier → Proposer → Summarizer, with Unsupported claims discarded and every retrieved passage visible.*
 
 ## Architecture
 
