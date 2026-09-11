@@ -115,7 +115,7 @@ def run_ingestion(
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     # One config seam: the same Settings the backend serves from supplies the
-    # defaults (env vars and backend/.env.local, in that precedence). Plain
+    # defaults (env vars and the root .env, in that precedence). Plain
     # Settings, not load_settings — ingestion is mode-agnostic and must not
     # trip Live-mode boot validation.
     try:
@@ -155,7 +155,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    # .env.local feeds the env-var defaults below (EMBEDDING_MODEL included);
+    # .env feeds the env-var defaults below (EMBEDDING_MODEL included);
     # the real environment wins either way.
     source_local_env()
     args = parse_args(argv)

@@ -75,7 +75,7 @@ def tiny_document(source_id="tiny", articles=1):
 
 def test_parse_args_defaults_flow_through_the_config_seam(monkeypatch):
     """The CLI defaults read Settings — the one config seam — so env vars and
-    backend/.env.local reach ingest through the same mechanism as the backend."""
+    the root .env reach ingest through the same mechanism as the backend."""
     from src.config import DEFAULT_DATABASE_URL, DEFAULT_OLLAMA_URL
     from src.embedder import DEFAULT_MODEL
     from src.ingest import parse_args

@@ -82,7 +82,7 @@ test("each missing prerequisite is named individually with its verbatim command"
   assert.ok(keyMissing[0].label.includes("OPENROUTER_API_KEY"));
   assert.equal(
     keyMissing[0].command,
-    'echo "OPENROUTER_API_KEY=your-key-here" >> backend/.env.local',
+    'echo "OPENROUTER_API_KEY=your-key-here" >> .env',
   );
 
   const modelMissing = missingPrerequisites({

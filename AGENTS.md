@@ -23,4 +23,4 @@ Run after code changes, before committing:
 
 ### LLM API Key
 
-The LLM API key lives in `backend/.env.local` (gitignored). App config loads it when tests exercise Live-mode functionality — checking that the file exists is fine, but its contents must never be read, echoed, or surfaced anywhere. A Docker deployment instead configures the key in the root `.env` (gitignored), which Compose forwards to the backend container — see `.env.example`.
+The LLM API key lives in the root `.env` (gitignored) — the one configuration file a Docker deployment (via Compose) and a host-run backend (loaded at settings time) share. App config loads it when tests exercise Live-mode functionality — checking that the file exists is fine, but its contents must never be read, echoed, or surfaced anywhere. See `.env.example`.

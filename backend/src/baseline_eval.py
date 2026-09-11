@@ -562,7 +562,7 @@ def _default_judge(settings: Settings) -> SummaryJudge:
     if not settings.openrouter_api_key:
         raise BaselineEvalRefused(
             "OPENROUTER_API_KEY is not set. Export it (or put it in "
-            "backend/.env.local) and re-run."
+            ".env) and re-run."
         )
     return judge_naming_its_failures(SummaryFidelityJudge(chat_client(settings)))
 

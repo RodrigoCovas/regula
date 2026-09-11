@@ -43,7 +43,7 @@ record, and re-invoking the id re-serves the full report with no LLM calls
 at all.
 
 The command is operator-run and never part of CI: it requires a real API key
-(``OPENROUTER_API_KEY``, exported or in ``backend/.env.local``) and an
+(``OPENROUTER_API_KEY``, exported or in ``.env``) and an
 ingested Corpus, refusing clearly without either. Demo mode's automated
 suite is untouched: ``eval_harness.run_eval`` keeps scoring the Demo
 tripwires, so the tripwire property survives alongside this measurement.
@@ -340,7 +340,7 @@ def ensure_runnable(settings: Settings) -> None:
     if not settings.openrouter_api_key:
         raise LiveEvalRefused(
             "OPENROUTER_API_KEY is not set. Export it (or put it in "
-            "backend/.env.local) and re-run."
+            ".env) and re-run."
         )
     try:
         empty = vector_store_is_empty(settings.database_url)

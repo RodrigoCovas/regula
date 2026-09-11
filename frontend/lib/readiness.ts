@@ -80,8 +80,8 @@ const CHECKLIST: ReadinessItem[] = [
   {
     key: "api_key_set",
     label: "Provider key (OPENROUTER_API_KEY)",
-    note: "Set it in backend/.env.local and restart the backend.",
-    command: 'echo "OPENROUTER_API_KEY=your-key-here" >> backend/.env.local',
+    note: "Set it in .env and restart the backend.",
+    command: 'echo "OPENROUTER_API_KEY=your-key-here" >> .env',
   },
   {
     key: "embedding_model_present",

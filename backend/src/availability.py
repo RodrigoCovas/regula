@@ -144,7 +144,7 @@ def missing_api_key_response() -> AnalyzeResponse:
     return not_available_response(
         actions=[
             "Live mode needs an LLM provider key, but OPENROUTER_API_KEY is not configured.",
-            "Set it in backend/.env.local (or export it) and restart the backend; no re-ingestion is needed.",
+            "Set it in .env (or export it) and restart the backend; no re-ingestion is needed.",
             SWITCH_TO_DEMO_ACTION,
         ],
         summary="Live mode selected but no provider key is configured; no analysis performed.",

@@ -184,22 +184,22 @@ def test_compose_defaults_mirror_the_backend_builtins():
     assert "REGULA_MODE: ${REGULA_MODE:-demo}" in compose
 
 
-# --- .env.local loading (the documented configuration home) -------------------
+# --- .env loading (the documented configuration home) -------------------------
 
 
-def test_load_settings_reads_backend_env_local_when_present(monkeypatch, tmp_path):
-    """backend/.env.local is the documented configuration home (.env.example,
+def test_load_settings_reads_root_env_when_present(monkeypatch, tmp_path):
+    """The root .env is the documented configuration home (.env.example,
     README): values there reach load_settings without exporting anything."""
     import src.config
 
-    env_local = tmp_path / ".env.local"
-    env_local.write_text("LLM_MODEL=from-env-local\n")
-    monkeypatch.setattr(src.config, "_ENV_LOCAL_PATH", env_local)
+    env_file = tmp_path / ".env"
+    env_file.write_text("LLM_MODEL=from-env-file\n")
+    monkeypatch.setattr(src.config, "_ENV_PATH", env_file)
     monkeypatch.delenv("LLM_MODEL", raising=False)
 
     settings = load_settings()
 
-    assert settings.llm_model == "from-env-local"
+    assert settings.llm_model == "from-env-file"
     # load_dotenv planted the file's values straight into os.environ — a
     # side effect monkeypatch cannot undo, because the delenv above recorded
     # the variable's absent state before the plant happened. Remove the
@@ -208,14 +208,14 @@ def test_load_settings_reads_backend_env_local_when_present(monkeypatch, tmp_pat
     os.environ.pop("LLM_MODEL", None)
 
 
-def test_the_real_environment_wins_over_env_local(monkeypatch, tmp_path):
+def test_the_real_environment_wins_over_env_file(monkeypatch, tmp_path):
     """source_local_env never overrides an exported variable: the process
     environment stays the stronger contract."""
     import src.config
 
-    env_local = tmp_path / ".env.local"
-    env_local.write_text("LLM_MODEL=from-env-local\n")
-    monkeypatch.setattr(src.config, "_ENV_LOCAL_PATH", env_local)
+    env_file = tmp_path / ".env"
+    env_file.write_text("LLM_MODEL=from-env-file\n")
+    monkeypatch.setattr(src.config, "_ENV_PATH", env_file)
     monkeypatch.setenv("LLM_MODEL", "from-export")
 
     settings = load_settings()
@@ -223,10 +223,10 @@ def test_the_real_environment_wins_over_env_local(monkeypatch, tmp_path):
     assert settings.llm_model == "from-export"
 
 
-def test_the_session_never_points_at_the_real_env_local():
-    """conftest neutralises _ENV_LOCAL_PATH at collection time — before any
+def test_the_session_never_points_at_the_real_env_file():
+    """conftest neutralises _ENV_PATH at collection time — before any
     test module imports src.main and its import-time load_settings() runs —
-    so the host's real backend/.env.local can never leak into the session."""
+    so the host's real root .env can never leak into the session."""
     import src.config
 
-    assert not src.config._ENV_LOCAL_PATH.exists()
+    assert not src.config._ENV_PATH.exists()

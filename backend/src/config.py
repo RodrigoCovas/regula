@@ -33,10 +33,11 @@ DEFAULT_DATABASE_URL = "postgresql://regula:regula@localhost:5432/regula"
 # the ingest CLI so both ends of the vector path agree.
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
-# The documented configuration home (backend/.env.example, README): the
-# gitignored file the LLM API key lives in by convention. A module constant so
-# the hermetic test fixture can point it elsewhere.
-_ENV_LOCAL_PATH = Path(__file__).resolve().parents[1] / ".env.local"
+# The documented configuration home (.env.example, README): the gitignored
+# root .env — the one file a Docker deployment (via Compose) and a host-run
+# backend (via this loader) both read. A module constant so the hermetic test
+# fixture can point it elsewhere.
+_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
 class ConfigurationError(RuntimeError):
@@ -105,7 +106,7 @@ def chat_client(settings: Settings) -> OpenRouterClient:
 
 
 def source_local_env() -> None:
-    """Place backend/.env.local into the environment when present.
+    """Place the root .env into the environment when present.
 
     Every configuration entry point goes through here: the backend boots by
     calling ``load_settings``, and the ingest CLI calls it before parsing
@@ -113,5 +114,5 @@ def source_local_env() -> None:
     never read back, echoed, or logged. The real environment wins: nothing
     here overrides an exported variable.
     """
-    if _ENV_LOCAL_PATH.exists():
-        load_dotenv(_ENV_LOCAL_PATH, override=False)
+    if _ENV_PATH.exists():
+        load_dotenv(_ENV_PATH, override=False)

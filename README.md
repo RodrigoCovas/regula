@@ -91,7 +91,7 @@ docker compose down -v     # full reset to fresh-clone state, including the Corp
 
 ## Configuration
 
-All configuration lives in the root `.env` (copied from `.env.example` in the Quickstart). Every variable is optional: deleting one or leaving it empty falls back to the backend's built-in default, except the key, whose emptiness means "not configured".
+All configuration lives in the root `.env` (copied from `.env.example` in the Quickstart) — the one configuration file a Docker deployment and a host-run backend share. Every variable is optional: deleting one or leaving it empty falls back to the backend's built-in default, except the key, whose emptiness means "not configured".
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -109,7 +109,7 @@ Provider notes worth knowing before you switch away from the default:
 - **Embeddings are not covered by the provider switch.** They always run on local Ollama, and the pgvector column is fixed at nomic's 768 dimensions.
 - **Results are model-sensitive** (ADR-0009): evaluation numbers are comparable only within the model that produced them — see [Evaluation](#evaluation).
 
-Running the backend outside Docker (e.g. for tests) reads the same variables from `backend/.env.local` — see `backend/.env.example`.
+Running the backend outside Docker (backend development, tests) reads the same variables from the same root `.env` — see `.env.example`.
 
 ## Modes & Readiness
 
@@ -181,11 +181,18 @@ npm run typecheck
 
 All four checks run on every push and pull request via GitHub Actions (`.github/workflows/ci.yml`).
 
-**Backend dev server** (host-run, for backend development — the Docker stack already serves everything else):
+**Dev servers** (host-run, for development — the Docker stack already serves everything else): the containerized frontend proxies to the containerized backend, so stop both and run the two apps on the host:
 ```bash
+docker compose stop backend frontend
+pip install -r backend/requirements.txt
 python -m uvicorn backend.src.main:app --reload --reload-dir backend/src
 ```
-The reload watch is scoped to `backend/src`, so frontend work never restarts the backend and a long Live run keeps its request id and progress history.
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The host-run backend reads the same root `.env` the stack does. Its built-in endpoints (`localhost:5432` for PostgreSQL, `localhost:11434` for Ollama) reach the stack's published Postgres and a native Ollama on the host — the instance whose pulled embedding model serves host-run Live mode; override `DATABASE_URL` / `OLLAMA_API_URL` in `.env` to point elsewhere. The reload watch is scoped to `backend/src`, so frontend work never restarts the backend and a long Live run keeps its request id and progress history.
 
 **Observability:** every `/api/analyze` request appends exactly one JSON line to `logs/queries.jsonl` (the `./logs` bind mount on the host; override the location with `QUERY_LOG_PATH`) — including failures, which carry an explicit failure status and the tokens spent before dying. Fields:
 

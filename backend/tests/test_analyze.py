@@ -679,7 +679,7 @@ def assert_missing_key_guidance(data):
     documented key home — the recovery guidance ADR-0008 asks for."""
     actions = data["answer"]["actions"]
     assert any("OPENROUTER_API_KEY" in a for a in actions), actions
-    assert any(".env.local" in a for a in actions), actions
+    assert any(".env" in a for a in actions), actions
     assert "key" in data["trace"]["summary"].lower()
 
 

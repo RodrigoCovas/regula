@@ -9,15 +9,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
-# Neutralise backend/.env.local for the whole session — and it MUST happen
+# Neutralise the root .env for the whole session — and it MUST happen
 # here, at conftest import time: test modules import src.main, whose
 # module-level load_settings() then runs before any fixture could intervene
-# and would bake the host's real .env.local (the LLM API key lives there)
+# and would bake the host's real .env (the LLM API key lives there)
 # into os.environ for every test. Tests that exercise the loading point it
 # at their own tmp file via monkeypatch instead (see test_config.py).
 import src.config as _config
 
-_config._ENV_LOCAL_PATH = Path(mkdtemp()) / ".env.local"
+_config._ENV_PATH = Path(mkdtemp()) / ".env"
 
 from src.models import Chunk
 
