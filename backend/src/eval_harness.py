@@ -351,50 +351,6 @@ def coverage_scores(
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
-# Ground truth for the canonical Spanish fintech demo answer, hand-authored
-# once from the operator's demo-scenario evidence research (see
-# data/PROVENANCE.md). Deliberately NOT derived from DEMO_FINDING_DEFS: ground
-# truth must stay an independent source of truth, or the eval could never
-# disagree with the code.
-_CANONICAL_EXPECTED = [
-    ExpectedFinding(
-        statement="An AI system that evaluates the creditworthiness of natural persons or establishes their credit score is a high-risk AI system under the AI Act, so the full high-risk obligations apply.",
-        citations=[{"source_id": "ai-act", "provision": "Article 6(2)", "strength": Strength.strong}, {"source_id": "ai-act", "provision": "Annex III point 5(b)", "strength": Strength.strong}],
-    ),
-    ExpectedFinding(
-        statement="As deployer, the company must assign human oversight, keep automatically generated logs for at least six months, and inform applicants that they are subject to a high-risk AI system.",
-        citations=[{"source_id": "ai-act", "provision": "Article 26", "strength": Strength.strong}],
-    ),
-    ExpectedFinding(
-        statement="Before first deployment, the deployer of the creditworthiness system must perform a Fundamental Rights Impact Assessment and notify its results to the market surveillance authority.",
-        citations=[{"source_id": "ai-act", "provision": "Article 27", "strength": Strength.strong}],
-    ),
-    ExpectedFinding(
-        statement="Applicants subject to a loan decision based on the system's output have a right to a clear and meaningful explanation of the role of the AI system in the decision.",
-        citations=[{"source_id": "ai-act", "provision": "Article 86(1)", "strength": Strength.strong}],
-    ),
-    ExpectedFinding(
-        statement="GDPR restricts decisions based solely on automated processing, including profiling, that produce legal or similarly significant effects; loan scoring is such a decision, and even the contract-necessity exception still requires human intervention and contest rights.",
-        citations=[{"source_id": "gdpr", "provision": "Article 22", "strength": Strength.strong}, {"source_id": "gdpr", "provision": "Recital 71", "strength": Strength.strong}],
-    ),
-    ExpectedFinding(
-        statement="The credit-scoring processing requires a data protection impact assessment before it starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
-        citations=[{"source_id": "gdpr", "provision": "Article 35", "strength": Strength.strong}],
-    ),
-    ExpectedFinding(
-        statement="DORA applies in full only if the company is itself a licensed financial entity; otherwise its main relevance is through ICT third-party risk where the AI is supplied to financial entities.",
-        citations=[{"source_id": "dora", "provision": "Article 2", "strength": Strength.moderate}],
-    ),
-    ExpectedFinding(
-        statement="DORA governs the digital operational resilience of financial entities, not the substance of credit decisions; credit scoring itself is regulated by the AI Act and GDPR, not DORA.",
-        citations=[{"source_id": "dora", "provision": "Article 1", "strength": Strength.moderate}],
-    ),
-    ExpectedFinding(
-        statement="The system qualifies as an AI system; the company will be a provider and/or deployer; credit scoring is a form of profiling as cross-referenced into the AI Act.",
-        citations=[{"source_id": "ai-act", "provision": "Article 3", "strength": Strength.weak}],
-    ),
-]
-
 _NO_FINDINGS: List[ExpectedFinding] = []
 
 
@@ -452,16 +408,6 @@ class EvalReport:
     mean_f1: float
     mean_summary_fidelity: Optional[float] = None
 
-
-CURATED_SCENARIOS: List[EvalScenario] = [
-    EvalScenario(id="canonical-what-applies", scenario_id="spanish-fintech-startup-uses-9e165169", question="What regulations apply?", expected=_CANONICAL_EXPECTED),
-    EvalScenario(id="canonical-loan-denial", scenario_id="spanish-fintech-startup-uses-9e165169", question="Would an automated loan denial violate data protection requirements?", expected=_CANONICAL_EXPECTED),
-    EvalScenario(id="canonical-spanish-question", scenario_id="spanish-fintech-startup-uses-9e165169", question="¿Qué regulaciones aplican a nuestro sistema de scoring?", expected=_CANONICAL_EXPECTED),
-    EvalScenario(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this loan scoring violate GDPR?", expected=_NO_FINDINGS),
-    EvalScenario(id="non-canonical-near-miss-id", scenario_id="spanish-fintech-demo", question="What regulations apply?", expected=_NO_FINDINGS),
-    EvalScenario(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),
-    EvalScenario(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
-]
 
 # The Live-quality cases (#20, #51): the operator CLI's case list
 # (backend/src/live_eval.py), never part of CI. Each case describes its own
@@ -2432,6 +2378,28 @@ _AI_TRADING_CLOUD_ATTACK_EXPECTED = [
         ],
     ),
 ]
+
+
+# The Demo tripwire cases (ADR-0001): the CI suite (backend/src/eval_harness.py
+# run_eval), judgeless and keyless. The canonical cases pin the bank-cloud-outage
+# demo routing with the authored bank-case gold — transcribed from the
+# operator's data/regulations/citations.json (the bank entry) as an independent
+# source, deliberately not derived from DEMO_FINDING_DEFS (#7 precedent: the
+# eval can still disagree with the code); F1 = 1.0 by construction, so any
+# drop signals rewording, retagging, or routing leakage. The non-canonical
+# probes pin routing: a look-alike id, an unrelated id, and the empty id all
+# score zero — demo content must never leak onto them (ADR-0005).
+CURATED_SCENARIOS: List[EvalScenario] = [
+    EvalScenario(id="canonical-what-applies", scenario_id="bank-cloud-outage", question="What regulations apply?", expected=_BANK_CLOUD_OUTAGE_EXPECTED),
+    EvalScenario(id="canonical-incident-obligations", scenario_id="bank-cloud-outage", question="What regulatory obligations should the bank consider following the incident?", expected=_BANK_CLOUD_OUTAGE_EXPECTED),
+    EvalScenario(id="canonical-spanish-question", scenario_id="bank-cloud-outage", question="¿Qué obligaciones reguladoras tiene el banco?", expected=_BANK_CLOUD_OUTAGE_EXPECTED),
+    EvalScenario(id="non-canonical-other-id", scenario_id="other-scenario", question="Does this cloud outage violate GDPR?", expected=_NO_FINDINGS),
+    EvalScenario(id="non-canonical-near-miss-id", scenario_id="bank-cloud-outage-demo", question="What regulations apply?", expected=_NO_FINDINGS),
+    EvalScenario(id="non-canonical-unrelated", scenario_id="gdpr-audit", question="Do we need a records-of-processing register?", expected=_NO_FINDINGS),
+    EvalScenario(id="non-canonical-missing-id", scenario_id="", question="What regulations apply?", expected=_NO_FINDINGS),
+]
+
+
 LIVE_EVAL_SCENARIOS: List[EvalScenario] = [
     EvalScenario(
         id="live-retailer-breach",

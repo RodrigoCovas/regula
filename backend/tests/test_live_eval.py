@@ -207,6 +207,35 @@ def test_shipped_ground_truth_transcribes_the_operators_citations_file():
         assert all(relevance for _, _, relevance, _ in shipped), f"{case.id}: bare expected citation"
 
 
+def test_demo_finding_defs_transcribe_the_operators_citations_record():
+    """Issue #54: the demo's locked content is the bank-cloud-outage gold.
+    Every DEMO_FINDING_DEFS target — the cited provision, its relevance
+    summary, and the operator's per-provision Strength rating — is
+    transcribed verbatim from the operator's data/regulations/citations.json
+    (the bank entry, scenario_3); the strengths ride the Citations alone
+    (ADR-0011), one rating per provision. The projection is deliberately
+    spelled out here instead of sharing an implementation with the content it
+    pins (#7 precedent): any transcription drift between the shipped demo
+    defs and the record fails loudly here."""
+    from src.main import DEMO_FINDING_DEFS
+
+    citations = json.loads((ROOT / "data" / "regulations" / "citations.json").read_text())
+    shipped = [
+        (target["source_id"], target["provision"], target["relevance"], target["strength"].value)
+        for finding in DEMO_FINDING_DEFS
+        for target in finding["targets"]
+    ]
+    authored = [
+        (entry["source_id"], entry["provision"], entry["relevance"], entry["strength"])
+        for entry in citations["scenario_3"]
+    ]
+    assert len(DEMO_FINDING_DEFS) == 13, "the demo serves the authored bank-case findings"
+    assert sorted(shipped) == sorted(authored), "demo defs do not transcribe the bank record verbatim"
+    assert len({(source, provision) for source, provision, _, _ in shipped}) == len(shipped) == 29, (
+        "each provision is cited by exactly one demo Finding"
+    )
+
+
 def test_coverage_recall_is_strength_weighted_over_expected_targets(ingested_store, query_log_path):
     """The produced Citations hit two strongly-weighted expected targets:
     recall is their combined weight over the max-rule weighted total of the

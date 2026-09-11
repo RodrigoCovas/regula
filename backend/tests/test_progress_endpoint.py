@@ -21,7 +21,7 @@ from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import REQUEST_ID_HEADER
 from src.progress import ProgressRegistry
 
-from conftest import boot_live_with_fakes, poll_progress
+from conftest import CANONICAL_SCENARIO_DESCRIPTION, CANONICAL_SCENARIO_ID, boot_live_with_fakes, poll_progress
 from fakes import FakeClock, FakeRetriever, make_offline_llm
 from progress_assertions import assert_phases_in_agent_order, assert_unknown_request_reply
 
@@ -58,7 +58,7 @@ def post_canonical(client, request_id=None):
         "/api/analyze",
         headers=headers,
         json={
-            "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
+            "scenario": {"id": CANONICAL_SCENARIO_ID, "description": CANONICAL_SCENARIO_DESCRIPTION},
             "question": "What regulations apply?",
         },
     )

@@ -21,6 +21,16 @@ _config._ENV_PATH = Path(mkdtemp()) / ".env"
 
 from src.models import Chunk
 
+# The canonical demo Scenario's request payload, shared by every test that
+# posts the canonical demo id: routing pins on the id alone (ADR-0005), the
+# description rides along as the real demo button would send it.
+CANONICAL_SCENARIO_ID = "bank-cloud-outage"
+CANONICAL_SCENARIO_DESCRIPTION = (
+    "A bank relies on an external cloud provider to host critical systems used for online banking. "
+    "A major technical failure at the cloud provider makes the bank's online banking services "
+    "unavailable to customers for several hours."
+)
+
 
 @pytest.fixture()
 def query_log_path(tmp_path) -> Path:

@@ -34,8 +34,8 @@ START_POSTGRES_COMMAND = "docker compose up -d postgres"
 # The standing escape hatch shared by every Not-available response (ADR-0008:
 # switching to Demo is a per-run choice, no restart).
 SWITCH_TO_DEMO_ACTION = (
-    "Re-run with mode 'demo' to analyze the canonical Spanish fintech scenario "
-    "via scenario.id 'spanish-fintech-startup-uses-9e165169'."
+    "Re-run with mode 'demo' to analyze the canonical bank cloud outage scenario "
+    "via scenario.id 'bank-cloud-outage'."
 )
 
 ENGLISH_ONLY_LIMITATION = (

@@ -27,7 +27,7 @@ from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import app
 from src.query_log import aggregate_token_usage, append_query_record
 
-from conftest import boot_live_with_fakes
+from conftest import CANONICAL_SCENARIO_DESCRIPTION, CANONICAL_SCENARIO_ID, boot_live_with_fakes
 from fakes import FakeRetriever, make_offline_llm
 
 
@@ -36,11 +36,11 @@ def read_records(path) -> list[dict]:
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
-def post_canonical(client, scenario_id="spanish-fintech-startup-uses-9e165169"):
+def post_canonical(client, scenario_id=CANONICAL_SCENARIO_ID):
     return client.post(
         "/api/analyze",
         json={
-            "scenario": {"id": scenario_id, "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
+            "scenario": {"id": scenario_id, "description": CANONICAL_SCENARIO_DESCRIPTION},
             "question": "What regulations apply?",
         },
     )
@@ -60,7 +60,7 @@ def test_each_demo_request_appends_one_success_record(query_log_path):
     record = records[0]
     assert record["status"] == "success"
     assert record["mode"] == "demo"
-    assert record["scenario_id"] == "spanish-fintech-startup-uses-9e165169"
+    assert record["scenario_id"] == "bank-cloud-outage"
     assert record["workflow"] == data["trace"]["workflow"]
     # Demo "retrieval" resolves provisions via corpus lookups; the count
     # mirrors the Citations those lookups produced.
@@ -175,7 +175,7 @@ def test_requests_append_one_line_each_in_order(query_log_path):
         post_canonical(client, scenario_id="other-company")
 
     records = read_records(query_log_path)
-    assert [r["scenario_id"] for r in records] == ["spanish-fintech-startup-uses-9e165169", "other-company"]
+    assert [r["scenario_id"] for r in records] == ["bank-cloud-outage", "other-company"]
     assert records[0]["timestamp"] <= records[1]["timestamp"]
 
 

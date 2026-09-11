@@ -147,8 +147,6 @@ def _find_annex_context(doc: dict, number: int) -> Optional[Dict[str, Any]]:
     return None
 
 
-# Deterministic lookup map for the canonical Spanish fintech demo scenario.
-# Each finding lists the provisions that support its claim, with evidence strength.
 class LookupTarget(TypedDict):
     source_id: str
     kind: str
@@ -192,166 +190,351 @@ class FindingDef(TypedDict):
     targets: List[LookupTarget]
 
 
+# The one exact-match demo trigger id (ADR-0005): the bank cloud outage
+# case's Scenario id (issue #54). A derived id never equals it, so free-text
+# Scenarios fall to the Not-available response — never keyword routing.
+DEMO_SCENARIO_ID = "bank-cloud-outage"
+
+# The locked demo content (issue #54): the bank cloud outage case, the best-
+# performing Live eval Scenario. Each Finding def's statement follows the
+# authored bank-case gold; every target's relevance summary and per-provision
+# Strength rating are transcribed verbatim from the operator's citations
+# record (data/regulations/citations.json, the bank entry) — the pinning test
+# (test_live_eval.py) fails CI on any drift. The operator's ratings ride the
+# Citations alone (ADR-0011); the per-Finding Strengths are curated content,
+# judged from each Finding's own provisions (CONTEXT.md), presented
+# strength-first like the Live Answer.
+
+
 DEMO_FINDING_DEFS: List[FindingDef] = [
     {
-        "statement": "An AI system that evaluates the creditworthiness of natural persons or establishes their credit score is a high-risk AI system under the AI Act, so the full high-risk obligations apply.",
+        "statement": "The bank must run the outage through its ICT incident-management process, classify it by clients affected, duration, data losses, service criticality and economic impact and, once classified major, submit initial, intermediate and final reports within the harmonised time limits while promptly informing affected clients about the incident and mitigation measures.",
         "strength": Strength.strong,
         "targets": [
             {
-                "source_id": "ai-act",
+                "source_id": "dora",
+                "kind": "article",
+                "number": 17,
+                "provision": "Article 17",
+                "relevance": "Article 17 obliges the bank to run the outage through its ICT incident-management process of detection, management, notification, escalation to senior management, and response procedures for timely restoration.",
+                "strength": Strength.strong,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 18,
+                "provision": "Article 18",
+                "relevance": "Article 18(1) requires the bank to classify the outage by clients affected, duration, data losses, service criticality, and economic impact, which determines whether the major-incident reporting duty is triggered.",
+                "strength": Strength.strong,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 19,
+                "provision": "Article 19",
+                "relevance": "Article 19 obliges the bank, once the outage is classified major, to submit initial, intermediate, and final reports to the competent authority and to promptly inform affected clients about the incident and mitigation measures.",
+                "strength": Strength.strong,
+            },
+        ],
+    },
+    {
+        "statement": "The bank must activate business continuity plans that prioritise resuming the critical online-banking function - plans that cover functions outsourced to the cloud provider - and restore from backups and restoration capabilities.",
+        "strength": Strength.strong,
+        "targets": [
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 11,
+                "provision": "Article 11",
+                "relevance": "Article 11 obliges the bank to activate ICT business continuity and response plans that prioritise resumption of the critical online-banking function, and Article 11(4) requires those plans to cover functions outsourced through ICT third-party providers like the cloud host.",
+                "strength": Strength.moderate,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 12,
+                "provision": "Article 12",
+                "relevance": "Article 12's backup and restoration duties frame the recovery actions the bank invokes to bring online banking back within acceptable downtime.",
+                "strength": Strength.weak,
+            },
+        ],
+    },
+    {
+        "statement": "Client personal data must remain protected and available: the bank owes security measures and timely restoration of access after the technical incident under the GDPR's integrity and confidentiality baseline, with the recovery and notification processing resting on a lawful basis and the measures implemented and demonstrable.",
+        "strength": Strength.strong,
+        "targets": [
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 32,
+                "provision": "Article 32",
+                "relevance": "Article 32(1)(b)-(c) obliges the bank to ensure availability of its processing systems and timely restoration of access to client personal data after the technical incident, running in parallel with DORA's recovery duties.",
+                "strength": Strength.moderate,
+            },
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 5,
+                "provision": "Article 5",
+                "relevance": "Article 5(1)(f)'s integrity-and-confidentiality principle grounds the bank's ongoing duty to protect client personal data processed through the disrupted systems.",
+                "strength": Strength.weak,
+            },
+            {
+                "source_id": "gdpr",
                 "kind": "article",
                 "number": 6,
-                "provision": "Article 6(2)",
-                "relevance": "Article 6(2) is the classification rule that brings the company's credit-scoring system into the AI Act's high-risk regime, so every high-risk obligation in the other Findings applies.",
-                "strength": Strength.strong,
+                "provision": "Article 6",
+                "relevance": "Article 6 requires the recovery and notification processing of customer data to rest on a lawful basis, the lawfulness frame alongside the Article 5 principles for the breach response.",
+                "strength": Strength.weak,
             },
             {
-                "source_id": "ai-act",
-                "kind": "annex",
-                "number": 3,
-                "provision": "Annex III point 5(b)",
-                "relevance": "Annex III point 5(b) names creditworthiness evaluation of natural persons as a high-risk use outright, which is what pins the company's loan-scoring system to Article 6(2)'s high-risk classification.",
-                "strength": Strength.strong,
-            },
-        ],
-    },
-    {
-        "statement": "As deployer, the company must assign human oversight, keep automatically generated logs for at least six months, and inform applicants that they are subject to a high-risk AI system.",
-        "strength": Strength.strong,
-        "targets": [
-            {
-                "source_id": "ai-act",
+                "source_id": "gdpr",
                 "kind": "article",
-                "number": 26,
-                "provision": "Article 26(2), (4), (6), (11)",
-                "relevance": "Article 26 sets the deployer duties that fall directly on the company once its system is high-risk: human oversight, six-month log retention, and informing applicants.",
-                "strength": Strength.strong,
+                "number": 24,
+                "provision": "Article 24",
+                "relevance": "Article 24 obliges the bank to implement and demonstrate measures that keep processing compliant, framing the recovery and accountability follow-up the outage response must include.",
+                "strength": Strength.weak,
             },
         ],
     },
     {
-        "statement": "Before first deployment, the deployer of the creditworthiness system must perform a Fundamental Rights Impact Assessment and notify its results to the market surveillance authority.",
-        "strength": Strength.strong,
-        "targets": [
-            {
-                "source_id": "ai-act",
-                "kind": "article",
-                "number": 27,
-                "provision": "Article 27(1)-(4)",
-                "relevance": "Article 27 makes the Fundamental Rights Impact Assessment — and notifying its results — a step the company must complete before first deploying the creditworthiness system.",
-                "strength": Strength.strong,
-            },
-        ],
-    },
-    {
-        "statement": "Applicants subject to a loan decision based on the system's output have a right to a clear and meaningful explanation of the role of the AI system in the decision.",
-        "strength": Strength.strong,
-        "targets": [
-            {
-                "source_id": "ai-act",
-                "kind": "article",
-                "number": 86,
-                "provision": "Article 86(1)",
-                "relevance": "Article 86 gives loan applicants subject to decisions based on the system's output a right to a clear and meaningful explanation of the AI system's role in the decision.",
-                "strength": Strength.strong,
-            },
-        ],
-    },
-    {
-        "statement": "GDPR restricts decisions based solely on automated processing, including profiling, that produce legal or similarly significant effects; loan scoring is such a decision, and even the contract-necessity exception still requires human intervention and contest rights.",
+        "statement": "In hosting and processing the bank's customer data on the disrupted systems, the cloud provider acts as a processor: the bank may engage it only under a contract carrying Article 28(3)'s guarantees, and the provider must assist the bank in meeting its security and breach-response obligations.",
         "strength": Strength.strong,
         "targets": [
             {
                 "source_id": "gdpr",
                 "kind": "article",
-                "number": 22,
-                "provision": "Article 22(1), (2)(a), (3)",
-                "relevance": "Article 22 restricts decisions based solely on automated processing such as the company's loan scoring, and even the contract-necessity route still requires human intervention and contest rights.",
-                "strength": Strength.strong,
-            },
-            {
-                "source_id": "gdpr",
-                "kind": "recital",
-                "number": 71,
-                "provision": "Recital 71",
-                "relevance": "Recital 71 backs Article 22's restriction with the GDPR's own framing of profiling — the automated processing the company's credit scoring performs, producing legal effects for applicants.",
-                "strength": Strength.strong,
+                "number": 28,
+                "provision": "Article 28",
+                "relevance": "Article 28 obliges the bank to engage the cloud host only as a processor under a contract carrying Article 28(3)'s guarantees, with Article 28(3)(f) requiring the provider's assistance with the breach and security duties, the GDPR counterpart to the DORA contract levers.",
+                "strength": Strength.moderate,
             },
         ],
     },
     {
-        "statement": "The credit-scoring processing requires a data protection impact assessment before it starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
+        "statement": "The bank must identify and document the processes dependent on the cloud provider and its interconnections, keeping those inventories updated - the identification step grounding the recovery and third-party analysis.",
+        "strength": Strength.strong,
+        "targets": [
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 8,
+                "provision": "Article 8",
+                "relevance": "Article 8 requires the bank to identify and document all processes dependent on the cloud provider and their interconnections, the classification grounding the criticality and recovery analysis for the disrupted functions.",
+                "strength": Strength.weak,
+            },
+        ],
+    },
+    {
+        "statement": "The bank's management body must approve, oversee and periodically review the ICT business continuity policy and the response and recovery plans the outage engages and the post-incident revisions produce.",
+        "strength": Strength.strong,
+        "targets": [
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 5,
+                "provision": "Article 5",
+                "relevance": "Article 5 places the management body over the outage response: it must approve, oversee, and periodically review the ICT business continuity policy and the response and recovery plans the incident engages.",
+                "strength": Strength.weak,
+            },
+        ],
+    },
+    {
+        "statement": "The bank must operate detection mechanisms that promptly surface anomalous activities and ICT-related incidents across its ICT systems.",
+        "strength": Strength.strong,
+        "targets": [
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 10,
+                "provision": "Article 10",
+                "relevance": "Article 10 obliges the bank to operate detection mechanisms that promptly surface anomalous activities and ICT-related incidents, the capability the outage's arrival tested.",
+                "strength": Strength.weak,
+            },
+        ],
+    },
+    {
+        "statement": "The recovery processing must appear in the bank's records of processing activities, covering purposes, categories of data subjects and personal data, recipients including the cloud provider, and the security measures.",
         "strength": Strength.strong,
         "targets": [
             {
                 "source_id": "gdpr",
                 "kind": "article",
-                "number": 35,
-                "provision": "Article 35(1), (3)(a)",
-                "relevance": "Article 35 requires the data protection impact assessment before the company's credit-scoring processing starts, because it is a systematic and extensive automated evaluation on which legally effective decisions are based.",
-                "strength": Strength.strong,
+                "number": 30,
+                "provision": "Article 30",
+                "relevance": "Article 30 requires the recovery processing to appear in the bank's records of activities, covering purposes, categories of data subjects and personal data, recipients including the cloud provider, and the security measures.",
+                "strength": Strength.weak,
             },
         ],
     },
     {
-        "statement": "DORA applies in full only if the company is itself a licensed financial entity; otherwise its main relevance is through ICT third-party risk where the AI is supplied to financial entities.",
+        "statement": "As a credit institution the bank falls within DORA, and the cloud failure is an ICT-related incident affecting a critical function supplied by an ICT third-party service provider, with the response scaled to the bank's size and risk profile.",
         "strength": Strength.moderate,
         "targets": [
             {
                 "source_id": "dora",
                 "kind": "article",
                 "number": 2,
-                "provision": "Article 2(1)(a), (2)",
-                "relevance": "Article 2 decides whether DORA applies to the company at all: only as a licensed financial entity, the contingency the Findings leave to the company's actual status.",
+                "provision": "Article 2",
+                "relevance": "Article 2(1)(a) brings the bank within DORA as a credit institution, engaging the ICT incident-management and third-party regimes that govern the outage response.",
                 "strength": Strength.moderate,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 3,
+                "provision": "Article 3",
+                "relevance": "Article 3's definitions of ICT-related incident, major incident, ICT third-party service provider, and critical or important function establish that the cloud failure is an ICT incident affecting a critical function supplied by an external provider.",
+                "strength": Strength.moderate,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 4,
+                "provision": "Article 4",
+                "relevance": "Article 4 scales the bank's incident-response and third-party obligations to its size and risk profile, the proportionality lens applied across the analysis.",
+                "strength": Strength.weak,
             },
         ],
     },
     {
-        "statement": "DORA governs the digital operational resilience of financial entities, not the substance of credit decisions; credit scoring itself is regulated by the AI Act and GDPR, not DORA.",
+        "statement": "The major incident triggers a review of the ICT risk-management framework and a post-incident review of the outage's causes and the response's effectiveness, with a communication strategy framing what clients and stakeholders are told.",
         "strength": Strength.moderate,
         "targets": [
             {
                 "source_id": "dora",
                 "kind": "article",
-                "number": 1,
-                "provision": "Article 1(1)",
-                "relevance": "Article 1 bounds DORA to the digital operational resilience of financial entities, so it governs ICT risk rather than the substance of credit decisions.",
-                "strength": Strength.moderate,
+                "number": 6,
+                "provision": "Article 6",
+                "relevance": "Article 6(5) makes a major incident a mandatory trigger for reviewing the bank's ICT risk-management framework, alongside the recovery itself.",
+                "strength": Strength.weak,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 13,
+                "provision": "Article 13",
+                "relevance": "Article 13(2) requires a post-incident review of the outage's causes and of the effectiveness of the bank's response once the incident has disrupted core activities.",
+                "strength": Strength.weak,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 14,
+                "provision": "Article 14",
+                "relevance": "Article 14's communication-strategy duty frames how the bank informs clients and stakeholders about the outage, complementing the specific client-notification duty in Article 19(3).",
+                "strength": Strength.weak,
             },
         ],
     },
     {
-        "statement": "The system qualifies as an AI system; the company will be a provider and/or deployer; credit scoring is a form of profiling as cross-referenced into the AI Act.",
-        "strength": Strength.weak,
+        "statement": "The bank stays fully responsible for DORA compliance despite the provider's failure and any supervisory feedback on its reports; its dependence on a single cloud provider requires concentration-risk analysis and substitutability considerations, and the contract must secure incident assistance, notification of material developments and tested contingency plans, with audit, termination and exit-strategy levers.",
+        "strength": Strength.moderate,
         "targets": [
             {
-                "source_id": "ai-act",
+                "source_id": "dora",
                 "kind": "article",
-                "number": 3,
-                "provision": "Article 3(1), (3), (4), (52)",
-                "relevance": "Article 3 supplies the definitions — AI system, provider, deployer, profiling — the other Findings rely on, without establishing an obligation on its own.",
+                "number": 28,
+                "provision": "Article 28",
+                "relevance": "Article 28 keeps the bank fully responsible for DORA compliance despite the cloud provider's failure and supplies the audit, termination, and exit-strategy levers for the provider relationship going forward.",
+                "strength": Strength.moderate,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 29,
+                "provision": "Article 29",
+                "relevance": "Article 29's concentration-risk duties apply because the bank depends on a single cloud provider for critical online banking, requiring substitutability analysis and consideration of alternative solutions.",
+                "strength": Strength.weak,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 30,
+                "provision": "Article 30",
+                "relevance": "Article 30 requires the cloud contract to secure incident assistance, notification of material developments, and tested contingency plans from the provider, the provisions the bank invokes during and after the outage.",
+                "strength": Strength.moderate,
+            },
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 22,
+                "provision": "Article 22",
+                "relevance": "Article 22 provides that the bank remains fully responsible for the incident's handling and its consequences notwithstanding any supervisory feedback or guidance the competent authority gives on its notification and reports.",
+                "strength": Strength.weak,
+            },
+        ],
+    },
+    {
+        "statement": "If the outage investigation reveals a personal data breach, the 72-hour supervisory-authority notification and, where customers face high risk, the communication duty come into play alongside the DORA reporting, with the authority's corrective powers - from ordering communication to fines - behind that track.",
+        "strength": Strength.moderate,
+        "targets": [
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 4,
+                "provision": "Article 4",
+                "relevance": "Article 4(12) frames the assessment of whether the outage also involved a personal data breach, which turns on whether client data were destroyed, lost, altered, disclosed, or accessed.",
+                "strength": Strength.weak,
+            },
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 33,
+                "provision": "Article 33",
+                "relevance": "Article 33's 72-hour notification duty becomes live where the outage investigation reveals a personal data breach, an obligation the bank must keep in view alongside its DORA reporting.",
+                "strength": Strength.weak,
+            },
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 34,
+                "provision": "Article 34",
+                "relevance": "Article 34's communication duty attaches where the incident creates high risk to customers, complementing the DORA client notification for affected online-banking users.",
+                "strength": Strength.weak,
+            },
+            {
+                "source_id": "gdpr",
+                "kind": "article",
+                "number": 58,
+                "provision": "Article 58",
+                "relevance": "Article 58's corrective powers - ordering the breach's communication to data subjects, limiting or banning processing, and imposing administrative fines - hang over the conditional GDPR track the outage could open.",
+                "strength": Strength.weak,
+            },
+        ],
+    },
+    {
+        "statement": "As a credit institution the bank cannot use the simplified ICT risk-management framework and must comply with the general framework of Articles 5 to 15.",
+        "strength": Strength.moderate,
+        "targets": [
+            {
+                "source_id": "dora",
+                "kind": "article",
+                "number": 16,
+                "provision": "Article 16",
+                "relevance": "Article 16's simplified ICT risk-management framework is not open to a credit institution, so the bank must comply with the general framework of Articles 5 to 15, calibrating which obligations bite.",
                 "strength": Strength.weak,
             },
         ],
     },
 ]
 
+
 # Claims the planner proposes for the canonical scenario beyond the demo
 # Findings. This is an honestly curated list of anticipated-but-unsupported
-# Claims: none of them is stated by any produced Finding — by construction,
-# every claim here is discarded as Unsupported. The verifier pass exists to
-# make those rejections visible in the Execution trace and detailed trace,
-# not to decide anything live.
+# Claims for the bank cloud outage case: none of them is stated by any
+# produced Finding — by construction, every claim here is discarded as
+# Unsupported. The verifier pass exists to make those rejections visible in
+# the Execution trace and detailed trace, not to decide anything live.
 UNSUPPORTED_CLAIM_CANDIDATES = [
-    "Credit scoring data is special-category (sensitive) data.",
-    "DORA applies to every fintech.",
-    "DORA governs AI decisions / automated credit decisions.",
-    "The AI Act prohibits automated credit scoring.",
-    "AI Act Article 6(1)-style product high-risk obligations are currently applicable.",
-    "Recital text for the AI Act and GDPR is available in the corpus.",
-    "Spain-specific requirements are covered by the corpus.",
-    "Whether the company is provider vs deployer can be determined from the corpus.",
+    "The outage is automatically a personal data breach under the GDPR.",
+    "DORA obliges the bank to compensate customers for losses caused by the outage.",
+    "The DORA incident reports replace the GDPR's 72-hour breach notification.",
+    "The bank may wait until the root cause is fully known before reporting the incident.",
+    "The cloud provider, not the bank, is responsible for DORA compliance during the outage.",
+    "The simplified ICT risk-management framework is available to the bank for this incident.",
+    "Spain-specific supervisory requirements for incident reporting are covered by the corpus.",
+    "The bank can exit the cloud contract without concentration-risk analysis or an exit strategy.",
 ]
 
 def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[ClaimDecision]]:
@@ -381,11 +564,11 @@ def _verify_claims(findings: List[Finding]) -> tuple[List[str], List[ClaimDecisi
 # applies. The standing seek-counsel hand-off closes the sheet; the
 # research-prototype boundary lives in known_limitations, never among Actions.
 DEMO_ACTIONS = [
-    "Have a qualified professional determine whether the company is a provider or a deployer under the AI Act, since the obligation sets differ (AI Act Article 3(3)-(4)).",
-    "Have a qualified professional confirm whether the company is a licensed financial entity under DORA Article 2, which decides whether DORA applies in full.",
-    "Have a qualified professional assess whether a GDPR data protection impact assessment (Article 35(3)(a)) and an AI Act Fundamental Rights Impact Assessment (Article 27) are required before first deployment.",
-    "Have a qualified professional verify that human oversight accompanies the credit decision process (AI Act Article 26; GDPR Article 22(3)), so decisions are not solely automated.",
-    "Have a qualified professional confirm how applicants will be informed of the AI system's role in decisions (AI Act Article 86; GDPR Articles 13(2)(f) and 15(1)(h)).",
+    "Have a qualified professional determine whether the outage is a major ICT-related incident under DORA Article 18, since the initial, intermediate, and final reporting duties (Article 19) turn on that classification.",
+    "Have a qualified professional assess whether the outage investigation reveals a personal data breach, which would start the GDPR's 72-hour notification (Article 33) and, where customers face high risk, the communication duty (Article 34) alongside the DORA reporting.",
+    "Have a qualified professional verify that affected clients are promptly informed about the incident and the mitigation measures (DORA Article 19(3); GDPR Article 34).",
+    "Have a qualified professional review the concentration-risk analysis for the bank's dependence on a single cloud provider, including substitutability and alternative solutions (DORA Article 29).",
+    "Have a qualified professional confirm that the cloud contract secures incident assistance, notification of material developments, and tested contingency plans, and that the audit, termination, and exit-strategy levers remain usable (DORA Articles 28 and 30).",
     SEEK_COUNSEL_ACTION,
 ]
 
@@ -404,7 +587,7 @@ def _lookup_tool_call(target: LookupTarget, status: str) -> dict:
 
 
 def _run_demo_workflow() -> Dict[str, Any]:
-    """Run the deterministic demo workflow for the Spanish fintech scenario.
+    """Run the deterministic demo workflow for the bank cloud outage scenario.
 
     Returns findings, the Answer's citations (one per cited provision, with
     the locked Provision relevance and the locked Citation-strength rating —
@@ -772,11 +955,11 @@ def _dispatch_analyze(run: RunContext) -> AnalyzeResponse:
 
     scenario = run.request.scenario
 
-    # Trigger the deterministic demo ONLY on exact scenario.id == "spanish-fintech-startup-uses-9e165169"
+    # Trigger the deterministic demo ONLY on exact scenario.id == DEMO_SCENARIO_ID
     # No keyword-heuristic routing — it silently degrades which is forbidden
-    is_spanish_fintech = bool(scenario and scenario.id == "spanish-fintech-startup-uses-9e165169")
+    is_canonical = bool(scenario and scenario.id == DEMO_SCENARIO_ID)
 
-    if is_spanish_fintech:
+    if is_canonical:
         result = _run_demo_workflow()
         findings = result["findings"]
         citations = result["citations"]
@@ -791,14 +974,14 @@ def _dispatch_analyze(run: RunContext) -> AnalyzeResponse:
         discarded_claims, claim_decisions = _verify_claims(findings)
         trace = Trace(
             workflow=LIVE_WORKFLOW_MARKER,
-            summary="Planner identified automated credit decisions, profiling, and ICT risk as research targets; Researcher retrieved provisions from the AI Act, GDPR, and DORA; Verifier recorded each anticipated-but-unsupported claim as rejected — no Evidence in the Corpus supports it.",
+            summary="Planner identified ICT incident management and reporting, business continuity, third-party and concentration risk, and data protection as research targets; Researcher retrieved provisions from DORA and the GDPR; Verifier recorded each anticipated-but-unsupported claim as rejected — no Evidence in the Corpus supports it.",
             unsupported_claims_discarded=discarded_claims,
         )
         detailed_trace = [
-            {"step": "planner", "action": "identify topics: automated credit decisions, high-risk AI, profiling, data protection, ICT risk"},
+            {"step": "planner", "action": "identify topics: ICT incident management and major-incident reporting, business continuity and recovery, ICT third-party and concentration risk, GDPR breach readiness"},
             {
                 "step": "researcher",
-                "action": "retrieve high-risk provisions from AI Act, GDPR, and DORA via corpus_lookup",
+                "action": "retrieve incident-management, continuity, third-party, and data-protection provisions from DORA and the GDPR via corpus_lookup",
                 "retrieved": retrieved_passages,
                 "tool_calls": tool_calls,
             },
@@ -818,13 +1001,13 @@ def _dispatch_analyze(run: RunContext) -> AnalyzeResponse:
         findings = []
         citations = []
         actions = [
-            "The deterministic demo currently supports only one scenario: use scenario.id 'spanish-fintech-startup-uses-9e165169' with the canonical AI credit scoring question.",
+            f"The deterministic demo currently supports one scenario: use scenario.id '{DEMO_SCENARIO_ID}' with the bank cloud outage question.",
             "In the web UI, use the 'Try the demo scenario' button to fill the form with the canonical scenario, then Analyze.",
-            "This demo covers the EU AI Act (creditworthiness as high-risk), GDPR (automated decision-making), and DORA (financial entity scope).",
+            "This demo covers DORA (ICT incident management, third-party risk) and the GDPR (security of processing, breach notification) for a cloud outage at a bank.",
         ]
         trace = Trace(
             workflow="noop",
-            summary="No demo match; no retrieval performed. Provide scenario.id 'spanish-fintech-startup-uses-9e165169' to invoke the demo.",
+            summary=f"No demo match; no retrieval performed. Provide scenario.id '{DEMO_SCENARIO_ID}' to invoke the demo.",
         )
         detailed_trace = []
 

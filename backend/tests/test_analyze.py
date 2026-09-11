@@ -15,7 +15,7 @@ from src.llm import LlmError, LlmUnreachableError
 from src.live_workflow import LIVE_WORKFLOW_MARKER
 from src.main import REQUEST_ID_HEADER, app
 
-from conftest import boot_live_with_fakes, boot_with_env, install_fake_pipeline, poll_progress
+from conftest import CANONICAL_SCENARIO_DESCRIPTION, CANONICAL_SCENARIO_ID, boot_live_with_fakes, boot_with_env, install_fake_pipeline, poll_progress
 from fakes import FakeRetriever, make_offline_llm
 
 client = TestClient(app)
@@ -32,32 +32,35 @@ def analyze(scenario_id, question, **scenario_extra):
     return resp.json()
 
 
-def test_analyze_spanish_fintech_demo():
+def test_analyze_bank_cloud_outage_demo():
     data = analyze(
-        "spanish-fintech-startup-uses-9e165169",
-        "Would an automated loan denial violate data protection requirements?",
-        description="A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
+        "bank-cloud-outage",
+        "What regulatory obligations should the bank consider in relation to this incident, its reliance on the cloud provider, and its data protection obligations towards customer data on the disrupted systems?",
+        description=CANONICAL_SCENARIO_DESCRIPTION,
     )
     assert "answer" in data
     assert "trace" in data
     assert "detailed_trace" in data
     answer = data["answer"]
     assert "findings" in answer
-    assert len(answer["findings"]) >= 1
-    # Expect citations to include GDPR and AI Act when demo matched
+    # The demo serves the authored bank-case gold end-to-end: 13 Findings and
+    # 29 Citations (issue #54).
+    assert len(answer["findings"]) == 13
+    assert len(answer["citations"]) == 29
     srcs = {c.get("source_id") for c in answer.get("citations", [])}
     assert "gdpr" in srcs
-    assert "ai-act" in srcs
     assert "dora" in srcs
     for citation in answer.get("citations", []):
         targets = [citation.get(f) for f in ("article_number", "recital_number", "annex_number")]
         assert sum(t is not None for t in targets) == 1, "citation must target exactly one provision"
         assert citation.get("section")
         assert citation.get("provision")
-    # Q3: recital and annex citations are present alongside article citations
-    assert any(c.get("recital_number") is not None for c in answer["citations"]), "expected a recital citation"
-    assert any(c.get("annex_number") is not None for c in answer["citations"]), "expected an annex citation"
-    # Q4: each finding is tagged with an evidence strength
+        # Every demo target resolves in the corpus, so the quote is present
+        # wherever the corpus supplies text — for this case, all 29.
+        assert citation.get("quote")
+    # The bank case cites articles only: no recital or annex targets.
+    assert all(c.get("article_number") is not None for c in answer["citations"])
+    # Each finding is tagged with an evidence strength
     for finding in answer.get("findings", []):
         assert finding.get("strength") in {"strong", "moderate", "weak"}
     trace_steps = data.get("detailed_trace", [])
@@ -75,7 +78,7 @@ def test_demo_actions_are_referral_voiced_and_the_prototype_boundary_is_a_limita
     """ADR-0004: demo Actions name only what a qualified professional can
     settle, and the research-prototype boundary lives in known_limitations —
     a Known limitation is never an Action."""
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    data = analyze("bank-cloud-outage", "What regulations apply?")
     actions = data["answer"]["actions"]
     assert actions, "the demo sheet is not empty"
     assert all(a.startswith("Have a qualified") for a in actions), actions
@@ -89,7 +92,7 @@ def test_demo_actions_are_referral_voiced_and_the_prototype_boundary_is_a_limita
 
 def test_response_shape_has_siblings_not_nested():
     """API returns answer, trace, detailed_trace, known_limitations as siblings; trace is NOT nested inside answer."""
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    data = analyze("bank-cloud-outage", "What regulations apply?")
 
     # Top-level siblings
     assert set(data.keys()) == {"answer", "trace", "detailed_trace", "known_limitations"}
@@ -98,31 +101,36 @@ def test_response_shape_has_siblings_not_nested():
     assert "detailed_trace" not in data["answer"]
 
 
-def test_weak_finding_present():
-    """Demo answer includes the weak framing Finding (AI Act Article 3 definitions)."""
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+def test_findings_present_strength_first_with_badges():
+    """The demo sheet presents the strong Findings first (the Answer's
+    strength-first order) and badges every Finding with its Strength."""
+    data = analyze("bank-cloud-outage", "What regulations apply?")
     findings = data["answer"]["findings"]
 
-    # Find the weak finding about definitions / Article 3
-    weak_findings = [f for f in findings if f.get("strength") == "weak"]
-    assert weak_findings, "Expected at least one weak Finding"
-    # The definitions finding should mention AI system / provider / deployer / profiling
-    def_finding = next((f for f in weak_findings if "ai system" in f["statement"].lower() or "provider" in f["statement"].lower() or "profiling" in f["statement"].lower()), None)
-    assert def_finding, "Expected weak Finding about Article 3 definitions"
-    assert def_finding["strength"] == "weak"
-    # It should cite Article 3
-    assert any(c.get("article_number") == 3 for c in def_finding.get("citations", [])), "Weak finding should cite Article 3"
+    order = {"strong": 0, "moderate": 1, "weak": 2}
+    ranks = [order[f["strength"]] for f in findings]
+    assert ranks == sorted(ranks), "Findings present strength-first"
+    strengths = {f["strength"] for f in findings}
+    assert "strong" in strengths, "expected strong Findings in the bank-case gold"
+    assert "moderate" in strengths, "expected derived/contingent Findings rated moderate"
+    # The incident-management Finding leads the sheet and cites the DORA
+    # incident-management Articles it names.
+    assert findings[0]["strength"] == "strong"
+    assert any(c.get("article_number") == 17 for c in findings[0].get("citations", [])), (
+        "the leading Finding should cite DORA Article 17"
+    )
 
 
 def test_unsupported_claims_absent_from_answer_recorded_in_trace():
     """Unsupported claims are discarded from Answer but recorded in the trace."""
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    data = analyze("bank-cloud-outage", "What regulations apply?")
 
-    # Answer has no unsupported claims (no finding about special-category data, DORA applies to all, etc.)
+    # Answer has no unsupported claims (no finding about automatic breach
+    # status, customer compensation, provider responsibility, etc.)
     finding_statements = " ".join(f["statement"].lower() for f in data["answer"]["findings"])
-    assert "special-category" not in finding_statements
-    assert "dora applies to every" not in finding_statements
-    assert "prohibits automated credit scoring" not in finding_statements
+    assert "automatically a personal data breach" not in finding_statements
+    assert "compensate" not in finding_statements
+    assert "the cloud provider, not the bank, is responsible" not in finding_statements
 
     # Trace records the discarded unsupported claims
     trace = data["trace"]
@@ -131,9 +139,9 @@ def test_unsupported_claims_absent_from_answer_recorded_in_trace():
     assert isinstance(discarded, list)
     assert len(discarded) > 0
     # Check some known unsupported claims are listed
-    assert any("special-category" in c.lower() for c in discarded)
-    assert any("dora applies to every" in c.lower() for c in discarded)
-    assert any("prohibits automated credit scoring" in c.lower() for c in discarded)
+    assert any("automatically a personal data breach" in c.lower() for c in discarded)
+    assert any("compensate" in c.lower() for c in discarded)
+    assert any("the cloud provider, not the bank" in c.lower() for c in discarded)
 
     # The verifier step records a per-claim decision, and every discarded
     # claim appears there as rejected
@@ -147,27 +155,27 @@ def test_unsupported_claims_absent_from_answer_recorded_in_trace():
 
 def test_non_canonical_scenario_gets_helpful_response_not_keyword_routed():
     """Non-canonical scenarios get a helpful response, NOT silently routed to demo via keywords."""
-    # This scenario has Spanish + fintech + loan keywords but wrong id
+    # This scenario has bank + cloud + outage keywords but wrong id
     data = analyze(
         "other-scenario",
-        "Does this loan scoring violate GDPR?",
-        description="Spanish fintech loan application evaluation",
+        "What regulatory obligations apply after this cloud outage?",
+        description="A bank's online banking is down after a major cloud outage at its provider",
     )
 
-    # Should NOT get the demo findings (which would have many findings with citations)
+    # Should NOT get the demo findings (which would have 13 findings with citations)
     assert len(data["answer"]["findings"]) == 0
     assert len(data["answer"]["citations"]) == 0
 
     # Should get helpful actions explaining how to invoke the demo
     actions = data["answer"]["actions"]
     assert len(actions) >= 1
-    assert any("spanish-fintech-startup-uses-9e165169" in a for a in actions)
+    assert any("bank-cloud-outage" in a for a in actions)
     assert any("demo" in a.lower() for a in actions)
 
     # Trace should indicate noop
     trace = data["trace"]
     assert trace.get("workflow") == "noop"
-    assert "spanish-fintech-startup-uses-9e165169" in trace.get("summary", "").lower()
+    assert "bank-cloud-outage" in trace.get("summary", "").lower()
 
 
 def test_demo_not_available_response_hints_at_the_demo_button():
@@ -197,7 +205,7 @@ def test_ui_demo_submission_stays_reachable_through_progress_polling():
     (issue #48: the Demo/Live toggle keeps the demo flow working)."""
     resp = post_with_request_id(
         "demo-poll-run",
-        "spanish-fintech-startup-uses-9e165169",
+        "bank-cloud-outage",
         "What regulations apply?",
     )
     assert resp.status_code == 200
@@ -237,7 +245,7 @@ def test_ui_demo_submission_failure_is_visible_through_polling(monkeypatch):
         resp = c.post(
             "/api/analyze",
             headers={REQUEST_ID_HEADER: "demo-poll-failed"},
-            json={"scenario": {"id": "spanish-fintech-startup-uses-9e165169"}, "question": "What regulations apply?"},
+            json={"scenario": {"id": "bank-cloud-outage"}, "question": "What regulations apply?"},
         )
         assert resp.status_code == 500
 
@@ -246,19 +254,19 @@ def test_ui_demo_submission_failure_is_visible_through_polling(monkeypatch):
 
 
 def test_exact_scenario_id_required():
-    """Only exact scenario.id == 'spanish-fintech-startup-uses-9e165169' triggers the demo."""
-    # Test with similar but different id
-    data = analyze("spanish-fintech-demo", "What regulations apply?")
+    """Only exact scenario.id == 'bank-cloud-outage' triggers the demo."""
+    # Test with similar but different id (a look-alike of the canonical id)
+    data = analyze("bank-cloud-outage-demo", "What regulations apply?")
     assert len(data["answer"]["findings"]) == 0
 
     # Test with exact match
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
-    assert len(data["answer"]["findings"]) >= 9  # all 9 demo findings
+    data = analyze("bank-cloud-outage", "What regulations apply?")
+    assert len(data["answer"]["findings"]) == 13  # all 13 bank-case findings
 
 
 def test_known_limitations_on_every_response():
     """known_limitations is a sibling on both the canonical and the not-available response."""
-    canonical = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    canonical = analyze("bank-cloud-outage", "What regulations apply?")
     non_canonical = analyze("other-scenario", "¿Qué regulaciones aplican?")
 
     for data in (canonical, non_canonical):
@@ -276,7 +284,7 @@ def test_corpus_english_only_limitation_surfaced():
 
 def test_exactly_one_target_citation_invariant():
     """Every citation targets exactly one of article/recital/annex."""
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    data = analyze("bank-cloud-outage", "What regulations apply?")
     for citation in data["answer"]["citations"]:
         targets = [
             citation.get("article_number") is not None,
@@ -290,7 +298,7 @@ def test_demo_citations_carry_fixed_relevance_and_rated_strength():
     """Demo Answers ship fixed Provision relevance and the locked rated
     Citation strength consistent with the locked demo content (ADR-0011) —
     one entry per cited provision, keylessly (#47)."""
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    data = analyze("bank-cloud-outage", "What regulations apply?")
     citations = data["answer"]["citations"]
 
     assert citations, "the demo answer cites provisions"
@@ -302,18 +310,19 @@ def test_demo_citations_carry_fixed_relevance_and_rated_strength():
     assert len(citations) == sum(len(f["citations"]) for f in data["answer"]["findings"])
 
     # Spot-check the locked ratings where the operator's ground truth pins
-    # them: the high-risk classification is strong, the definitions Article
-    # is the weak framing provision, the DORA scope Articles are supporting.
+    # them: the incident-management process is strong, the simplified
+    # framework provision is the weak framing one, and GDPR's security
+    # Article is a supporting duty.
     by_number = {(c["source_id"], c.get("article_number")): c for c in citations}
-    assert by_number[("ai-act", 6)]["strength"] == "strong"
-    assert by_number[("ai-act", 3)]["strength"] == "weak"
-    assert by_number[("dora", 2)]["strength"] == "moderate"
+    assert by_number[("dora", 17)]["strength"] == "strong"
+    assert by_number[("dora", 16)]["strength"] == "weak"
+    assert by_number[("gdpr", 32)]["strength"] == "moderate"
 
 
 def test_demo_detailed_trace_honestly_serves_the_locked_relevance():
     """The demo's detailed trace names where its Provision relevance came
     from: the locked demo content, served by the summarizer step (#47)."""
-    data = analyze("spanish-fintech-startup-uses-9e165169", "What regulations apply?")
+    data = analyze("bank-cloud-outage", "What regulations apply?")
     steps = [s["step"] for s in data["detailed_trace"]]
     assert steps == ["planner", "researcher", "verifier", "summarizer"]
     summarizer = data["detailed_trace"][-1]
@@ -329,12 +338,12 @@ def boot_live(monkeypatch, **overrides):
 
 
 def post_canonical_scenario(client):
-    """POST the canonical Spanish fintech Scenario — the request every
+    """POST the canonical bank-cloud-outage Scenario — the request every
     availability test puts to the endpoint, in either mode."""
     return client.post(
         "/api/analyze",
         json={
-            "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
+            "scenario": {"id": CANONICAL_SCENARIO_ID, "description": CANONICAL_SCENARIO_DESCRIPTION},
             "question": "What regulations apply?",
         },
     )
@@ -376,11 +385,11 @@ def test_default_boot_serves_demo_mode(monkeypatch):
     with boot_with_env(monkeypatch) as demo_client:
         resp = demo_client.post(
             "/api/analyze",
-            json={"scenario": {"id": "spanish-fintech-startup-uses-9e165169"}, "question": "What regulations apply?"},
+            json={"scenario": {"id": "bank-cloud-outage"}, "question": "What regulations apply?"},
         )
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["answer"]["findings"]) >= 9
+    assert len(data["answer"]["findings"]) == 13
     assert data["trace"]["workflow"] != "not-available"
 
 
@@ -603,7 +612,7 @@ def test_boot_succeeds_even_when_the_store_cannot_be_reached(monkeypatch, caplog
         with boot_with_env(monkeypatch) as demo_client:
             resp = post_canonical_scenario(demo_client)
     assert resp.status_code == 200
-    assert len(resp.json()["answer"]["findings"]) >= 9
+    assert len(resp.json()["answer"]["findings"]) == 13
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1, [r.getMessage() for r in warnings]
 
@@ -615,7 +624,7 @@ def test_demo_mode_serves_despite_an_empty_store(monkeypatch):
         patch_stored_chunk_count(monkeypatch, lambda _database_url: 0)
         resp = post_canonical_scenario(demo_client)
     assert resp.status_code == 200
-    assert len(resp.json()["answer"]["findings"]) >= 9
+    assert len(resp.json()["answer"]["findings"]) == 13
 
 
 def test_demo_mode_never_touches_the_store_even_when_it_cannot_be_reached(monkeypatch):
@@ -633,21 +642,21 @@ def test_demo_mode_never_touches_the_store_even_when_it_cannot_be_reached(monkey
         patch_stored_chunk_count(monkeypatch, explosive_probe)
         resp = post_canonical_scenario(demo_client)
     assert resp.status_code == 200
-    assert len(resp.json()["answer"]["findings"]) >= 9
+    assert len(resp.json()["answer"]["findings"]) == 13
     assert calls == []
 
 
 # --- Per-run mode: analysis requests carry mode explicitly (ADR-0008, issue #44) ---
 
 
-def post_mode(client, mode=None, request_id=None, scenario_id="spanish-fintech-startup-uses-9e165169"):
+def post_mode(client, mode=None, request_id=None, scenario_id="bank-cloud-outage"):
     """POST a Scenario with an explicit ``mode`` (or none, to exercise the
     server default) and an optional progress request id. ``scenario_id``
     defaults to the canonical demo id; pass a derived id to pin down ADR-0005."""
     from src.main import REQUEST_ID_HEADER
 
     payload = {
-        "scenario": {"id": scenario_id, "description": "A Spanish fintech startup."},
+        "scenario": {"id": scenario_id, "description": "A bank reliant on an external cloud provider."},
         "question": "What regulations apply?",
     }
     if mode is not None:
@@ -667,7 +676,7 @@ def assert_live_pipeline_answered(data):
 
 def assert_demo_answered(data):
     """The deterministic demo sheet: every canonical Finding, never pipeline content."""
-    assert len(data["answer"]["findings"]) >= 9
+    assert len(data["answer"]["findings"]) == 13
     assert all(
         f["statement"] != "Creditworthiness evaluation is a high-risk use case."
         for f in data["answer"]["findings"]
@@ -726,14 +735,14 @@ def test_explicit_demo_mode_still_serves_only_the_exact_canonical_scenario(monke
     with a derived id gets the not-available reply naming the canonical id —
     never demo content, never keyword routing."""
     with boot_with_env(monkeypatch) as client:
-        resp = post_mode(client, mode="demo", scenario_id="spanish-fintech-demo")
+        resp = post_mode(client, mode="demo", scenario_id="bank-cloud-outage-demo")
     assert resp.status_code == 200
     data = resp.json()
     assert data["answer"]["findings"] == []
     assert data["answer"]["citations"] == []
     assert data["trace"]["workflow"] == "noop"
     actions = data["answer"]["actions"]
-    assert any("spanish-fintech-startup-uses-9e165169" in a for a in actions), actions
+    assert any("bank-cloud-outage" in a for a in actions), actions
 
 
 def test_keyless_boot_serves_demo_and_a_live_request_answers_not_available(monkeypatch):
