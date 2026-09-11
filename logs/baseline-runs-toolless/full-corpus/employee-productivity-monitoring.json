@@ -1,0 +1,279 @@
+{
+  "findings": [
+    {
+      "statement": "The company is the controller of the personal data customers enter into the chatbot — their name, account number and address — because it determines the purposes and means of that processing for its customer-service operation.",
+      "strength": "weak",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(7)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must process the personal data flowing through the chatbot in compliance with the Article 5(1) GDPR principles, including transparency, purpose limitation, data minimisation, storage limitation, and integrity and confidentiality.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 5(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must have a lawful basis under Article 6(1) GDPR for every processing operation performed on customers' name, account number and address through the chatbot; the scenario states the customer-service purpose but no legal basis.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 6(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Because the chatbot collects personal data directly from customers, the company must provide them at the time of collection with the Article 13(1) GDPR information, including the controller's identity and contact details, the purposes and legal basis of the processing, and the recipients of the data.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 13(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The chatbot only provides answers and cannot make changes to customer accounts, so its operation does not involve decisions based solely on automated processing producing legal effects or similarly significantly affecting customers within the meaning of Article 22(1) GDPR.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must, both when determining the means of the chatbot processing and during the processing itself, implement appropriate technical and organisational measures to embed data-protection principles such as data minimisation into the chatbot's design and defaults, under Article 25(1) GDPR.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 25(1)"
+        }
+      ]
+    },
+    {
+      "statement": "If the external model provider processes customers' personal data — for example the chatbot prompts containing names, account numbers and addresses — on the company's behalf, Article 28(3) GDPR requires that the processing be governed by a written contract binding the provider to process the data only on the company's documented instructions.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(3)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must implement appropriate technical and organisational measures to ensure a level of security appropriate to the risk for the personal data processed through the chatbot, including the account numbers, under Article 32(1) GDPR.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 32(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must determine whether the chatbot's processing of customer data is likely to result in a high risk to customers' rights and freedoms; where it does, Article 35(1) GDPR requires a data protection impact assessment prior to the processing.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 35(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The company is a deployer of the chatbot within the meaning of Article 3(4) AI Act, because it uses the AI system under its authority on its own website.",
+      "strength": "weak",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 3(4)"
+        }
+      ]
+    },
+    {
+      "statement": "The customer-service chatbot is not a high-risk AI system under Article 6(2) AI Act, because answering customer-service questions on the company's website is not an AI system listed in Annex III, so the Chapter III high-risk regime does not apply to it on the facts described.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 6(2)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Annex III"
+        }
+      ]
+    },
+    {
+      "statement": "Customers interacting with the chatbot must be informed that they are interacting with an AI system, unless this is obvious to a reasonably well-informed, observant and circumspect person; Article 50(1) AI Act addresses this duty to the chatbot's provider, the role the company occupies where it puts the chatbot into service on its own website under its own name.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 50(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The chatbot's AI-generated text answers must be marked in a machine-readable format and detectable as artificially generated, as Article 50(2) AI Act requires of providers of AI systems generating synthetic text content.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 50(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must take measures to ensure, to its best extent, a sufficient level of AI literacy among its staff and other persons dealing with the operation and use of the chatbot on its behalf, under Article 4 AI Act, which addresses providers and deployers of AI systems directly.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 4"
+        }
+      ]
+    },
+    {
+      "statement": "The company should obtain from the external model provider the information and documentation that Article 53(1) AI Act requires the provider of the general-purpose AI model to make available to providers of AI systems integrating the model, enabling the company to understand the model's capabilities and limitations and to comply with its own obligations.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 53(1)"
+        }
+      ]
+    },
+    {
+      "statement": "DORA does not apply to the company's operation of the chatbot: Article 2(1) DORA limits the Regulation to the financial entities listed there, and a telecommunications company operating its own customer-service chatbot is not among them.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(7)",
+      "relevance": "Establishes the controller concept that pins the GDPR obligations in this answer on the company as the party determining the purposes and means of the chatbot processing.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 5(1)",
+      "relevance": "Supplies the overarching processing principles — transparency, purpose limitation, data minimisation, storage limitation, integrity and confidentiality — that frame every specific chatbot duty in the answer, from what may be collected to how it must be kept and secured.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 6(1)",
+      "relevance": "The gateway provision for all processing of customer data through the chatbot: the answer's first substantive requirement is that the company identify a lawful basis, which the scenario does not supply.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 13(1)",
+      "relevance": "Drives the answer's transparency-at-collection requirement, since the chatbot collects personal data directly from customers who must receive the controller identity, purpose, legal basis and recipient information.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22(1)",
+      "relevance": "Sets the automated decision-making threshold against which the chatbot's answer-only, account-unchanging functionality is measured, underpinning the scoping conclusion that no Article 22 regime is engaged.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 25(1)",
+      "relevance": "Obliges the company to build data-protection safeguards into the chatbot's design and defaults at the moment it determines the processing means, shaping how the deployment around the licensed model must be configured.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(3)",
+      "relevance": "Governs the written processor contract the company must conclude if the model provider processes customer personal data on its behalf — the contingency the answer flags around the external model.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32(1)",
+      "relevance": "Imposes the risk-appropriate security duty protecting the account numbers and other data handled by the chatbot, one of the central obligations on this processing.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35(1)",
+      "relevance": "Provides the high-risk trigger the company must test before operating the chatbot, deciding whether a prior impact assessment is required.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 3(4)",
+      "relevance": "Defines the deployer role the company occupies by using the chatbot under its authority, anchoring which AI Act duties attach to it.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 4",
+      "relevance": "Obliges the company, as provider or deployer of the chatbot, to ensure AI literacy among staff operating it — a duty that applies regardless of the system's risk classification.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 6(2)",
+      "relevance": "Provides the classification rule through which the answer locates the chatbot outside the high-risk regime.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Annex III",
+      "relevance": "The catalogue of high-risk use cases checked against the scenario; customer-service question answering appears in none of its areas, which is what keeps the chatbot out of Chapter III.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 50(1)",
+      "relevance": "The core AI Act requirement for this scenario — customers must be told they are interacting with an AI system — and its provider addressee is what ties it to the company's role for the chatbot.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 50(2)",
+      "relevance": "Extends the answer's transparency thread to the chatbot's synthetic text output through machine-readable marking, again addressed to the provider of the AI system generating the text.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 53(1)",
+      "relevance": "Obliges the model provider to hand downstream integrators documentation of the model's capabilities and limitations, the concrete AI Act lever the company has in its licensing relationship.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Delimits DORA's personal scope to the listed financial entities, supporting the answer's conclusion that the telecommunications company's chatbot falls outside DORA.",
+      "strength": "strong"
+    }
+  ],
+  "actions": [
+    "Settle whether the external model provider receives or processes customers' personal data — for example the chatbot prompts containing names, account numbers and addresses — on the company's behalf, which determines whether Article 28(3) GDPR processor terms are required.",
+    "Verify the company's role under the AI Act: whether it developed or had the chatbot developed and puts it into service under its own name, which is what makes it the provider to whom Articles 50(1) and 50(2) AI Act are addressed.",
+    "Determine the lawful basis the company relies on under Article 6(1) GDPR for the chatbot processing, which the scenario does not state.",
+    "Assess whether the chatbot's processing is likely to result in a high risk to customers' rights and freedoms, which decides whether Article 35(1) GDPR requires an impact assessment before the processing starts.",
+    "Verify whether any activity of the company could bring it within Article 2(1) DORA — for example as an ICT third-party service provider — notwithstanding its telecommunications character."
+  ]
+}

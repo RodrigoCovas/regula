@@ -1,0 +1,245 @@
+{
+  "findings": [
+    {
+      "statement": "As an investment firm, the company falls within the scope of DORA as a financial entity, so the Regulation's ICT-related incident management, classification and reporting requirements are engaged by the ransomware attack.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The ransomware attack is an ICT-related incident under DORA: an unplanned event that compromised the security of the firm's network and information systems, with adverse impact on the availability of the trading platform and internal systems and on the confidentiality of data held on the affected systems.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 3(8)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must record the incident, ensure its consistent monitoring, handling and follow-up, and identify, document and address its root causes; it must also classify the incident and determine its impact using the criteria in DORA, including the duration of the service downtime, the data losses affecting availability and confidentiality of data, the number and relevance of clients affected and the criticality of the services affected.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 17(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 18(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must determine whether the incident is a major ICT-related incident, meaning one with a high adverse impact on the network and information systems supporting its critical or important functions; where the classification yields a major incident, the firm must report it to the relevant competent authority through an initial notification, intermediate reports whenever the status of the incident changes or new information emerges, and a final report once root-cause analysis is complete and actual impact figures replace estimates.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 3(10)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 19(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 19(4)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the incident affects the financial interests of clients, the firm must inform those clients about the incident and about the measures taken to mitigate its adverse effects, without undue delay as soon as it becomes aware of that impact.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 19(3)"
+        }
+      ]
+    },
+    {
+      "statement": "Having restored its services after the attack, the firm must, in recovering from the incident, perform the necessary checks, including multiple checks and reconciliations, to ensure the highest level of data integrity across the restored systems and data.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 12(7)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must put in place a post ICT-related incident review analysing the causes of the disruption and identifying required improvements, addressing in particular the promptness of its response, the quality and speed of the forensic analysis it is currently conducting, the effectiveness of incident escalation and the effectiveness of internal and external communication.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 13(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The attack on systems containing client personal data is a personal data breach under the GDPR, involving at least a loss of availability of that data and, pending the firm's investigation, possible unauthorised access to it.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(12)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm, as controller of the client personal data processed in its systems, must notify the personal data breach to the competent supervisory authority without undue delay and, where feasible, no later than 72 hours after becoming aware of it, unless the breach is unlikely to result in a risk to the rights and freedoms of natural persons; while the access investigation continues, information may be provided in phases without undue further delay.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(4)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must document the personal data breach, comprising the facts relating to it, its effects and the remedial action taken, so that the documentation enables the supervisory authority to verify compliance with the notification regime.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(5)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the breach is likely to result in a high risk to the rights and freedoms of the affected clients, the firm must communicate the personal data breach to them without undue delay.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 34(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must implement appropriate technical and organisational security measures, including the ability to ensure the ongoing confidentiality, integrity, availability and resilience of its processing systems and to restore the availability of and access to personal data in a timely manner in the event of a physical or technical incident; the hours-long disruption of its systems is directly relevant to assessing the level of security appropriate to the risk.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 32(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Places investment firms among the financial entities covered by DORA, the gateway through which every DORA incident-management, classification and reporting duty in this answer reaches the firm.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 3(8)",
+      "relevance": "Defines the category into which the ransomware attack falls, framing which DORA incident-management duties attach; on its own it establishes no obligation.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 3(10)",
+      "relevance": "Defines 'major ICT-related incident', the classification on which the DORA reporting and client-information duties turn; definitional only.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 17(2)",
+      "relevance": "Supplies the firm's active incident-management duties after the attack — recording, monitoring, handling, follow-up and root-cause treatment — which the firm's ongoing investigation must satisfy.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 18(1)",
+      "relevance": "Provides the classification criteria (clients affected, downtime duration, data losses, criticality of services) on which the pivotal decision whether the incident is major turns.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19(1)",
+      "relevance": "Imposes the core obligation to report major ICT-related incidents to the relevant competent authority; the DORA reporting conclusion in this answer rests on it.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19(4)",
+      "relevance": "Structures reporting into an initial notification, intermediate reports and a final report, mapping how the firm's ongoing investigation must feed the regulatory reporting chain.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19(3)",
+      "relevance": "Creates the duty to inform clients where a major incident affects their financial interests, one of the two client-facing notification duties identified in this answer.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 12(7)",
+      "relevance": "Governs the recovery the firm has already undertaken, requiring integrity checks and reconciliations when restoring systems and data after the incident.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 13(2)",
+      "relevance": "Requires a post-incident review covering response promptness, forensic analysis, escalation and communication, channelling the firm's current investigation into documented improvements.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(12)",
+      "relevance": "Defines 'personal data breach', converting the attack's loss of availability and potential unauthorised access to client data into the GDPR's regulated category; definitional only.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(1)",
+      "relevance": "Imposes the controller's duty to notify the supervisory authority without undue delay and within 72 hours where feasible unless the breach is unlikely to result in risk; the central GDPR obligation in this answer.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(4)",
+      "relevance": "Permits phased notification where the required information is not yet available, directly accommodating the unresolved question whether attackers accessed client data.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(5)",
+      "relevance": "Requires documentation of the breach's facts, effects and remedial action irrespective of any risk threshold, an immediate and unconditional post-incident duty for the firm.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 34(1)",
+      "relevance": "Sets the high-risk threshold at which affected clients must themselves be informed, the second client-facing duty in this answer, dependent on the access investigation's outcome.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32(1)",
+      "relevance": "Frames the security-of-processing standard, including timely restoration capability, against which the incident and the firm's response and security posture will be assessed.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Verify against DORA Article 18(1) read with Article 3(10) whether the attack had a high adverse impact on the network and information systems supporting the firm's critical or important functions, and therefore qualifies as a major ICT-related incident that must be reported under Article 19(1).",
+    "Confirm the firm's controller role for the client personal data on the affected systems, and whether any of that data is processed on behalf of other controllers or by processors, which determines who owes the GDPR Article 33 and Article 34 duties.",
+    "Settle, once the access investigation concludes, whether the personal data breach is unlikely to result in a risk (which would lift the Article 33(1) notification duty) and whether it is likely to result in a high risk (which triggers Article 34(1) communication to the affected clients).",
+    "Determine whether the incident has an impact on the financial interests of clients, which triggers the duty under DORA Article 19(3) to inform clients without undue delay about the incident and the mitigation measures taken.",
+    "Confirm whether any of the affected or restored systems operate AI systems within the meaning of the EU AI Act, which determines whether that Regulation imposes any obligations in this incident."
+  ]
+}

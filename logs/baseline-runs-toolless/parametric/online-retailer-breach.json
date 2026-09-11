@@ -1,0 +1,125 @@
+{
+  "findings": [
+    {
+      "statement": "The attackers' confirmed unauthorised access to the customer database constitutes a personal data breach under the GDPR, which expressly includes unauthorised access to personal data, and that classification holds even though the company does not yet know whether the data was downloaded.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(12)"
+        }
+      ]
+    },
+    {
+      "statement": "The company, as the controller of the customer data, must notify the personal data breach to the competent supervisory authority without undue delay and, where feasible, not later than 72 hours after becoming aware of it, unless the breach is unlikely to result in a risk to the rights and freedoms of the affected customers.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The notification must describe the nature of the breach, the categories and approximate number of data subjects and personal data records concerned (here customers' names, email addresses, postal addresses and order information), the likely consequences, the measures taken or proposed, and give a contact point for further information.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(3)"
+        }
+      ]
+    },
+    {
+      "statement": "Because the company does not yet know whether the data was downloaded, it may provide the notification information in phases, supplying it without undue further delay as its assessment of the incident progresses.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(4)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must document the breach, comprising the facts, its effects and the remedial action taken, so that the documentation enables the supervisory authority to verify compliance with the notification obligations.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(5)"
+        }
+      ]
+    },
+    {
+      "statement": "If the breach is likely to result in a high risk to the rights and freedoms of the affected customers, the company must also communicate the personal data breach to those data subjects without undue delay.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 34(1)"
+        }
+      ]
+    },
+    {
+      "statement": "DORA does not apply to the company as described: it binds only the financial entities listed in its scope provision, and an online retailer is not among them, so it imposes no incident-reporting or resilience obligations for this breach.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(12)",
+      "relevance": "Supplies the definition that classifies the incident, anchoring the entire GDPR analysis to unauthorised access rather than to confirmed exfiltration of the data.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(1)",
+      "relevance": "Carries the principal post-breach obligation on which the core of the answer turns: the 72-hour duty to tell the supervisory authority about the breach.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(3)",
+      "relevance": "Converts the notification duty into concrete content, tying the required description to the data categories actually affected in the scenario.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(4)",
+      "relevance": "Reconciles the notification duty with the scenario's open fact that exfiltration is unconfirmed, allowing the company to notify now and complete the picture later.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(5)",
+      "relevance": "Adds a standalone record-keeping duty that persists regardless of whether the notification or data-subject communication duties are ultimately triggered.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 34(1)",
+      "relevance": "Establishes the second pillar of the response, direct communication to affected customers, together with the high-risk threshold that legal review must settle.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Delimits the answer's perimeter by excluding DORA's financial-entity incident-reporting regime from this retail scenario.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Establish the exact date and time the company became aware of the breach, from which the 72-hour notification period under the GDPR runs.",
+    "Assess whether the breach is unlikely to result in a risk to the rights and freedoms of the affected customers, the exception that would disapply the notification duty.",
+    "Determine whether the breach is likely to result in a high risk to the affected data subjects such that individual communication is required, and whether any exception to that communication duty applies.",
+    "Verify whether the company holds any of the financial-entity statuses listed in DORA Article 2(1) that would bring this incident within DORA's ICT-incident reporting regime.",
+    "Confirm whether the company places on the market, puts into service, or uses any AI system within the meaning of the EU AI Act, since the breach scenario itself involves none."
+  ]
+}

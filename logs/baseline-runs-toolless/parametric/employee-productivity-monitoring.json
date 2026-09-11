@@ -1,0 +1,227 @@
+{
+  "findings": [
+    {
+      "statement": "The continuously recorded data on applications used, websites visited and working time constitutes personal data of identifiable employees, so the company may only process it on a lawful basis identified under Article 6(1) GDPR, and this requirement covers the full chain from recording to productivity scoring.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 6(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Generating an individual productivity score for each employee is automated processing evaluating employees' performance at work and therefore profiling under Article 4(4) GDPR; the company must ensure that performance-evaluation decisions do not rest solely on that automated processing where they produce legal effects or similarly significantly affect employees, unless a condition in Article 22(2) GDPR applies, and in those cases employees must be granted the human intervention, expression-of-view and contestation rights in Article 22(3) GDPR.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(4)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(2)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(3)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must carry out a data protection impact assessment prior to the monitoring and scoring, because continuously recording employees' computer activity and scoring it by AI is a systematic and extensive evaluation of personal aspects based on automated processing, including profiling, on which decisions about employees are based.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 35(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 35(3)(a)"
+        }
+      ]
+    },
+    {
+      "statement": "Because the monitoring and scoring occur in the employment context, the company must also take account of more specific conditions for processing employees' personal data that apply under Article 88(1) GDPR, including any adopted by law or by collective agreements.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 88(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The company is a deployer of the AI system because it uses the system under its authority in a professional context, and because the system monitors and evaluates the performance and behaviour of persons in work-related relationships it is covered by Annex III point 4(b) of the AI Act and considered high-risk under Article 6(2).",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 3(4)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 6(2)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Annex III point 4(b)"
+        }
+      ]
+    },
+    {
+      "statement": "As deployer of a high-risk AI system used in the workplace, the company must inform workers' representatives and the affected workers that they will be subject to the system before putting it into service at the workplace.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 26(7)"
+        }
+      ]
+    },
+    {
+      "statement": "As deployer, the company must assign human oversight of the system to natural persons who have the competence, training and authority as provided for in Article 14 of the AI Act, so the managers' use of the scores must sit within such oversight.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 26(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The company must take measures to ensure, to its best extent, a sufficient level of AI literacy of its staff and of the managers acting on its behalf who operate the system and use the productivity scores.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 4"
+        }
+      ]
+    },
+    {
+      "statement": "Where the company takes a decision on the basis of the system's output that produces legal effects or similarly significantly affects an employee, that employee has the right to obtain clear and meaningful explanations of the role of the AI system in the decision-making procedure and of the main elements of the decision.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 86(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(1)",
+      "relevance": "Establishes that everything the system records about each employee is personal data, which is why the GDPR obligations in this answer attach to the monitoring at all.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(4)",
+      "relevance": "Supplies the profiling concept that characterises the automated productivity score and ties it to the Article 22 regime for automated decision-making.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 6(1)",
+      "relevance": "The gate for the entire scenario: none of the continuous recording, scoring or evaluation use may lawfully proceed unless a lawful basis for processing the employee data is identified under this provision.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22(1)",
+      "relevance": "Marks the boundary the company must respect when the score feeds performance evaluation: decisions based solely on automated processing that significantly affect employees are excluded unless justified.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22(2)",
+      "relevance": "Enumerates the only conditions under which a solely automated evaluation decision could lawfully be taken, so it governs any further automation of scoring-based decisions.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22(3)",
+      "relevance": "Sets the safeguards owed to employees when such decisions proceed, which the company must operationalise around the managers' use of the score.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35(1)",
+      "relevance": "Imposes the pre-processing impact assessment the company owes for this high-risk monitoring before continuing the processing.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35(3)(a)",
+      "relevance": "Names this exact processing pattern, a systematic and extensive evaluation of personal aspects by automated processing including profiling with decisions based on it, so the DPIA requirement turns on it.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 88(1)",
+      "relevance": "Allows more specific employment-context conditions, so the company's obligations may exceed the GDPR's general articles depending on the applicable employment rules.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 3(4)",
+      "relevance": "Defines the company's role as deployer, which is what activates the Article 26 duties relied on throughout the answer.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 6(2)",
+      "relevance": "Turns the Annex III classification into high-risk status, unlocking the deployer obligations on which most of the AI Act conclusions rest.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Annex III point 4(b)",
+      "relevance": "Names this exact use case, AI that monitors and evaluates the performance and behaviour of persons in work-related relationships, so the system's classification depends on it.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 26(2)",
+      "relevance": "The direct oversight duty for this workplace system: competent, trained and authorised human oversight must surround the managers' reliance on the scores.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 26(7)",
+      "relevance": "The most workplace-specific AI Act duty: workers' representatives and affected workers must be informed before the system is put into service, on top of any GDPR transparency duties.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 4",
+      "relevance": "Supporting deployer duty to raise staff AI literacy, shaping how managers and employees deal with the productivity-scoring system.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 86(1)",
+      "relevance": "Grants affected employees a right to explanations where decisions based on the score produce legal or similarly significant adverse effects, adding an AI Act transparency layer to the GDPR's.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Determine the lawful basis under Article 6(1) GDPR for the continuous monitoring and scoring, in light of any more specific employment-context conditions adopted under Article 88(1).",
+    "Verify against the system's actual functionality that it falls within Annex III point 4(b) of the AI Act and assess whether any Article 6(3) derogation from high-risk classification could apply.",
+    "Settle whether performance-evaluation decisions resting on the productivity score are decisions based solely on automated processing within Article 22(1) GDPR and, if so, which condition in Article 22(2) applies.",
+    "Confirm whether decisions taken on the score produce legal effects or similarly significantly affect employees so that the explanation right in Article 86(1) of the AI Act is engaged.",
+    "Establish whether workers' representatives and the affected workers were informed as Article 26(7) of the AI Act requires before the system was put into service at the workplace."
+  ]
+}

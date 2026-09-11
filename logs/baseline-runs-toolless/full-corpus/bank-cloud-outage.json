@@ -1,0 +1,403 @@
+{
+  "findings": [
+    {
+      "statement": "The bank is a credit institution and therefore a financial entity within the scope of DORA, which subjects it to requirements on ICT risk management, the classification and reporting of ICT-related incidents and the sound management of ICT third-party risk.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 2(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The bank must manage the cloud provider's technical failure that disrupted its online banking services through an ICT-related incident management process to detect, manage and notify the incident, and must record the incident, ensuring that its root causes are identified, documented and addressed.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 17(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 17(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The bank must classify the outage and determine its impact against the criteria of Article 18(1) — including the number and relevance of clients affected, the duration of the incident and service downtime, the criticality of the affected online banking services and the data losses in terms of availability — which determine whether the outage is a major ICT-related incident, defined as an ICT-related incident with a high adverse impact on the systems supporting the bank's critical or important functions.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 18(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 3"
+        }
+      ]
+    },
+    {
+      "statement": "If the bank classifies the outage as a major ICT-related incident, it must report it to the relevant competent authority by submitting an initial notification, intermediate reports where the status of the incident changes significantly, and a final report once the root cause analysis is complete, within the time limits laid down for those reports, and, where the major incident has an impact on the financial interests of clients, it must also inform its clients without undue delay about the incident and the measures taken to mitigate its adverse effects; the bank remains fully responsible for the handling of the incident and for its consequences.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 19(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 19(3)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 19(4)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 22(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Because the bank is a credit institution, DORA's incident management, classification and reporting requirements also apply to operational or security payment-related incidents, so the bank must also assess the outage as a potential incident affecting the availability of its payment-related services or payment-related data.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 23"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 3"
+        }
+      ]
+    },
+    {
+      "statement": "The bank must respond to and recover from the outage through its ICT business continuity arrangements, which must aim to ensure the continuity of the disrupted critical or important functions and to quickly, appropriately and effectively resolve the incident while prioritising the resumption of activities; those business continuity plans must notably cover critical or important functions contracted to the cloud provider, and the bank must maintain backup policies and procedures and dedicated restoration and recovery procedures and methods to restore its ICT systems and data with minimum downtime.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 11(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 11(4)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 12(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The bank must conduct a post ICT-related incident review of the outage, analysing the causes of the disruption and identifying required improvements to its ICT operations and business continuity arrangements, as DORA requires after a major ICT-related incident disrupts a financial entity's core activities.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 13(2)"
+        }
+      ]
+    },
+    {
+      "statement": "In relying on the cloud provider, the bank must manage the ICT third-party risk arising from that reliance as an integral component of its ICT risk management framework and remains at all times fully responsible for compliance with, and the discharge of, all obligations under DORA and applicable financial services law; it must adopt and regularly review a strategy on ICT third-party risk including a policy on the use of ICT services supporting critical or important functions, maintain a register of information on all contractual arrangements with the provider distinguishing those covering critical or important functions, and its management body must regularly review the risks of those arrangements.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 28(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 28(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 28(3)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 3"
+        }
+      ]
+    },
+    {
+      "statement": "The bank's contractual arrangement with the cloud provider must include at least the minimum elements of Article 30(2) — including service level descriptions, provisions on the availability, authenticity, integrity and confidentiality of data including personal data, and the provider's obligation to assist the bank when an ICT incident related to the hosted services occurs — and, because the hosted systems support critical or important functions, also the additional elements of Article 30(3), including precise quantitative and qualitative service level performance targets with corrective actions, the provider's notification of developments materially affecting its service levels, its implementation and testing of business contingency plans, and the bank's rights of access, inspection and audit; the contract must allow termination in the circumstances listed in Article 28(7), and the bank must maintain exit strategies, alternative solutions, transition plans and contingency measures enabling it to remove the contracted services and data from the provider and transfer them to an alternative provider or in-house without detriment to the continuity and quality of services to clients.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 30(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 30(3)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 28(7)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 28(8)"
+        }
+      ]
+    },
+    {
+      "statement": "For the customer personal data on the disrupted systems, the bank determines the purposes and means of the processing and is therefore the controller, while the cloud provider hosting that data processes it on the bank's behalf as its processor; the bank may therefore use the provider only where it provides sufficient guarantees to implement appropriate technical and organisational measures, and only under a contract stipulating the Article 28(3) obligations, including processing only on the bank's documented instructions, taking all measures required under Article 32, and assisting the bank in ensuring compliance with its obligations under Articles 32 to 36.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(3)"
+        }
+      ]
+    },
+    {
+      "statement": "The bank must ensure a level of security appropriate to the risk for the customer personal data on the hosted online banking systems, including the ability to ensure the ongoing availability and resilience of the processing systems and services and the ability to restore the availability of, and access to, the personal data in a timely manner in the event of the technical incident that made the services unavailable.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 32(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The bank must determine whether the outage constitutes a personal data breach — a breach of security leading to the accidental destruction, loss or alteration of, or unauthorised access to, the customer data — and, where it does, notify the competent supervisory authority without undue delay and, where feasible, not later than 72 hours after becoming aware, unless the breach is unlikely to result in a risk to the rights and freedoms of natural persons, and document the breach, its effects and the remedial action taken; the cloud provider must in turn notify the bank without undue delay after becoming aware of any personal data breach.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(2)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(5)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the personal data breach is likely to result in a high risk to the rights and freedoms of the bank's customers, the bank must communicate the breach to them without undue delay.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 34(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Brings the bank, as a credit institution under point (a), within DORA's entire regime for ICT risk, incident reporting and ICT third-party reliance, which is the foundation of every DORA-based finding in this answer.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 2(2)",
+      "relevance": "Supplies the financial entity status that the bank needs in order to be bound by the obligations under Articles 11, 13, 17, 18, 19, 28 and 30 on which the answer relies.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 3",
+      "relevance": "Provides the vocabulary the answer turns on — ICT-related incident, major ICT-related incident, operational or security payment-related incident, ICT third-party service provider and critical or important function — linking the scenario's facts to the incident-management and third-party duties.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 17(1)",
+      "relevance": "Establishes the bank's core duty to run the provider's failure through a structured ICT-related incident management process covering detection, handling and notification.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 17(2)",
+      "relevance": "Requires the bank to record the outage and to identify, document and address its root causes, the documentation step accompanying the incident management process.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 18(1)",
+      "relevance": "Sets the classification criteria — clients affected, service downtime, criticality of the affected services, availability losses — on which the determination of the outage as a major ICT-related incident, and hence the reporting consequences, depend.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19(1)",
+      "relevance": "Imposes the duty to report major ICT-related incidents to the relevant competent authority, the principal regulatory consequence if the outage is classified as major.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19(3)",
+      "relevance": "Adds the duty to inform clients about a major incident affecting their financial interests, extending the incident's consequences to the bank's customer relationship.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19(4)",
+      "relevance": "Fixes the reporting mechanics — initial notification, intermediate reports and a final report within the laid-down time limits — that govern the bank's reporting once the incident is classified as major.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 22(1)",
+      "relevance": "Confirms that the bank stays fully responsible for handling the reported incident and its consequences notwithstanding supervisory feedback or the provider's role.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 23",
+      "relevance": "Extends the incident management, classification and reporting duties of Chapter III to operational or security payment-related incidents of credit institutions, requiring the bank to also assess the outage under that head.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 11(2)",
+      "relevance": "Requires the bank's business continuity arrangements to aim at continuity of the disrupted critical functions and at an effective response to and resolution of the incident.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 11(4)",
+      "relevance": "Targets the bank's business continuity plans at critical or important functions outsourced or contracted to ICT third-party service providers, tying the recovery obligations directly to the cloud-hosted systems.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 12(1)",
+      "relevance": "Underpins the restoration side of the incident: backup policies and restoration and recovery procedures to bring the systems and data back with minimum downtime.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 13(2)",
+      "relevance": "Requires the post-incident review of causes and improvements that must follow the disruption of the bank's core activities.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(1)",
+      "relevance": "Anchors the reliance analysis: ICT third-party risk must be managed within the ICT risk framework and the bank remains fully responsible at all times for compliance despite the provider's role.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(2)",
+      "relevance": "Requires a documented third-party risk strategy and periodic management-body review of the arrangements supporting critical or important functions.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(3)",
+      "relevance": "Requires the register of information on the provider arrangement, distinguishing critical or important functions, together with reporting and timely information to the competent authority.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(7)",
+      "relevance": "Secures the bank's termination rights against the provider for breaches of law or contract, circumstances affecting performance, and evidenced weaknesses in ensuring the availability, integrity and confidentiality of data.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(8)",
+      "relevance": "Obliges the bank to maintain exit strategies, transition plans and contingency measures for the provider-supported critical or important functions — the resilience backstop exposed by the outage.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30(2)",
+      "relevance": "Fixes the minimum content of the provider contract, including data availability, integrity and confidentiality provisions and the provider's duty to assist when an ICT incident affects the service — directly engaged by this outage.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30(3)",
+      "relevance": "Adds the stricter contract content for services supporting critical or important functions: performance targets, provider notification duties, contingency plans and the bank's access, inspection and audit rights.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4",
+      "relevance": "Supplies the definitions that frame the data protection analysis — the bank's controller role, the provider's processor role and what counts as a personal data breach.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(1)",
+      "relevance": "Conditions the bank's use of the cloud provider as processor on sufficient guarantees of appropriate technical and organisational measures.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(3)",
+      "relevance": "Requires the processor contract under which the provider must follow the bank's documented instructions, implement Article 32 security and assist with the bank's Articles 32 to 36 obligations.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32(1)",
+      "relevance": "Obliges the bank to secure the availability and resilience of the hosted processing systems and to be able to restore the customer data in a timely manner after precisely this kind of technical incident.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(1)",
+      "relevance": "Sets the 72-hour notification duty to the supervisory authority if the outage amounts to a personal data breach that is not unlikely to result in a risk.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(2)",
+      "relevance": "Obliges the cloud provider to alert the bank without undue delay upon becoming aware of a personal data breach, feeding the bank's Article 33(1) assessment and notification.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(5)",
+      "relevance": "Requires documentation of the breach, its effects and remedial action so that the supervisory authority can verify compliance with the notification regime.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 34(1)",
+      "relevance": "Triggers communication of the breach to the affected customers where it is likely to result in a high risk to their rights and freedoms.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Determine whether the outage meets the materiality thresholds for a major ICT-related incident under the Article 18(1) criteria and the standards referred to in Article 18(3)(a), since the scenario does not quantify the clients and functions affected.",
+    "Verify whether the hours-long unavailability involved destruction, loss or alteration of, or unauthorised access to, customer personal data on the disrupted systems, which settles whether the GDPR Article 33(1) notification and Article 34(1) communication duties are triggered.",
+    "Confirm that the hosted online banking systems constitute critical or important functions within DORA Article 3 and that the bank's existing contract with the cloud provider contains the minimum content required by DORA Article 30(2) and Article 30(3).",
+    "Establish when the bank became aware of the failure and when it classified the incident, which fixes the applicable DORA reporting time limits and the GDPR 72-hour notification window.",
+    "Settle whether the outage also constitutes an operational or security payment-related incident under DORA Article 23 read with the definitions in Article 3, given that online banking services encompass payment-related services."
+  ]
+}

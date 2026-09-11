@@ -1,0 +1,315 @@
+{
+  "findings": [
+    {
+      "statement": "As an investment firm, the company is a financial entity within the scope of DORA and must comply with its ICT risk, incident management and ICT third-party requirements.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Annex I"
+        }
+      ]
+    },
+    {
+      "statement": "The cyberattack that disrupted the firm's trading systems for more than a day is an ICT-related incident that the firm must detect, manage and notify through its incident management process, and classify according to priority, criticality and impact based on the criteria in Annex III.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 17(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 18(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Annex III"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must report the incident to its competent authority as a major ICT-related incident through an initial notification, an intermediate report and a final report under Article 19, the downtime exceeding one day placing the disruption beyond the Annex III thresholds.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 19"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Annex III"
+        }
+      ]
+    },
+    {
+      "statement": "The firm's dependence on the third-party cloud provider must be governed by a documented ICT third-party risk management framework.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 28(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Because the cloud-hosted AI system supports the firm's critical trading infrastructure, the firm must assess and monitor the associated risks and the provider's performance and ensure the contractual arrangement contains the key contractual provisions of Article 29, such as ICT security and data-protection obligations and termination rights.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 28(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 29"
+        }
+      ]
+    },
+    {
+      "statement": "The AI system's use to analyse market and client information and generate recommendations that traders use in investment decisions is not covered by any high-risk category listed in Annex III, so it is not to be considered high-risk under Article 6(2) and the AI Act's high-risk obligations do not attach to the firm on this basis.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 6(2)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Annex III"
+        }
+      ]
+    },
+    {
+      "statement": "The firm uses the AI system under its authority and is therefore an AI Act deployer, and must ensure a sufficient level of AI literacy among the staff who use and operate the system.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 4"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 3(4)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm may engage the cloud provider, which processes client personal data on its behalf as its processor, only where the provider offers sufficient guarantees to implement appropriate technical and organisational measures, and the processing must be governed by a contract containing the elements listed in Article 28(3).",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(3)"
+        }
+      ]
+    },
+    {
+      "statement": "The attackers' suspected unauthorised access to systems containing client information is a personal data breach within the meaning of Article 4(12), and as controller the firm must notify it to its supervisory authority without undue delay and, where feasible, within 72 hours of becoming aware of it, unless the breach is unlikely to result in a risk to clients, providing the information in phases where not all of it is available.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(12)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(4)"
+        }
+      ]
+    },
+    {
+      "statement": "The cloud provider must notify the firm without undue delay after becoming aware of the personal data breach.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(2)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the breach is likely to result in a high risk to the rights and freedoms of the affected clients, the firm must communicate it to them without undue delay.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 34(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm and the cloud provider must implement technical and organisational security measures appropriate to the risk, including protection against unauthorised access to the client personal data held in the AI system and the affected systems.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 32(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The processing of client personal data by the AI system must be assessed for likely high risk to clients' rights and freedoms; where that risk is likely, the firm must carry out a data protection impact assessment covering the processing.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 35(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Defines the category of financial entities to which all of the firm's DORA obligations attach.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Annex I",
+      "relevance": "Lists investment firms among the financial entities, fixing the firm's DORA status on the scenario facts.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 17(1)",
+      "relevance": "Supplies the incident-management duty under which the firm must detect, manage and notify the cyberattack that took down its trading systems.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 18(1)",
+      "relevance": "Requires the classification step that determines whether and how the firm reports the day-long trading disruption.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Annex III",
+      "relevance": "Provides the materiality criteria, including downtime thresholds, that drive both the classification of the disruption and its treatment as a major incident for reporting.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19",
+      "relevance": "Creates the staged reporting of major ICT-related incidents to the competent authority, the central public-accountability step for the day-long outage.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(1)",
+      "relevance": "The basis for requiring a documented ICT third-party risk framework covering the firm's reliance on the cloud provider for its trading infrastructure.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(2)",
+      "relevance": "Triggers the heightened assessment and monitoring duties because the outsourced cloud services support a function critical to the firm's trading.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 29",
+      "relevance": "Determines the minimum content of the cloud contract for services supporting critical or important functions, including security, data-protection and termination terms.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 6(2)",
+      "relevance": "Provides the classification rule against which the conclusion that the recommendation system is not high-risk is reached.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Annex III",
+      "relevance": "The checklist of high-risk uses; none of its categories covers investment recommendations used by traders, so the high-risk regime is not engaged.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 4",
+      "relevance": "The affirmative AI Act duty that applies to the firm as deployer of the trading recommendation system regardless of risk classification.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 3(4)",
+      "relevance": "Defines the deployer role that attributes the AI literacy duty to the firm as the user of the system.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(12)",
+      "relevance": "Classifies the attackers' suspected access to client information as a personal data breach, opening the firm's notification duties.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(1)",
+      "relevance": "The controller's core breach-notification duty to the supervisory authority, with the 72-hour benchmark and risk exception the firm must apply to the facts discovered during the incident.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(4)",
+      "relevance": "Permits phased information where the full facts of the suspected access are not yet established, matching the open scope of the intrusion.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(2)",
+      "relevance": "Places a direct duty on the cloud provider to inform the firm, ensuring the controller learns of the breach in time to meet its own deadlines.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 34(1)",
+      "relevance": "Sets the high-risk threshold for informing affected clients, the key judgment the firm faces on the discovered facts.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32(1)",
+      "relevance": "The security duty binding both the firm and its processor to protect the client personal data against the kind of unlawful access the attack suggests.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(1)",
+      "relevance": "Conditions the firm's use of the cloud provider as processor on sufficient guarantees of appropriate security measures.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(3)",
+      "relevance": "Requires the written contract with the cloud provider setting out the processing terms, security and breach-assistance obligations.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35(1)",
+      "relevance": "Frames the impact-assessment question for the AI-driven processing of client data, contingent on the high-risk determination.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Verify against the AI Act that the recommendation system's function falls outside every Annex III high-risk category, and determine whether the firm is a deployer rather than a provider, including the cloud provider's role in hosting and operating the system.",
+    "Settle whether the traders' reliance on the AI recommendations amounts to a decision based solely on automated processing under GDPR Article 22, and whether the client-data processing is likely to result in a high risk requiring a data protection impact assessment under Article 35(1).",
+    "Establish what the investigation shows about the attackers' access to client personal data and apply the risk and high-risk assessments under GDPR Articles 33(1) and 34(1), including whether the 'unlikely to result in a risk' exception could apply.",
+    "Confirm the classification of the trading disruption as a major ICT-related incident under the DORA Annex III criteria and the resulting Article 19 reporting sequence and deadlines to the competent authority.",
+    "Determine whether the trading function supported by the cloud-hosted AI system is a critical or important function under DORA, which conditions the application of Article 28(2) and the Article 29 key contractual provisions to the cloud arrangement."
+  ]
+}

@@ -1,0 +1,245 @@
+{
+  "findings": [
+    {
+      "statement": "The ransomware incident is a personal data breach under the GDPR, because it is a breach of security that led to loss of access to systems containing client personal data, independently of whether unauthorised access to that data is confirmed by the ongoing investigation.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(12)"
+        }
+      ]
+    },
+    {
+      "statement": "As the controller of the client personal data, the firm must notify the breach to the competent supervisory authority without undue delay and, where feasible, no later than 72 hours after becoming aware of it, unless the breach is unlikely to result in a risk to the rights and freedoms of natural persons, and any notification made later than 72 hours must be accompanied by reasons for the delay.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Because the firm's investigation into whether client data was accessed is still ongoing, it may provide the notification information in phases without undue further delay.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(4)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must document the personal data breach, comprising the facts relating to it, its effects and the remedial action taken, in a form that enables the supervisory authority to verify compliance with the notification rules.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(5)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the breach is likely to result in a high risk to the rights and freedoms of the firm's clients, the firm must also communicate the breach to the affected clients without undue delay, unless an exception applies, such as where appropriate protection measures were applied to the affected data.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 34(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 34(3)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm was required to have in place technical and organisational security measures providing the ability to restore the availability of and access to client personal data in a timely manner in the event of an incident such as this ransomware attack.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 32(1)"
+        }
+      ]
+    },
+    {
+      "statement": "As an investment firm, the firm is a financial entity within the scope of DORA and must comply with its ICT risk-management and incident requirements, unless it is an exempted entity under the exclusion attached to investment firms in that provision.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must report the incident to its competent authority where it classifies it as a major ICT-related incident: an initial notification no later than 4 hours after that classification and no later than 24 hours after becoming aware of the incident, an intermediate report within 72 hours of the initial notification, and a final report within one month.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 17(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 17(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must manage the ransomware attack through an ICT-related incident management process to detect, manage and notify ICT-related incidents, and must log the incident and conduct a root cause analysis, which is the framework within which its ongoing investigation into client data access sits.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 13(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 13(6)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the incident is classified as major and has an impact on the financial interests of the firm's clients, the firm must inform those clients without undue delay about the incident, its impact and the measures taken to mitigate its effects.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 13(7)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must maintain an ICT business continuity policy and ICT response and recovery plans, which for this incident had to cover their activation, monitoring and assessment of the incident's impact on the trading platform and other services, and internal and external escalation and communication.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 11(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 11(3)"
+        }
+      ]
+    },
+    {
+      "statement": "On the facts stated, no AI system was involved in the ransomware attack or the affected systems, so the AI Act's obligations, which attach to providers and deployers of AI systems, are not engaged by this incident.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 2(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(12)",
+      "relevance": "Defines the incident as a personal data breach, which is the gateway finding on which all of the firm's GDPR breach duties rest.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(1)",
+      "relevance": "Supplies the central data-protection obligation the answer turns on: notifying the supervisory authority within 72 hours unless the risk threshold for non-notification is met.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(4)",
+      "relevance": "Gives the firm the phased-notification route that matches its incomplete investigation into client data access.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(5)",
+      "relevance": "Imposes the breach documentation duty that applies regardless of whether notification ultimately proves required.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 34(1)",
+      "relevance": "Sets out the further client-communication step the firm must assess if the investigation shows a high risk to clients.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 34(3)",
+      "relevance": "Frames the exceptions, notably protection measures such as encryption, that can relieve the firm of communicating the breach to clients.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32(1)",
+      "relevance": "Grounds the security-measure side of the scenario, including the restore-availability requirement implicated by the recovery of services after several hours.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Places investment firms among DORA's regulated financial entities, which is the gateway to every DORA obligation in the answer.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 17(1)",
+      "relevance": "Establishes the duty to report major ICT-related incidents to the competent authority, the trigger for the operational-regulator dimension of the response.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 17(2)",
+      "relevance": "Supplies the fixed reporting timetable the firm must apply if the incident is classified as major.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 13(1)",
+      "relevance": "Requires the incident management process within which the firm's detection, handling and notification of the ransomware attack must sit.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 13(6)",
+      "relevance": "Supports the logging and root-cause analysis obligation that the firm's ongoing investigation into client data access must satisfy.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 13(7)",
+      "relevance": "Adds a client-facing information duty that may arise in parallel with the GDPR communication duty if the incident is major and affects clients' financial interests.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 11(1)",
+      "relevance": "Anchors the ICT business continuity framework implicated by the disruption of the trading platform and the several-hour restoration.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 11(3)",
+      "relevance": "Requires the response and recovery plans that had to govern activation, impact monitoring and escalation and communication during the attack.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 2(1)",
+      "relevance": "Delimits the AI Act's addressees to providers and deployers of AI systems, supporting the conclusion that the Act is not engaged on the facts stated.",
+      "strength": "weak"
+    }
+  ],
+  "actions": [
+    "Settle whether the firm is an investment firm within DORA's scope, including whether it qualifies as an exempted entity excluded by that provision's listing of investment firms.",
+    "Settle whether the ransomware attack meets the classification criteria for a major ICT-related incident, on which the applicability of DORA's reporting timetable and client-information duty depends.",
+    "Determine whether the investigation establishes that the attackers accessed client personal data, since the outcome conditions the GDPR risk assessment for notification and the high-risk assessment for communicating with clients.",
+    "Verify whether the client personal data in the affected systems was rendered unintelligible, such as through encryption, which bears on the exceptions to communicating the breach to clients.",
+    "Verify whether any of the firm's systems, including the trading platform, operate an AI system for which the firm is a provider or deployer, this being the only factual basis on which AI Act obligations could arise."
+  ]
+}

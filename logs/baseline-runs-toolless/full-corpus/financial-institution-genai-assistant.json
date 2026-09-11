@@ -1,0 +1,257 @@
+{
+  "findings": [
+    {
+      "statement": "The financial institution must inform customers that they are interacting with an AI system when the generative AI assistant affects them, unless this is obvious to an average, well-informed person.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 50(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The generative AI system's synthetic outputs (e.g., AI-drafted responses or content) must be marked in a machine-readable format as artificially generated.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 50(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The financial institution, as controller of customer conversation data, must ensure personal data is processed lawfully, fairly and transparently, with adequate security of the processing given that account information is processed.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 5(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 32(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The external technology company, to the extent it processes customer conversation personal data on the financial institution's behalf, may only be used subject to a binding processor contract under Article 28(3), including confidentiality, sub-processor and assistance obligations.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(3)"
+        }
+      ]
+    },
+    {
+      "statement": "Any transfer of customer conversations containing personal data to infrastructure located outside the EEA may only take place with appropriate safeguards under Article 46 or under Article 49; Article 44 prohibits transfers otherwise.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 44"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 46(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 49(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The AI service hosted on third-party cloud infrastructure is an ICT service provided by an ICT third-party service provider, so the financial institution must maintain a register of information on all such arrangements and is fully accountable for compliance with DORA even when tasks are outsourced.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 28(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 28(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Before entering into the arrangement, the financial institution must assess all relevant risks and the technology provider's operational resilience, covering the provider's subcontracted cloud infrastructure as part of the contractual chain.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 29(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 29(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The contractual arrangement with the technology provider must address subcontracting of ICT services supporting the AI service, and DORA requires specific rights of access, inspection and audit so the financial institution's limited visibility can be remedied contractually.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 30(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 30(3)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 30(6)"
+        }
+      ]
+    },
+    {
+      "statement": "As a financial entity the institution must have an ICT risk management framework addressing the AI system and its cloud hosting as part of its ICT systems and the dependencies of critical or important functions.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 5(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 6(2)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "ai-act",
+      "provision": "Article 50(1)",
+      "relevance": "Sets the deployer transparency duty that the customer-facing generative AI assistant triggers toward the institution's customers.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 50(2)",
+      "relevance": "Imposes the machine-readable marking duty for synthetic output generated by the assistant, borne by the provider and deployer.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 5(1)",
+      "relevance": "States the core data protection principles the institution must satisfy when customer conversations with account information are processed.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32(1)",
+      "relevance": "Requires security measures appropriate to the risk, relevant because the institution has limited visibility into how the hosted service is operated.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(1)",
+      "relevance": "Makes use of the external AI technology company as processor lawful only through the Article 28(3) contract.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(3)",
+      "relevance": "Prescribes the mandatory processor contract content, including sub-processor terms that also govern the underlying cloud host.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 44",
+      "relevance": "Frames the prohibition level for any transfer of customer conversations outside the EEA, the gateway through which Articles 46 and 49 operate.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 46(1)",
+      "relevance": "Provides the appropriate-safeguards route for transfers given the hosted infrastructure arrangement.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 49(1)",
+      "relevance": "Provides the derogation route for transfers where no Article 46 safeguard fits.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(1)",
+      "relevance": "Requires the register of information on the ICT third-party arrangements, including the AI provider and its cloud host.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(2)",
+      "relevance": "Defines what the register must contain and the level at which it is maintained, anchoring oversight of the provider chain.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Confirms the institution is a financial entity within DORA's scope to which these ICT third-party duties attach.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 29(1)",
+      "relevance": "Requires the pre-contractual risk assessment that should capture the resilience of the AI provider and its cloud infrastructure.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 29(2)",
+      "relevance": "Specifies the assessment's minimum content, covering provider dependence on subcontractors.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30(1)",
+      "relevance": "Governs the subcontracting chain behind the hosted AI service, directly relevant to the institution's limited visibility.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30(3)",
+      "relevance": "Requires monitoring and assessment of ICT subcontracting arrangements, the operational answer to the visibility gap.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30(6)",
+      "relevance": "Establishes access, inspection and audit rights enabling the institution to obtain assurance from the provider chain.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 5(1)",
+      "relevance": "Requires the overarching ICT risk management framework within which the AI system and hosting dependency must be managed.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 6(2)",
+      "relevance": "Defines the framework's scope over ICT systems and the dependencies of critical or important functions, covering the AI-assisted customer service.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Determine whether the generative AI system itself qualifies as a high-risk AI system under Article 6 and Annex III of the AI Act, which would engage Article 26 deployer obligations in addition to Article 50.",
+    "Verify the respective controller/processor roles of the financial institution and the external technology company, including whether the technology company or the cloud host acts as an independent controller for any purposes.",
+    "Establish the actual processing locations of customer conversations and whether a transfer outside the EEA occurs, and which Article 46 GDPR instrument or Article 49 derogation would apply.",
+    "Clarify whether the cloud provider is an ICT third-party service provider contracted directly by the financial institution or a subcontractor of the technology company under DORA Article 30.",
+    "Confirm whether customer-service functions supported by the AI system are critical or important functions for the institution's DORA framework and register of information."
+  ]
+}

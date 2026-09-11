@@ -1,0 +1,425 @@
+{
+  "findings": [
+    {
+      "statement": "The AI system is a high-risk AI system under the AI Act: it performs risk assessment and pricing in relation to natural persons in the case of life insurance, a use expressly listed in Annex III point 5(c), and Article 6(2) classifies Annex III systems as high-risk.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 6(2)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Annex III point 5(c)"
+        }
+      ]
+    },
+    {
+      "statement": "The Article 6(3) derogation from the high-risk classification is not available for this system, because it profiles the applicants by evaluating their personal data to determine eligibility and premiums.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 6(3)"
+        }
+      ]
+    },
+    {
+      "statement": "As deployer of the high-risk system, the insurer must use it under human oversight by natural persons with the necessary competence, training and authority, and must ensure the employees reviewing the premium recommendations have sufficient AI literacy.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 26(2)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 4"
+        }
+      ]
+    },
+    {
+      "statement": "The insurer must inform applicants that they are subject to the use of a high-risk AI system used to take or assist in decisions relating to them.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 26(11)"
+        }
+      ]
+    },
+    {
+      "statement": "As a deployer of an Annex III point 5(c) system, the insurer must carry out a fundamental rights impact assessment before deploying the system, covering its processes, the period and frequency of use, the categories of persons affected, specific risks of harm, human oversight measures and measures to be taken if risks materialise.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 27(1)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 27(2)"
+        }
+      ]
+    },
+    {
+      "statement": "Applicants affected by the premium decision are entitled to obtain from the insurer clear and meaningful explanations of the role of the AI system in the decision-making procedure and the main elements of the decision.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 86(1)"
+        }
+      ]
+    },
+    {
+      "statement": "If the insurer is also the provider of the system, for example where it was developed in-house or put into service under its own name, it must meet provider obligations, including examination of possible biases in the data, processing of the applicants' health data only where strictly necessary for bias detection and correction under GDPR Article 9 safeguards, and a conformity assessment based on internal control in accordance with Annex VI.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 3(3)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 10(5)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 43(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The AI Act's obligations for Annex III high-risk AI systems have applied since 2 August 2026, so they are in force for the insurer's current use of the system.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 113"
+        }
+      ]
+    },
+    {
+      "statement": "The applicants' medical information constitutes data concerning health, and processing it for eligibility and premium calculation is prohibited unless a condition in Article 9(2) applies, such as the applicant's explicit consent.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 9(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 9(2)(a)"
+        }
+      ]
+    },
+    {
+      "statement": "Applicants have the right not to be subject to the premium or eligibility decision if it is based solely on automated processing and produces legal effects concerning them, unless an exception in Article 22(2) applies.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Because the AI system produces only a recommended premium that an employee can review before the policy is issued, the issuance decision involves human involvement rather than resting solely on the system's output.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Even where the insurer relies on the contract-necessity or explicit-consent exception in Article 22(2), the decision must not be based on the applicants' health data unless Article 9(2)(a) or (g) applies and suitable measures safeguard the applicants' rights and freedoms.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(4)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 9(2)(a)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the insurer relies on an Article 22(2) exception for the premium decision, it must implement suitable safeguards including the applicant's right to obtain human intervention, to express a point of view and to contest the decision.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 22(3)"
+        }
+      ]
+    },
+    {
+      "statement": "The insurer must carry out a data protection impact assessment before processing, because it conducts a systematic and extensive evaluation of personal aspects based on automated processing on which decisions with legal effects for the applicants are based.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 35(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 35(3)(a)"
+        }
+      ]
+    },
+    {
+      "statement": "The insurer must inform applicants of the existence of automated decision-making including profiling and, where applicable, provide meaningful information about the logic involved and the significance and envisaged consequences of the processing.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 13(2)(f)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(4)"
+        }
+      ]
+    },
+    {
+      "statement": "The insurer, as an insurance undertaking, is a financial entity to which DORA applies.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The AI underwriting tool is an ICT system within the meaning of DORA, being a digital and data technology application used to gather, store, process and analyse the applicants' information.",
+      "strength": "weak",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 3(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The insurer's management body bears ultimate responsibility for managing the ICT risk arising from the system and must oversee a sound, comprehensive and documented ICT risk management framework covering it.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 4(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 5(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the AI system is supplied by an external ICT third-party service provider, the insurer must manage that third-party risk through pre-contractual assessment and, for ICT services supporting critical or important functions, contracts containing the required key provisions and an entry in its register of information.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 28"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 30"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 34"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "ai-act",
+      "provision": "Annex III point 5(c)",
+      "relevance": "Expressly names the scenario's use case — risk assessment and pricing in the case of life insurance — and is the basis on which the entire AI Act layer of the answer rests.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 6(2)",
+      "relevance": "Converts the Annex III listing into high-risk status, which is what triggers every deployer and provider duty identified for the insurer.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 6(3)",
+      "relevance": "Closes off the argument that the system could escape high-risk treatment despite its automated evaluation of applicants, securing the classification on which the answer depends.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 26(2)",
+      "relevance": "Shapes how the insurer's human review of the recommended premium must be staffed and empowered, tying the scenario's employee review to a concrete deployer duty.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 4",
+      "relevance": "Obliges the insurer to build AI literacy among the staff who operate and review the system, reinforcing the human oversight conclusion.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 26(11)",
+      "relevance": "Creates a distinct deployer duty to tell applicants they are subject to a high-risk AI system, complementing the GDPR transparency duties in the answer.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 27(1)",
+      "relevance": "Imposes the fundamental rights impact assessment specifically on deployers of life and health insurance risk-assessment systems, a key deliverable identified for the insurer.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 27(2)",
+      "relevance": "Defines the scope of that impact assessment, which legal review must flesh out against the insurer's actual processes and applicant base.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 86(1)",
+      "relevance": "Gives affected applicants an explanation right concerning the AI system's role in the premium decision, parallel to the GDPR transparency findings.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 3(3)",
+      "relevance": "Definition deciding whether the insurer bears provider obligations in addition to deployer duties, which the scenario leaves open.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 10(5)",
+      "relevance": "Tightly limits any provider-side processing of the applicants' health data for bias work and ties it back to GDPR Article 9, relevant if the insurer builds the system.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 43(1)",
+      "relevance": "Sets the conformity assessment route based on internal control that applies should the insurer turn out to be the provider.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 113",
+      "relevance": "Fixes the date from which the Annex III high-risk obligations apply, confirming they are in force for the insurer's use today.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(4)",
+      "relevance": "Definition establishing that the automated evaluation of applicants is profiling, which links the scenario to the profiling-based transparency duties.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 9(1)",
+      "relevance": "The general prohibition on processing health data is the threshold constraint the insurer must clear before using applicants' medical information at all.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 9(2)(a)",
+      "relevance": "One of the available conditions for lawful health-data processing and the same gateway required for automated decisions based on health data.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 13(2)(f)",
+      "relevance": "Transparency duty giving applicants information about the automated evaluation and its logic, aggregated with the AI Act information duties in the answer.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22(1)",
+      "relevance": "Frames the central limit on the automated premium determination and how the scenario's employee review affects the character of the decision.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22(3)",
+      "relevance": "Requires safeguards, including human intervention and contest rights, whenever an exception to the automated-decision prohibition is used.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 22(4)",
+      "relevance": "Directly regulates the scenario's core tension: automated decisions resting on the applicants' health data.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35(1)",
+      "relevance": "The general DPIA obligation that this automated, rights-affecting evaluation triggers for the insurer.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 35(3)(a)",
+      "relevance": "The specific trigger making the DPIA mandatory here: systematic and extensive automated evaluation on which decisions with legal effects are based.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Places the insurance undertaking within DORA, so the ICT-based underwriting setup falls under the resilience framework the answer identifies.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 3(1)",
+      "relevance": "Definition under which the AI underwriting tool counts as an ICT system for DORA's ICT risk rules.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 4(1)",
+      "relevance": "Puts ultimate responsibility for the ICT risk of the AI tool on the management body, a governance point the answer relies on.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 5(1)",
+      "relevance": "Requires the documented ICT risk management framework within which the AI system must be managed.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28",
+      "relevance": "Engages third-party risk strategy and pre-contractual assessment if the AI system is externally supplied, an open fact in the scenario.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30",
+      "relevance": "Key contractual provisions the insurer must secure for ICT services supporting critical or important functions.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 34",
+      "relevance": "Requires the arrangement with an ICT provider to be recorded in the register of information, giving supervisors visibility over the AI supply chain.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Establish whether the insurer acts only as deployer of the AI system or also as provider, for example where the system was developed in-house or put into service under its own name, since provider status determines whether AI Act provider duties and conformity assessment apply.",
+    "Determine which condition under Article 9(2) GDPR the insurer can lawfully rely on for processing applicants' health data and verify that any consent relied on meets the explicitness of Article 9(2)(a).",
+    "Settle whether the final premium and eligibility decision rests solely on automated processing or on a human review capable of changing the outcome, as this decides how Article 22 GDPR applies and how AI Act human oversight must be arranged.",
+    "Ascertain whether the AI system is supplied by an external ICT third-party service provider and whether the functions it supports are critical or important, which determines the reach of DORA Articles 28, 30 and 34.",
+    "Verify whether the insurer qualifies for any DORA exemption for small, non-interconnected insurance undertakings under Article 2(3)."
+  ]
+}

@@ -27,7 +27,7 @@ Project structure created with:
 ### Step 1: Download regulatory documents
 
 ```bash
-cd /home/rodrigo/Work/regula/data/regulations
+cd data/regulations
 curl -O https://raw.githubusercontent.com/alonalkalay-bolt/lexplorer/main/packages/data/gdpr.json
 curl -O https://raw.githubusercontent.com/alonalkalay-bolt/lexplorer/main/packages/data/ai-act.json
 curl -O https://raw.githubusercontent.com/alonalkalay-bolt/lexplorer/main/packages/data/dora.json

@@ -1,0 +1,377 @@
+{
+  "findings": [
+    {
+      "statement": "The firm uses the AI system under its authority as part of its professional activity and is therefore a deployer; as deployer it must take measures to ensure, to its best extent, a sufficient level of AI literacy among the traders and other staff who operate the system or deal on its behalf.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Article 3(4)"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 4"
+        }
+      ]
+    },
+    {
+      "statement": "Because the AI system analyses market and client information to generate recommendations for human traders making investment decisions, its use case is not among the high-risk areas listed in Annex III, so the deployer obligations for high-risk systems in Article 26, including human oversight, input-data monitoring and logging, do not apply to the firm's use of it.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "ai-act",
+          "provision": "Annex III"
+        },
+        {
+          "source_id": "ai-act",
+          "provision": "Article 26"
+        }
+      ]
+    },
+    {
+      "statement": "As an investment firm, the company is a financial entity within the scope of DORA and is subject to its ICT risk-management, incident-reporting and ICT third-party obligations.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 2(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must manage the disruption of its trading systems through an ICT-related incident management process, activate its ICT business continuity plans to respond to the incident and resume its critical trading functions, and apply a malicious-code check before restoring backup data or permanently restoring data after the cyber-attack.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 16(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 11(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 13(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must classify the incident, which disrupted its trading systems for more than a day and may have compromised client data, against the classification criteria in Article 18(1) covering clients and counterparties affected, duration and geographical spread, data losses and criticality of the affected services and systems, and report it to its competent authority insofar as it is classified as a major ICT-related incident.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 18(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 17(1)"
+        }
+      ]
+    },
+    {
+      "statement": "Once the incident is classified as major, the firm must submit an initial notification to its competent authority no later than 4 hours after classification and in any event no later than 24 hours after becoming aware of the incident, an intermediate report within 72 hours after the initial notification, and a final report no later than one month after the final intermediate report.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 19(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must notify, without undue delay, the clients affected by the major ICT-related incident of the incident and of the measures taken to mitigate its adverse effects.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 16(6)"
+        }
+      ]
+    },
+    {
+      "statement": "The cloud provider is an ICT third-party service provider whose hosting supports the firm's critical trading functions; in relying on it the firm remains fully accountable for compliance with all DORA obligations and must carefully assess and address the concentration risk arising from this dependence.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 3"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 28(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm's arrangement with the cloud provider must stipulate the contractual provisions required for ICT services supporting critical or important functions and, as a provider of cloud services, terms guaranteeing the firm continuous access to its data and providing for data recovery and migration including on termination, and the arrangement must be recorded in the firm's register of information.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 30(1)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 30(2)"
+        },
+        {
+          "source_id": "dora",
+          "provision": "Article 28(3)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm determines the purposes and means of the processing of client personal data in the AI system, which serves its own investment-recommendation activity, and is therefore the controller responsible for GDPR compliance towards its clients.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(7)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must ensure that the processing of client personal data in the AI system rests on one of the lawful bases in Article 6(1).",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 6(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The cloud provider processes client personal data on the firm's behalf in hosting the AI system and must be bound by a contract meeting the Article 28(3) requirements, including assistance with the firm's obligations under Articles 32 to 36, and must notify the firm without undue delay after becoming aware of a personal data breach in its systems.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 28(3)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(2)"
+        }
+      ]
+    },
+    {
+      "statement": "The firm must implement technical and organisational measures ensuring a level of security appropriate to the risk for the client personal data in the affected systems, including the ability to restore the availability of and access to that data in a timely manner in the event of the technical incident.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 32(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The discovered risk of unauthorised access to systems containing client personal data engages the GDPR personal data breach regime: the firm must notify the breach to the competent supervisory authority without undue delay and, where feasible, no later than 72 hours after becoming aware of it, unless the breach is unlikely to result in a risk to the rights and freedoms of natural persons, and must document any breach it does not notify so that the supervisory authority can verify compliance.",
+      "strength": "strong",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 4(12)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(5)"
+        }
+      ]
+    },
+    {
+      "statement": "Where the personal data breach is likely to result in a high risk to the rights and freedoms of natural persons, the firm must communicate it to the affected clients without undue delay, describing the nature of the breach and the measures taken.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "gdpr",
+          "provision": "Article 34(1)"
+        }
+      ]
+    },
+    {
+      "statement": "The same event engages two separate notification regimes: DORA reporting of a major ICT-related incident to the firm's competent financial authority and GDPR notification of the personal data breach to the supervisory authority; because DORA reporting is without prejudice to other notification obligations, compliance with one regime does not discharge the other.",
+      "strength": "moderate",
+      "citations": [
+        {
+          "source_id": "dora",
+          "provision": "Article 17(1)"
+        },
+        {
+          "source_id": "gdpr",
+          "provision": "Article 33(1)"
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "source_id": "ai-act",
+      "provision": "Article 3(4)",
+      "relevance": "Defines deployer, which fixes the firm's role under the AI Act as the party using the AI system under its authority and anchors both the AI-literacy duty and the Article 26 non-applicability analysis.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 4",
+      "relevance": "Supplies the operative AI Act obligation in this scenario: as deployer, the firm must ensure AI literacy among the staff operating the recommendation system, since no high-risk regime applies to it.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Article 26",
+      "relevance": "Sets out the deployer obligations that would apply only to high-risk systems; the findings rely on it to delimit what the firm does not have to do for this system.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "ai-act",
+      "provision": "Annex III",
+      "relevance": "The list of high-risk use cases against which the investment-recommendation use case is measured; it decides the conclusion that the system is not high-risk.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 2(1)",
+      "relevance": "Establishes that investment firms are financial entities within DORA's scope, making every DORA obligation in this answer applicable to the firm.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 3",
+      "relevance": "Definitions of ICT services and ICT third-party service provider that qualify the cloud provider as the firm's ICT third-party service provider.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 11(2)",
+      "relevance": "Requires the firm's ICT business continuity plans to be activated without delay upon the disruption to ensure the continuity of its critical trading functions.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 13(2)",
+      "relevance": "Governs data restoration after the cyber-attack, requiring a malicious-code check before backup data is restored or data is permanently restored.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 16(1)",
+      "relevance": "Obligation to operate an ICT-related incident management process through which the firm must detect, manage and notify the incident.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 16(6)",
+      "relevance": "Obligation to notify affected clients of the major ICT-related incident and of the measures taken to mitigate its adverse effects.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 17(1)",
+      "relevance": "Duty to report major ICT-related incidents to the firm's competent financial authority, expressly without prejudice to other notification obligations, which underpins the parallel-tracks conclusion.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 18(1)",
+      "relevance": "Classification criteria against which the incident's duration, data losses and criticality must be assessed to determine its major status.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 19(2)",
+      "relevance": "Three-step reporting timetable of initial notification, intermediate report and final report that fixes the firm's deadlines once the incident is classified as major.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(2)",
+      "relevance": "Keeps the firm fully accountable for DORA compliance despite its reliance on the cloud provider and requires assessment and mitigation of concentration risk, the core rule on its third-party dependence.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 28(3)",
+      "relevance": "Register of information in which the firm must document its arrangements with the provider.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30(1)",
+      "relevance": "Contractual provisions the firm must have in place with the provider for ICT services supporting critical or important functions.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "dora",
+      "provision": "Article 30(2)",
+      "relevance": "Additional contract terms for cloud providers, covering continuous data access, recovery and migration, that matter most in an incident scenario.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(7)",
+      "relevance": "Controller definition establishing that the firm, not the cloud provider, bears the GDPR duties owed to its clients.",
+      "strength": "weak"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 4(12)",
+      "relevance": "Personal data breach definition deciding that the suspected unauthorised access to client data is assessed as a breach for Article 33 purposes.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 6(1)",
+      "relevance": "Requires a lawful basis for the client personal data feeding the AI recommendations, the foundation of the firm's processing obligations.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 28(3)",
+      "relevance": "Processor-contract requirements binding the cloud provider, including its assistance with the firm's security and breach-related obligations.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 32(1)",
+      "relevance": "Security-of-processing duty covering the client data in the affected systems, including timely restoration of availability and access after the technical incident.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(1)",
+      "relevance": "Core breach-notification duty to the supervisory authority within 72 hours unless the risk threshold is not met, the central GDPR consequence of the cyber-attack for the firm.",
+      "strength": "strong"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(2)",
+      "relevance": "Imposes the breach-notification duty of the cloud provider towards the firm, securing the information flow on which the firm's own notification depends.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 33(5)",
+      "relevance": "Documentation duty covering breaches the firm decides not to notify, the safeguard where the suspected access cannot be confirmed.",
+      "strength": "moderate"
+    },
+    {
+      "source_id": "gdpr",
+      "provision": "Article 34(1)",
+      "relevance": "Communication of the breach to the affected clients where a high risk to their rights and freedoms is likely.",
+      "strength": "moderate"
+    }
+  ],
+  "actions": [
+    "Verify whether the firm falls within DORA's scope or is excluded as an exempt entity, in particular whether it qualifies as a small and non-interconnected investment firm under Article 2(2), before relying on the DORA obligations identified.",
+    "Confirm the AI system's classification, including whether its integration into the firm's trading infrastructure could be argued to bring it within Annex III point 2 as a safety component in the management and operation of critical digital infrastructure, and whether the firm's role is deployer or provider under AI Act Article 3(3) and (4).",
+    "Establish whether unauthorised access to client personal data in fact occurred, its scope and severity, since that determination decides whether the Article 33(1) notification duty applies or whether the matter is handled only under the Article 33(5) documentation duty.",
+    "Characterise the cloud provider's role in the client-data processing, whether it acts solely as processor under GDPR Article 28 or determines its own purposes, and verify that the existing hosting arrangement satisfies DORA Article 30.",
+    "Determine whether the disruption meets the DORA major ICT-related incident threshold under Article 18 and, given that the firm became aware during the incident, whether the Article 19(2) notification deadlines have lapsed or remain capable of being met."
+  ]
+}

@@ -1,6 +1,6 @@
 # Regula — Complete Decision Tree
 
-All decisions have been locked via the grilling process. See full breakdown in session workspace at `/home/rodrigo/.copilot/session-state/35513d9c-b5d0-4674-bbb5-27523852e920/files/REGULA_ROADMAP.md`
+All decisions have been locked via the grilling process. See full breakdown in the session workspace's `REGULA_ROADMAP.md`.
 
 ## Summary of Key Decisions
 
