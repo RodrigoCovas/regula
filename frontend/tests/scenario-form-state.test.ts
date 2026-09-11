@@ -9,7 +9,7 @@ import {
   type ScenarioFormAction,
   type ScenarioFormState,
 } from "../lib/scenario-form";
-import { demoScenarioInput } from "../lib/scenario-id";
+import { demoScenarioInput, deriveScenarioId } from "../lib/scenario-id";
 import { KEY_MISSING_READINESS, READY_READINESS } from "./readiness-states";
 
 function reduced(actions: ScenarioFormAction[]): ScenarioFormState {
@@ -153,4 +153,67 @@ test("the submission carries the selected mode explicitly", () => {
     ]),
   );
   assert.equal(demoInput.mode, "demo");
+});
+
+test("the demo fill submits the canonical scenario id, which no description derives to", () => {
+  // The canonical id is an authored name, not a derived one (ADR-0005):
+  // deriveScenarioId always appends a hash suffix, so the submission must
+  // carry the pinned id or the demo trigger never fires.
+  const input = submissionOf(reduced([{ type: "demo-scenario-filled" }]));
+  assert.equal(input.scenario.id, demoScenarioInput.scenario.id);
+  assert.equal(
+    input.scenario.id,
+    "bank-cloud-outage",
+  );
+  assert.notEqual(input.scenario.id, deriveScenarioId(input.scenario.description));
+  assert.equal(input.scenario.description, demoScenarioInput.scenario.description);
+  assert.equal(input.question, demoScenarioInput.question);
+  assert.equal(input.mode, "demo");
+});
+
+test("editing the question after the demo fill keeps the canonical scenario (ADR-0006)", () => {
+  const input = submissionOf(
+    reduced([
+      { type: "demo-scenario-filled" },
+      { type: "question-changed", question: "Which DORA articles bind the bank?" },
+    ]),
+  );
+  assert.equal(input.scenario.id, demoScenarioInput.scenario.id);
+  assert.equal(input.scenario.description, demoScenarioInput.scenario.description);
+  assert.equal(input.question, "Which DORA articles bind the bank?");
+});
+
+test("editing the description abandons the demo fill: the id re-derives", () => {
+  const input = submissionOf(
+    reduced([
+      { type: "demo-scenario-filled" },
+      { type: "description-changed", description: "A Spanish fintech startup" },
+    ]),
+  );
+  assert.equal(input.scenario.id, deriveScenarioId("A Spanish fintech startup"));
+  assert.notEqual(input.scenario.id, demoScenarioInput.scenario.id);
+  assert.equal(input.scenario.description, "A Spanish fintech startup");
+});
+
+test("switching mode after the demo fill keeps the canonical scenario and carries the new mode", () => {
+  const input = submissionOf(
+    reduced([
+      { type: "demo-scenario-filled" },
+      { type: "mode-changed", mode: "live" },
+    ]),
+  );
+  assert.equal(input.scenario.id, demoScenarioInput.scenario.id);
+  assert.equal(input.mode, "live");
+  assert.equal(input.question, demoScenarioInput.question);
+});
+
+test("typing the canonical description by hand never submits the canonical id (ADR-0005)", () => {
+  const input = submissionOf(
+    reduced([
+      { type: "description-changed", description: demoScenarioInput.scenario.description },
+      { type: "question-changed", question: demoScenarioInput.question },
+    ]),
+  );
+  assert.notEqual(input.scenario.id, demoScenarioInput.scenario.id);
+  assert.equal(input.scenario.id, deriveScenarioId(demoScenarioInput.scenario.description));
 });

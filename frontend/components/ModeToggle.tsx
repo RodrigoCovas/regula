@@ -27,7 +27,7 @@ export function ModeToggle({
               Demo
             </span>
             <span className="block text-xs text-slate-500">
-              The canonical Spanish fintech scenario — no API key needed.
+              The canonical bank cloud outage scenario — no API key needed.
             </span>
           </span>
         </label>

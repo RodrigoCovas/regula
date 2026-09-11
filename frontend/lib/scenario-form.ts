@@ -13,6 +13,11 @@ export interface ScenarioFormState {
   description: string;
   question: string;
   mode: Mode;
+  // Whether the form still carries the demo button's canonical fill (ADR-0005):
+  // the canonical id is authored, never derived, so a filled form submits it
+  // until a description edit re-derives the id. A question edit keeps the
+  // scenario (ADR-0006); a mode change is orthogonal to it (ADR-0008).
+  demoScenarioFilled: boolean;
   // What the latest readiness check attempt left behind — reset on every
   // mode change, so a Live selection always re-checks.
   readiness: ReadinessResult;
@@ -22,6 +27,7 @@ export const initialScenarioFormState: ScenarioFormState = {
   description: "",
   question: "",
   mode: "demo",
+  demoScenarioFilled: false,
   readiness: { kind: "none" },
 };
 
@@ -41,7 +47,14 @@ export function scenarioFormReducer(
 ): ScenarioFormState {
   switch (action.type) {
     case "description-changed":
-      return { ...state, description: action.description };
+      // A description edit abandons the demo fill: the edited text is no
+      // longer the canonical Scenario, so the id re-derives and Demo mode
+      // gets the honest Not-available response (ADR-0005).
+      return {
+        ...state,
+        description: action.description,
+        demoScenarioFilled: false,
+      };
     case "question-changed":
       return { ...state, question: action.question };
     case "mode-changed":
@@ -57,6 +70,7 @@ export function scenarioFormReducer(
         ...state,
         description: demoScenarioInput.scenario.description,
         question: demoScenarioInput.question,
+        demoScenarioFilled: true,
       };
     case "readiness-known":
       return { ...state, readiness: { kind: "known", readiness: action.readiness } };
@@ -78,5 +92,14 @@ export function canSubmit(state: ScenarioFormState): boolean {
 }
 
 export function submissionOf(state: ScenarioFormState): ScenarioInput {
+  // A live demo fill submits the pinned canonical Scenario (ADR-0005) with
+  // the current question and mode; every other form content derives its id.
+  if (state.demoScenarioFilled) {
+    return {
+      scenario: demoScenarioInput.scenario,
+      question: state.question,
+      mode: state.mode,
+    };
+  }
   return buildScenarioInput(state.description, state.question, state.mode);
 }

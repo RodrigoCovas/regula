@@ -59,6 +59,10 @@ export interface Decision {
 
 export interface ClaimDecision extends Decision {
   claim: string;
+  // The auxiliary Evidence labels the deterministic citation trim dropped
+  // from a kept Finding's Citations (spec #94): kept decisions record them,
+  // so the mirror of the backend's ClaimDecision carries the field too.
+  dropped_refs?: string[];
 }
 
 export interface ActionDecision extends Decision {

@@ -50,9 +50,9 @@ test("renders each Finding with its Strength badge", () => {
 
 test("renders Citations within each Finding", () => {
   const markup = render();
-  assert.ok(markup.includes("EU AI Act — Article 6(2)"));
-  assert.ok(markup.includes("GDPR — Recital 71"));
-  assert.ok(markup.includes("DORA — Article 2(1)(a), (2)"));
+  assert.ok(markup.includes("DORA — Article 17"));
+  assert.ok(markup.includes("GDPR — Article 32"));
+  assert.ok(markup.includes("DORA — Article 29"));
   const findings = demoAnalyzeResponse.answer.findings;
   for (const finding of findings) {
     for (const citation of finding.citations) {
@@ -64,11 +64,54 @@ test("renders Citations within each Finding", () => {
 
 test("renders every Citation contract field", () => {
   const markup = render();
-  assert.ok(markup.includes("source_id: ai-act"));
-  assert.ok(markup.includes("article_number: 6"));
-  assert.ok(markup.includes("recital_number: 71"));
-  assert.ok(markup.includes("annex_number: 3"));
-  assert.ok(markup.includes("Classification of AI Systems as High-Risk"));
+  assert.ok(markup.includes("source_id: dora"));
+  assert.ok(markup.includes("article_number: 17"));
+  assert.ok(
+    markup.includes("ICT-related incident management, classification and reporting"),
+  );
+  // The bank demo cites articles only; the recital and annex field rows stay
+  // covered with synthetic per-Finding Citations, as the Live path cites all
+  // three kinds.
+  const withRecitalAndAnnex: AnalyzeResponse = {
+    ...demoAnalyzeResponse,
+    answer: {
+      ...demoAnalyzeResponse.answer,
+      findings: [
+        {
+          ...demoAnalyzeResponse.answer.findings[0],
+          citations: [
+            ...demoAnalyzeResponse.answer.findings[0].citations,
+            {
+              source_id: "gdpr",
+              source_short_name: "GDPR",
+              article_number: null,
+              recital_number: 71,
+              annex_number: null,
+              section: "Recitals",
+              provision: "Recital 71",
+              quote: null,
+            },
+            {
+              source_id: "ai-act",
+              source_short_name: "EU AI Act",
+              article_number: null,
+              recital_number: null,
+              annex_number: 3,
+              section: "Annexes",
+              provision: "Annex III point 5(b)",
+              quote: null,
+            },
+          ],
+        },
+        ...demoAnalyzeResponse.answer.findings.slice(1),
+      ],
+    },
+  };
+  const markupWithRecitalAndAnnex = renderToStaticMarkup(
+    React.createElement(AnswerSurface, { response: withRecitalAndAnnex }),
+  );
+  assert.ok(markupWithRecitalAndAnnex.includes("recital_number: 71"));
+  assert.ok(markupWithRecitalAndAnnex.includes("annex_number: 3"));
 });
 
 test("renders every Answer action", () => {
@@ -111,11 +154,11 @@ test("renders detailed trace steps, retrieved passages, tool calls, and claim de
   assert.ok(markup.includes(">verifier<"));
   assert.ok(markup.includes("Retrieved passages ("));
   assert.ok(markup.includes("Tool calls ("));
-  assert.ok(markup.includes("corpus_lookup ai-act article 6 → found"));
+  assert.ok(markup.includes("corpus_lookup dora article 17 → found"));
   assert.ok(markup.includes("Claim decisions ("));
   assert.ok(
     markup.includes(
-      "Credit scoring data is special-category (sensitive) data.",
+      "The outage is automatically a personal data breach under the GDPR.",
     ),
   );
   assert.ok(markup.includes(">rejected<"));

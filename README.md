@@ -56,11 +56,11 @@ curl -s http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "mode": "demo",
-    "scenario": {"id": "spanish-fintech-startup-uses-9e165169", "description": "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets."},
-    "question": "What regulations apply to our AI-based credit scoring platform?"
+    "scenario": {"id": "bank-cloud-outage", "description": "A bank relies on an external cloud provider to host critical systems used for online banking. A major technical failure at the cloud provider makes the bank's online banking services unavailable to customers for several hours."},
+    "question": "What regulatory obligations should the bank consider in relation to this incident, its reliance on the cloud provider, and its data protection obligations towards customer data on the disrupted systems?"
   }'
 ```
-Demo mode serves only the canonical Spanish fintech Scenario; any other scenario id in Demo mode gets a Not-available response explaining the keyless demo.
+Demo mode serves only the canonical bank cloud outage Scenario; any other scenario id in Demo mode gets a Not-available response explaining the keyless demo.
 
 4. **Check what is ready:**
 ```bash
@@ -115,7 +115,7 @@ Running the backend outside Docker (backend development, tests) reads the same v
 
 Mode is a per-run choice (ADR-0008): every analysis request carries `mode` explicitly, and a request that omits it gets the server default (`REGULA_MODE`, itself defaulting to Demo). One running backend serves both modes. The web UI exposes the choice as a Demo/Live toggle that defaults to Demo on every page load and never persists.
 
-- **Demo mode** (`mode: "demo"`) — keyless, deterministic, immediate. Serves only the canonical Spanish fintech Scenario (`spanish-fintech-startup-uses-9e165169`) from fixed content; derived scenario ids never trigger it (ADR-0005).
+- **Demo mode** (`mode: "demo"`) — keyless, deterministic, immediate. Serves only the canonical bank cloud outage Scenario (`bank-cloud-outage`) from fixed content; derived scenario ids never trigger it (ADR-0005).
 - **Live mode** (`mode: "live"`) — answers arbitrary scenarios through the real workflow: Planner → Researcher → Verifier → Proposer → Summarizer, retrieving Chunks from the ingested pgvector Corpus through hybrid lexical + vector search and producing evidence-backed Findings with Strength badges, metadata-derived Citations with Provision relevance and Citation strength, and Actions.
 
 **Readiness** is the state that lets Live mode execute: a configured provider key, the embedding model available, and a non-empty ingested Corpus. `GET /readiness` probes each independently on every call and reports them as booleans — an unreachable Ollama or vector store reads `false`, never an error, so the endpoint is safe to poll while the stack comes up.

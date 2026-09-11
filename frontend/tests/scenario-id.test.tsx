@@ -118,15 +118,26 @@ test("every submission carries the selected mode explicitly (issue #48)", () => 
 });
 
 test("the demo payload is the exact canonical scenario with enriched content", () => {
-  const demoDescription =
-    "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.";
+  // The canonical id is the bank cloud outage case's authored Scenario id
+  // (issue #54): an exact-match trigger the description never derives to,
+  // because deriveScenarioId always appends a hash suffix (ADR-0005).
+  assert.equal(
+    deriveScenarioId(demoScenarioInput.scenario.description),
+    "bank-relies-external-cloud-f27c7a6d",
+  );
+  assert.notEqual(
+    deriveScenarioId(demoScenarioInput.scenario.description),
+    demoScenarioInput.scenario.id,
+  );
   assert.deepEqual(demoScenarioInput, {
     scenario: {
-      id: "spanish-fintech-startup-uses-9e165169",
-      title: deriveScenarioTitle(demoDescription),
-      description: demoDescription,
+      id: "bank-cloud-outage",
+      title: "Bank Cloud Outage",
+      description:
+        "A bank relies on an external cloud provider to host critical systems used for online banking. A major technical failure at the cloud provider makes the bank's online banking services unavailable to customers for several hours.",
     },
-    question: "What regulations apply to our AI-based credit scoring platform?",
+    question:
+      "What regulatory obligations should the bank consider in relation to this incident, its reliance on the cloud provider, and its data protection obligations towards customer data on the disrupted systems?",
     mode: "demo",
   });
 });

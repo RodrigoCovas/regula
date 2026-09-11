@@ -13,9 +13,9 @@ test("renders every demo Citation label", () => {
   const markup = renderToStaticMarkup(
     React.createElement(CitationsSection, { citations: demoCitations }),
   );
-  assert.ok(markup.includes("EU AI Act — Article 6(2)"));
-  assert.ok(markup.includes("GDPR — Recital 71"));
-  assert.ok(markup.includes("DORA — Article 2(1)(a), (2)"));
+  assert.ok(markup.includes("DORA — Article 17"));
+  assert.ok(markup.includes("GDPR — Article 32"));
+  assert.ok(markup.includes("DORA — Article 29"));
 });
 
 test("renders the Provision relevance statement on every demo Citation", () => {
@@ -52,7 +52,7 @@ test("renders a Citation without relevance or strength bare", () => {
   const markup = renderToStaticMarkup(
     React.createElement(CitationsSection, { citations: [bareCitation()] }),
   );
-  assert.ok(markup.includes("EU AI Act — Article 6(2)"));
+  assert.ok(markup.includes("DORA — Article 17"));
   assert.ok(!markup.includes(">strong<"), "no badge without a Citation strength");
 });
 

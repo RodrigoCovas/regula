@@ -128,15 +128,19 @@ export function buildScenarioInput(
   };
 }
 
+// The canonical demo Scenario (issue #54): the bank cloud outage case, the
+// best-performing Live eval Scenario. Its id is the backend's one exact-match
+// demo trigger (ADR-0005) — an authored name no description derives to, since
+// deriveScenarioId always appends a hash suffix — so the demo button is the
+// one UI path that sends it, and hand-typed Scenarios never trigger Demo.
 export const demoScenarioInput: ScenarioInput = {
   scenario: {
-    id: "spanish-fintech-startup-uses-9e165169",
-    title: deriveScenarioTitle(
-      "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
-    ),
+    id: "bank-cloud-outage",
+    title: "Bank Cloud Outage",
     description:
-      "A Spanish fintech startup that uses machine learning to assess creditworthiness for consumer loans. The platform automatically approves or denies applications based on applicant data including income, employment history, and spending patterns. The company operates only in Spain and plans to expand to other EU markets.",
+      "A bank relies on an external cloud provider to host critical systems used for online banking. A major technical failure at the cloud provider makes the bank's online banking services unavailable to customers for several hours.",
   },
-  question: "What regulations apply to our AI-based credit scoring platform?",
+  question:
+    "What regulatory obligations should the bank consider in relation to this incident, its reliance on the cloud provider, and its data protection obligations towards customer data on the disrupted systems?",
   mode: "demo",
 };
