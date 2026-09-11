@@ -163,25 +163,43 @@ The Summarizer still rates each cited provision's centrality (ADR-0011) — stro
 
 ### Results
 
-The table below freezes the repository's committed 2026-09-10 artifacts: the ten hand-authored Live cases, model `z-ai/glm-5.3-flash`, the pipeline scored against the same gold answers as two agent-produced baselines (ADR-0017). A baseline answers without the workflow's retrieval-and-verification machinery — one structured completion per case from a locked prompt template, produced outside the system — either from model memory alone (**parametric**) or with the entire Corpus in context (**full-corpus**), then scored by exactly the harness a pipeline run goes through.
+The tables below freeze the repository's committed 2026-09-10 artifacts: the ten hand-authored Live cases, model `z-ai/glm-5.3-flash`, the pipeline scored against the same gold answers as two agent-produced baselines (ADR-0017). A baseline answers without the workflow's retrieval-and-verification machinery — one structured completion per case from a locked prompt template, produced outside the system — either from model memory alone (**parametric**) or with the entire Corpus in context (**full-corpus**), then scored by exactly the harness a pipeline run goes through.
 
-| Case | Pipeline F1 | Parametric F1 | Full-corpus F1 | Pipeline fidelity | Parametric fidelity | Full-corpus fidelity |
-| --- | --- | --- | --- | --- | --- | --- |
-| Online retailer breach | 0.854 | 0.938 | 0.951 | 1.000 | 1.000 | 1.000 |
-| AI recruitment screening | 0.844 | 0.871 | 0.912 | 0.982 | 1.000 | 0.912 |
-| Bank cloud outage | 0.927 | 0.775 | 0.939 | 0.976 | 0.700 | 0.844 |
-| Employee productivity monitoring | 0.823 | 0.850 | 0.819 | 0.960 | 1.000 | 0.500 |
-| Telecom chatbot | 0.657 | 0.898 | 0.827 | 1.000 | 0.583 | 0.923 |
-| Fintech loan recommendations | 0.817 | 0.622 | 0.892 | 1.000 | 1.000 | 0.812 |
-| Insurance health pricing | 0.835 | 0.860 | 0.827 | 0.983 | 0.526 | 0.636 |
-| Ransomware investment firm | 0.839 | 0.711 | 0.982 | 1.000 | 0.750 | 1.000 |
-| GenAI customer service | 0.747 | 0.918 | 0.893 | 0.955 | 0.562 | 0.625 |
-| AI trading cloud attack | 0.851 | 0.939 | 0.891 | 0.979 | 0.842 | 0.844 |
-| **Mean** | **0.819** | **0.838** | **0.893** | **0.984** | **0.796** | **0.810** |
+**Provision coverage** — weighted set precision (P), recall (R), and F1:
 
-Read honestly: the pipeline's coverage F1 trails both baselines today — by 0.019 against the parametric baseline and 0.074 against the full-corpus baseline. What the pipeline clearly leads is summary fidelity: mean 0.984 against 0.796 and 0.810 — the provision-level relevance statements survive the strict judge nearly unscathed where both baselines shed fidelity. And the machinery earns its keep on the hardest engagement case: the bank cloud outage scores 0.927 against the parametric baseline's 0.775. The explicit goal is for the pipeline to improve past the baselines — closing the coverage-F1 gap while holding the fidelity lead — and the [Future work](#future-work) section names the concrete moves.
+| Case | Pipeline P | Pipeline R | Pipeline F1 | Parametric P | Parametric R | Parametric F1 | Full-corpus P | Full-corpus R | Full-corpus F1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Online retailer breach | 0.778 | 0.947 | 0.854 | 1.000 | 0.883 | 0.938 | 1.000 | 0.906 | 0.951 |
+| AI recruitment screening | 0.757 | 0.955 | 0.844 | 0.917 | 0.830 | 0.871 | 0.944 | 0.883 | 0.912 |
+| Bank cloud outage | 0.913 | 0.941 | 0.927 | 0.882 | 0.691 | 0.775 | 0.941 | 0.936 | 0.939 |
+| Employee productivity monitoring | 0.833 | 0.812 | 0.823 | 1.000 | 0.739 | 0.850 | 0.875 | 0.770 | 0.819 |
+| Telecom chatbot | 0.682 | 0.634 | 0.657 | 0.923 | 0.874 | 0.898 | 0.765 | 0.901 | 0.827 |
+| Fintech loan recommendations | 0.833 | 0.802 | 0.817 | 0.933 | 0.466 | 0.622 | 1.000 | 0.806 | 0.892 |
+| Insurance health pricing | 0.769 | 0.914 | 0.835 | 0.864 | 0.857 | 0.860 | 0.846 | 0.810 | 0.827 |
+| Ransomware investment firm | 0.889 | 0.794 | 0.839 | 0.889 | 0.592 | 0.711 | 1.000 | 0.965 | 0.982 |
+| GenAI customer service | 0.629 | 0.920 | 0.747 | 0.941 | 0.896 | 0.918 | 0.923 | 0.864 | 0.893 |
+| AI trading cloud attack | 0.774 | 0.944 | 0.851 | 0.950 | 0.928 | 0.939 | 0.889 | 0.893 | 0.891 |
+| **Mean** | **0.786** | **0.866** | **0.819** | **0.930** | **0.776** | **0.838** | **0.918** | **0.873** | **0.893** |
 
-The numbers come from two committed artifacts: the v13 live report `logs/live-eval-report-2026-09-10-glm53_v13.json` and the baseline comparison `logs/baseline-eval-report-2026-09-10.json`, which joins it with the toolless baseline runs under `logs/baseline-runs-toolless/`. The pipeline's mean precision is 0.786 and mean recall 0.866; per-case precision, recall, and the full produced-versus-expected dump live in the artifacts. A fresh run's numbers are produced by the command under [Reproduce](#reproduce) and recorded in its own report artifact — per-case coverage and summary fidelity plus each component's aggregate mean, the produced-versus-expected dump for the human audit, and the `llm_model` that produced them. This table is the frozen showcase of the latest committed artifacts; a run's own artifact remains the record of what it measured. A run meets the project's "works" bar when coverage mean precision ≥ 0.50, coverage mean F1 ≥ 0.20, and summary fidelity mean ≥ 0.75.
+**Summary fidelity** (strict rubric judge):
+
+| Case | Pipeline | Parametric | Full-corpus |
+| --- | --- | --- | --- |
+| Online retailer breach | 1.000 | 1.000 | 1.000 |
+| AI recruitment screening | 0.982 | 1.000 | 0.912 |
+| Bank cloud outage | 0.976 | 0.700 | 0.844 |
+| Employee productivity monitoring | 0.960 | 1.000 | 0.500 |
+| Telecom chatbot | 1.000 | 0.583 | 0.923 |
+| Fintech loan recommendations | 1.000 | 1.000 | 0.812 |
+| Insurance health pricing | 0.983 | 0.526 | 0.636 |
+| Ransomware investment firm | 1.000 | 0.750 | 1.000 |
+| GenAI customer service | 0.955 | 0.562 | 0.625 |
+| AI trading cloud attack | 0.979 | 0.842 | 0.844 |
+| **Mean** | **0.984** | **0.796** | **0.810** |
+
+Read honestly: the pipeline's coverage F1 trails both baselines today — by 0.019 against the parametric baseline and 0.074 against the full-corpus baseline — and the split shows the gap is precision, not recall: pipeline recall 0.866 leads the parametric baseline's 0.776 and sits 0.007 under the full-corpus baseline's 0.873, while pipeline precision 0.786 trails both (0.930 and 0.918). What the pipeline clearly leads is summary fidelity: mean 0.984 against 0.796 and 0.810 — the provision-level relevance statements survive the strict judge nearly unscathed where both baselines shed fidelity. And the machinery earns its keep on the hardest engagement case: the bank cloud outage scores 0.927 against the parametric baseline's 0.775 — recall 0.941 against the parametric baseline's 0.691. The explicit goal is for the pipeline to improve past the baselines — closing the coverage-F1 gap while holding the fidelity lead — and the [Future work](#future-work) section names the concrete moves.
+
+The numbers come from two committed artifacts: the v13 live report `logs/live-eval-report-2026-09-10-glm53_v13.json` and the baseline comparison `logs/baseline-eval-report-2026-09-10.json`, which joins it with the toolless baseline runs under `logs/baseline-runs-toolless/`. The tables above give every per-case precision, recall, F1, and summary fidelity; the full produced-versus-expected dump lives in the artifacts. A fresh run's numbers are produced by the command under [Reproduce](#reproduce) and recorded in its own report artifact — per-case coverage and summary fidelity plus each component's aggregate mean, the produced-versus-expected dump for the human audit, and the `llm_model` that produced them. These tables are the frozen showcase of the latest committed artifacts; a run's own artifact remains the record of what it measured. A run meets the project's "works" bar when coverage mean precision ≥ 0.50, coverage mean F1 ≥ 0.20, and summary fidelity mean ≥ 0.75.
 
 Reading the numbers:
 
