@@ -4,6 +4,23 @@ Regula answers "what regulations apply to us, and what must we do about it?" for
 
 Under the hood it is an agentic retrieval pipeline (LangGraph) over a small, curated corpus of EU regulations — the AI Act, GDPR, and DORA — running permanently on your own machine: four containers started by one Docker Compose command. Two modes serve every request: a keyless deterministic **Demo** and a **Live** mode that runs the real workflow over the ingested Corpus with your own LLM provider key.
 
+## What it looks like
+
+![The Analyze form with the bank cloud outage Scenario description and Regulatory question filled in, Demo mode selected, and the derived scenario id shown](docs/images/analyze_scenario.png)
+*Describing the bank-cloud-outage Scenario and its Regulatory question in Demo mode — no API key needed.*
+
+![The Answer surface showing 13 Findings, each with a STRONG badge and its supporting provisions' quoted text beneath it](docs/images/answer_findings.png)
+*The Answer: Findings with Strength badges, each backed by its supporting provisions' quoted text.*
+
+![The Citations list showing 29 cited provisions, each with a STRONG, MODERATE, or WEAK badge and its relevance summary](docs/images/answer_citations.png)
+*Citations: every cited provision with its answer-wide relevance and Citation strength badge.*
+
+![The Actions list — six numbered items, each naming something a qualified professional must determine, assess, or verify](docs/images/answer_actions.png)
+*Actions: what only a qualified legal professional can settle before acting on the Answer.*
+
+![The Execution trace showing the planner to researcher to verifier to proposer to summarizer flow, eight unsupported claims discarded, and the detailed per-step trace with retrieved passages](docs/images/execution_trace.png)
+*The Execution trace: planner → researcher → verifier → proposer → summarizer, with unsupported claims discarded and every retrieved passage visible.*
+
 ## Architecture
 
 ```mermaid
